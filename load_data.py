@@ -8,6 +8,7 @@ from gradio.themes.base import Base
 import os
 from dotenv import load_dotenv
 
+
 connectionString = os.getenv('MONGO_CONNECTION_STRING')
 client = MongoClient(connectionString)
 dbName = "study_buddy_demo"
