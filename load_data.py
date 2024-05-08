@@ -3,8 +3,6 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import MongoDBAtlasVectorSearch
 from langchain_community.document_loaders import TextLoader
 from langchain_community.llms import OpenAI
-import gradio as gr 
-from gradio.themes.base import Base 
 import os
 from dotenv import load_dotenv
 
