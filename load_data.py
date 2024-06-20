@@ -11,6 +11,11 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 import streamlit as st
 from streamlit_extras.add_vertical_space import add_vertical_space
 from langchain_community.document_loaders import PyPDFLoader
+import uuid
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.prompts import PromptTemplate
 
 load_dotenv()
 
@@ -22,24 +27,64 @@ collectionName = "study_materials2"
 collection = client[dbName][collectionName]
 openai_api_key = os.getenv('OPENAI_API_KEY')
 
-#directory loader used here but add code for user upload functionality to get conntext files
-#loader = TextLoader('./sample/study_materials.txt')
-#data = loader.load()
+# Initialize LLM for summarization
+llm = ChatOpenAI(model="gpt-3.5-turbo-0125", temperature=0)
+
+def get_user_id():
+    """Authenticate user or pull authentication info from another script
+    and get user id here, return it and pass it into the process pdf
+    function to store it as metadata"""
+
+    user_id = "rileydrake"
+
+    return user_id
+
+def get_class():
+
+    class_id = "class1234"
+
+    return class_id
+
+def generate_doc_id():
+    """Generate a unique document ID."""
+    return str(uuid.uuid4())
+
+def summarize_document(text_input):
+
+    prompt = PromptTemplate.from_template( "Summarize the following document, including all important terms and definitions. The summary should be concise, yet comprehensive, and should be no more than 1,000 words:\n\n{text}")
+    #response = llm.invoke(prompt)
+    parser = StrOutputParser()
+    chain = prompt | llm | parser
+    response = chain.invoke({"text": text_input})
+
+    return response
 
 
-def process_pdf(pdf_path):
+
+
+def process_pdf(pdf_path, user_id, class_id):
     """Processes a PDF file to extract text, split into chunks, and generate embeddings."""
     pdf_reader = PdfReader(pdf_path)
     pdf_info = pdf_reader.metadata
     file_name = pdf_path.name
     title = pdf_info.get('/Title', 'Unknown')
     author = pdf_info.get('/Author', 'Unknown')
-    
+    doc_id = generate_doc_id()
+
+    #modify so that semi structured pdfs can be processed as well as just text
+    #also add user id to metadata (this will be passed into func with pdf_path)
+    #also look into more dynamic chunking method so sections and tables aren't split up
+    full_text = ""
     chunks = []
+
     for page_num, page in enumerate(pdf_reader.pages, start=1):
+
         page_text = page.extract_text()
+
         if page_text:
+
             page_text = page_text.replace('\n', ' ')
+            full_text += page_text + " "  # Collect full text for summarization
             text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200, length_function=len)
             page_chunks = text_splitter.split_text(text=page_text)
             for chunk in page_chunks:
@@ -49,47 +94,68 @@ def process_pdf(pdf_path):
                         "file_name": file_name,
                         "title": title,
                         "author": author,
-                        "page_number": page_num
+                        "page_number": page_num,
+                        "user_id": user_id,
+                        "class_id": class_id,
+                        "doc_id": doc_id,
+                        "is_summary": False
                     }
                 })
+
+    summary_text = summarize_document(full_text)
+    print(summarize_document)
+    summary_chunks = text_splitter.split_text(text=summary_text)
+
+    # Add summary chunks to the list
+    for chunk_num, chunk in enumerate(summary_chunks, start=1):
+        chunks.append({
+            "text": chunk,
+            "metadata": {
+                "file_name": file_name,
+                "title": title,
+                "author": author,
+                "page_number": f"summary-{chunk_num}",
+                "user_id": user_id,
+                "class_id": class_id,
+                "doc_id": doc_id,
+                "is_summary": True
+            }
+        })
+            
     return chunks
+
 
 def store_embeddings(chunks, collection):
     """Generates embeddings for the chunks and stores them in MongoDB."""
     embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
     texts = [chunk['text'] for chunk in chunks]
     metadatas = [chunk['metadata'] for chunk in chunks]
-    #add a dynamic dictionary of metadata to the from_texts call to add other info on embedding like user id
     return MongoDBAtlasVectorSearch.from_texts(texts, embeddings, collection=collection, metadatas=metadatas)
 
 def main():
+
+    test_text = "there is no text to summarize now so respond with, ready for summary!"
+    st.write(summarize_document(test_text))
+
+
+    """do the pdf upload logic in a separate ui file in that
+      file call the necessary funcs from this script as done below"""
+    user_id = get_user_id()
+    class_id = get_class()
+
     st.header("Chat with Tutor.")
-    #query = st.text_input("Message your tutor here.")  # User input for query
+
     pdf = st.file_uploader("Upload your class materials.", type='pdf')  # File uploader for PDFs
 
 
     if pdf:
 
-        chunks = process_pdf(pdf)
-
-        chunks = process_pdf(pdf)
+        chunks = process_pdf(pdf, user_id, class_id)
         st.write(chunks)
 
         store_embeddings(chunks, collection) 
 
-        
-
-        
-
-
-
-'''
-openai_api_key = os.getenv('OPENAI_API_KEY')
-
-embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
-
-vectorStore = MongoDBAtlasVectorSearch.from_documents(data, embeddings, collection=collection)
-'''
+       
 
 if __name__ == '__main__':
     main()
