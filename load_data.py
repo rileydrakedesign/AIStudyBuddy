@@ -39,9 +39,9 @@ def get_user_id():
 
     return user_id
 
-def get_class():
+def get_class(class_name):
 
-    class_id = "class1234"
+    class_id = class_name
 
     return class_id
 
@@ -51,7 +51,17 @@ def generate_doc_id():
 
 def summarize_document(text_input):
 
-    prompt = PromptTemplate.from_template( "Summarize the following document, including all important terms and definitions. The summary should be concise, yet comprehensive, and should be no more than 1,000 words:\n\n{text}")
+    prompt_text = """Given the document provided in the context variable,
+    create a compressed version that maintains all of the important context, terms, definitions,
+    and necessary information encapsulated by the original document. The response should be a
+    comprehensive summary that outlines the important information in the document in detail.
+    Ensure that the summary includes all terms and definitions in or close to their entirety,
+    preserving the original meanings and context. Do not summarize what the document is about;
+    instead, summarize the actual contents, ensuring all critical information is included. The 
+    output should be no more than 1500 words and should only contain the summary with no other sentences.
+    context: {text} | response:""" 
+
+    prompt = PromptTemplate.from_template(prompt_text)
     #response = llm.invoke(prompt)
     parser = StrOutputParser()
     chain = prompt | llm | parser
@@ -141,14 +151,17 @@ def main():
     """do the pdf upload logic in a separate ui file in that
       file call the necessary funcs from this script as done below"""
     user_id = get_user_id()
-    class_id = get_class()
+    
 
     st.header("Chat with Tutor.")
 
+    class_name = st.text_input("Class name:") #class name var 
+    class_id = get_class(class_name)
+
     pdf = st.file_uploader("Upload your class materials.", type='pdf')  # File uploader for PDFs
+    
 
-
-    if pdf:
+    if pdf and class_name != "":
 
         chunks = process_pdf(pdf, user_id, class_id)
         st.write(chunks)
