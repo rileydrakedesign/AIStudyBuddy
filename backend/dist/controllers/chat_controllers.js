@@ -28,6 +28,7 @@ export const generateChatCompletion = async (req, res, next) => {
         console.log(`Message: ${message}`);
         console.log(`Chats: ${JSON.stringify(chats)}`);
         */
+        console.log(`User ID: ${user_id}`);
         const options = {
             env: {
                 ...process.env,

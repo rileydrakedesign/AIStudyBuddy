@@ -34,7 +34,7 @@ llm = ChatOpenAI(model="gpt-3.5-turbo-0125", temperature=0.5)
 
 # Global variables for current user and class context
 #current_classes = {"PSTAT 8"}
-current_user_id = "rileydrake"
+#current_user_id = "rileydrake"
 
 
 def create_embedding(text):
@@ -184,9 +184,11 @@ def main():
     prompts = load_prompts('/Users/rileydrake/Desktop/AIStudyBuddy/backend/prompts.json')
 
     # Get user_id, message, and chat history from command-line arguments
-    user_id_ = sys.argv[1]
+    user_id = sys.argv[1]
     user_query = sys.argv[2]
     chat_history = json.loads(sys.argv[3])
+
+    #print(user_id)
 
     # Filter chat_history to include only role and content (not citation)
     chat_history_cleaned = [{"role": chat["role"], "content": chat["content"]} for chat in chat_history]
@@ -208,7 +210,7 @@ def main():
 
     # Create embeddings for the query
     query_vector = create_embedding(semantic_query)
-    filters = {"user_id": {"$eq": current_user_id}}
+    filters = {"user_id": {"$eq": "{user_id}"}}
         
     # Perform semantic search
     search_results = perform_semantic_search(query_vector, filters)

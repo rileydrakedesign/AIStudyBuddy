@@ -1,4 +1,4 @@
-import { body, validationResult } from "express-validator";
+import { body, param, validationResult } from "express-validator";
 export const validate = (validations) => {
     return async (req, res, next) => {
         for (let validation of validations) {
@@ -28,5 +28,12 @@ export const signupValidator = [
 ];
 export const chatCompletionValidator = [
     body("message").notEmpty().withMessage("Message  is required"),
+];
+export const documentUploadValidator = [
+    body("className").optional().isString().withMessage("Class Name must be a string"),
+    // Add other validations if needed
+];
+export const objectIdValidator = [
+    param('id').isMongoId().withMessage('Invalid document ID'),
 ];
 //# sourceMappingURL=validators.js.map

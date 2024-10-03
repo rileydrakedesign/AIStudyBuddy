@@ -1,5 +1,5 @@
 import { NextFunction, Request, Response } from "express";
-import { body, ValidationChain, validationResult } from "express-validator";
+import { body, param, ValidationChain, validationResult } from "express-validator";
 
 export const validate = (validations: ValidationChain[]) => {
     return async (req: Request, res: Response, next: NextFunction) => {
@@ -34,3 +34,14 @@ export const signupValidator = [
 export const chatCompletionValidator = [
   body("message").notEmpty().withMessage("Message  is required"),
 ];
+
+
+export const documentUploadValidator = [
+  body("className").optional().isString().withMessage("Class Name must be a string"),
+  // Add other validations if needed
+];
+
+export const objectIdValidator = [
+  param('id').isMongoId().withMessage('Invalid document ID'),
+];
+

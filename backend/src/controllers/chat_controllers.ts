@@ -39,6 +39,7 @@ export const generateChatCompletion = async (
         console.log(`Message: ${message}`);
         console.log(`Chats: ${JSON.stringify(chats)}`);
         */
+        console.log(`User ID: ${user_id}`);
         
 
         const options = {

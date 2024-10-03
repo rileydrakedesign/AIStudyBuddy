@@ -1,5 +1,6 @@
 import os
 import uuid
+import argparse
 from pymongo import MongoClient
 from dotenv import load_dotenv
 from PyPDF2 import PdfReader
@@ -16,6 +17,10 @@ from unstructured.partition.auto import partition
 from langchain_community.document_loaders import UnstructuredFileLoader
 from pydantic import BaseModel
 from langchain_experimental.text_splitter import SemanticChunker
+import boto3
+import sys
+from bson import ObjectId
+
 
 
 # Load environment variables
@@ -28,23 +33,24 @@ db_name = "study_buddy_demo"
 collection_name = "study_materials2"
 collection = client[db_name][collection_name]
 
+# Delete all documents in the collection
+#collection.delete_many({})
+
+#initialize collection that file meta is stored in
+main_file_collection_name = "documents"
+main_file_db_name = "test"
+main_collection = client[main_file_db_name][main_file_collection_name]
+
+# Initialize S3 client
+s3_client = boto3.client('s3',
+    aws_access_key_id=os.getenv('AWS_ACCESS_KEY'),
+    aws_secret_access_key=os.getenv('AWS_SECRET'),
+    region_name=os.getenv('AWS_REGION'))
+
 # Initialize LLM for summarization
 openai_api_key = os.getenv('OPENAI_API_KEY')
 llm = ChatOpenAI(model="gpt-3.5-turbo-0125", temperature=0)
 
-def get_user_id():
-    """Authenticate user or pull authentication info from another script and get user ID"""
-    user_id = "rileydrake"
-    return user_id
-
-def get_class(class_name):
-    """Return class ID from class name"""
-    class_id = class_name
-    return class_id
-
-def generate_doc_id():
-    """Generate a unique document ID"""
-    return str(uuid.uuid4())
 
 def summarize_document(text_input):
     """Generate a summary for the given text input"""
@@ -61,14 +67,13 @@ def summarize_document(text_input):
     response = chain.invoke({"text": text_input})
     return response
 
-def process_pdf(pdf_path, user_id, class_id):
+def process_pdf(pdf_stream, user_id, class_id, doc_id, file_name):
     """Process a PDF file to extract text, split into chunks, and generate embeddings"""
-    pdf_reader = PdfReader(pdf_path)
+    pdf_reader = PdfReader(pdf_stream)
     pdf_info = pdf_reader.metadata
-    file_name = pdf_path.name
     title = pdf_info.get('/Title', 'Unknown')
     author = pdf_info.get('/Author', 'Unknown')
-    doc_id = generate_doc_id()
+    doc_id = doc_id
 
     full_text = ""
     chunks = []
@@ -127,22 +132,59 @@ def store_embeddings(chunks, collection):
     return MongoDBAtlasVectorSearch.from_texts(texts, embeddings, collection=collection, metadatas=metadatas)
 
 def main():
-    """Streamlit UI for uploading PDFs and processing them"""
+    
+    """Process command-line arguments and process the PDF"""
 
-    user_id = get_user_id()
+    parser = argparse.ArgumentParser(description='Process a PDF file and store embeddings.')
+    parser.add_argument('--user_id', required=True, help='User ID')
+    parser.add_argument('--class_name', required=True, help='Class Name')
+    parser.add_argument('--s3_key', required=True, help='S3 Key of the PDF file')
+    parser.add_argument('--doc_id', required=True, help='MongoDB Document ID')
+    args = parser.parse_args()
 
-    st.header("Chat with Tutor.")
-    class_name = st.text_input("Class name:")  # Class name input
-    class_id = get_class(class_name)
-    pdf = st.file_uploader("Upload your class materials.", type='pdf')  # File uploader for PDFs
+    user_id = args.user_id
+    class_name = args.class_name  # Use class_name as class_id or implement a mapping function
+    s3_key = args.s3_key
+    doc_id = args.doc_id
 
-    if pdf and class_name:
-        chunks = process_pdf(pdf, user_id, class_id)
-        st.write(chunks)
-        store_embeddings(chunks, collection)
+     # Fetch the PDF file from S3
+    try:
+        print(f"Attempting to download file from S3 with key: {s3_key}")
+        response = s3_client.get_object(Bucket=os.getenv('AWS_S3_BUCKET_NAME'), Key=s3_key)
+
+        # Print response metadata to verify file retrieval
+        print(f"S3 Object Metadata: {response.get('Metadata', {})}")
+        print(f"S3 Object Content Length: {response['ContentLength']} bytes")
+    
+        if response['ContentLength'] == 0:
+            raise ValueError(f"The file {s3_key} in S3 is empty.")
+
+        pdf_stream = BytesIO(response['Body'].read())
+        pdf_stream.seek(0)  # Reset stream position to the beginning
+
+        print(f'Downloaded {s3_key} from S3 successfully.')
+    except Exception as e:
+        print(f'Error downloading {s3_key} from S3: {e}', file=sys.stderr)
+        sys.exit(1)
+
+    # Extract file name from s3_key
+    file_name = os.path.basename(s3_key)
+
+    # Retrieve the corresponding Document from MongoDB
+    document = main_collection.find_one({'_id': ObjectId(doc_id)})
+    if not document:
+        print(f'No document found in MongoDB with specified ID', file=sys.stderr)
+        sys.exit(1)
+
+     # Process the PDF file
+    chunks = process_pdf(pdf_stream, user_id, class_name, doc_id, file_name)
+    # Store embeddings
+    store_embeddings(chunks, collection)
+    print(f'Processed and stored embeddings for {s3_key} successfully.')
 
     # Close MongoDB connection after documents are processed
     client.close()
+
 
 if __name__ == '__main__':
     main()
