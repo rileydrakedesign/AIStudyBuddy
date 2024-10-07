@@ -5,6 +5,7 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Chat from "./pages/Chat";
 import NotFound from "./pages/NotFound";
+import UploadDocument from "./pages/Upload";
 import { useAuth } from "./context/authContext";
 //import Footer from "./components/footer/Footer";
 function App() {
@@ -18,7 +19,10 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         {auth?.isLoggedIn && auth.user && (
+          <>
           <Route path="/chat" element={<Chat />} />
+          <Route path="/upload" element={<UploadDocument />} /> {/* New Route */}
+        </>
         )}
         <Route path="*" element={<NotFound />} />
       </Routes>

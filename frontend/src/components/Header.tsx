@@ -25,6 +25,12 @@ const Header = () => {
               textColor="black"
             />
             <NavigationLink
+                bg="#00fffc"
+                to="/upload"
+                text="Upload Document"
+                textColor="black"
+              />
+            <NavigationLink
               bg="#51538f"
               textColor="white"
               to="/"

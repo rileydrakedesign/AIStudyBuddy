@@ -70,3 +70,12 @@ export const logoutUser = async () => {
   const data = await res.data;
   return data;
 };
+
+export const uploadDocument = async (formData: FormData) => {
+  const response = await axios.post("/documents/upload", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  });
+  return response.data;
+};
