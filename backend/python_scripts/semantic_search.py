@@ -32,7 +32,7 @@ collection = client[db_name][collection_name]
 embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
 llm = ChatOpenAI(model="gpt-3.5-turbo-0125", temperature=0.5)
 
-# Global variables for current user and class context
+#Global variables for current user and class context
 #current_classes = {"PSTAT 8"}
 #current_user_id = "rileydrake"
 
@@ -207,20 +207,30 @@ def main():
     semantic_query = construct_chain(rephrase_prompt, user_query, chat_history_cleaned)
 
     route = semantic_router(semantic_query)
+    print(f"Route: {route}", file=sys.stderr)
+    
 
     # Create embeddings for the query
     query_vector = create_embedding(semantic_query)
-    filters = {"user_id": {"$eq": "{user_id}"}}
+    filters = {"user_id": {"$eq": user_id}}
+    #print(json.dumps({"filters": filters}))
+
+    print(f"filter: {filters}", file=sys.stderr)
         
     # Perform semantic search
     search_results = perform_semantic_search(query_vector, filters)
     similarity_results = [doc for doc in search_results]
     filtered_results = [doc for doc in similarity_results if doc['score'] > 0.50]
+    
+    print(f"results: {search_results}", file=sys.stderr)
+    print(f"processed results: {similarity_results}", file=sys.stderr)
+    #json.dumps({"results": similarity_results})
 
     # Format the prompt and generate response
     selected_prompt = prompts[route]
     context = " ".join([doc['text'] for doc in filtered_results])
     formatted_prompt = format_prompt(selected_prompt, context=context)
+    #json.dumps({"prompt": formatted_prompt})
 
     prompt_template = ChatPromptTemplate.from_messages([
         ("system", formatted_prompt),
@@ -234,10 +244,13 @@ def main():
     response = construct_chain(prompt_template, user_query, chat_history_cleaned)
 
     # Print the response as JSON to be captured by the Node.js script
-    print(json.dumps({"message": response, "citation": citation, "chats": chat_history}))
+    print(json.dumps({"message": response, "citation": citation, "chats": chat_history,}))
 
 if __name__ == "__main__":
-    main()
-
+    try:
+        main()
+    except Exception as e:
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 

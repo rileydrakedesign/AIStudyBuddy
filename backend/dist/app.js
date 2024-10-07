@@ -15,6 +15,4 @@ app.use(cookieParser(process.env.COOKIE_SECRET));
 app.use(morgan('dev'));
 app.use("/api/v1", appRouter);
 export default app;
-//connection and listeners
-//app.listen(3000, () => console.log("server open"));
 //# sourceMappingURL=app.js.map

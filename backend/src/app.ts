@@ -22,5 +22,3 @@ app.use("/api/v1", appRouter);
 
 export default app;
 
-//connection and listeners
-//app.listen(3000, () => console.log("server open"));

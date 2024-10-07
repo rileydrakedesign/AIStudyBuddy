@@ -56,6 +56,10 @@ export const generateChatCompletion = async (
                 return res.status(500).json({ message: "Something went wrong" });
             }
 
+            if (stderr) {
+              console.error(`stderr: ${stderr}`);  // Log stderr from Python script
+            }
+
 
             //remove extra chars
             const cleanedOutput = stdout.trim().replace(/^\(|\)$/g, '');
@@ -68,6 +72,7 @@ export const generateChatCompletion = async (
 
             //parse stdout to get ai response
             const resultMessage = JSON.parse(stdout.trim());
+            //const resultMessage = stdout.trim();
 
             const aiResponse = resultMessage.message;
             const citation = resultMessage.citation;
