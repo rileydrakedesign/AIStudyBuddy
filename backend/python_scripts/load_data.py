@@ -88,8 +88,9 @@ def process_markdown(pdf_stream, user_id, class_id, doc_id, file_name):
     if not documents:
         # Fallback splitter
         splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
-        documents = splitter.create_documents([md_text])
+        documents = splitter.create_documents(md_text)
 
+    semantic_splitter = SemanticChunker(OpenAIEmbeddings(), breakpoint_threshold_type="standard_deviation")
 
 
     chunks = []
@@ -107,10 +108,24 @@ def process_markdown(pdf_stream, user_id, class_id, doc_id, file_name):
             "is_summary": False,
         }
 
-        chunks.append({
-            "text": chunk_text,
-            "metadata": chunk_metadata
-        })
+        # Check if chunk_text exceeds the recommended size
+        if len(chunk_text) > 1000:
+            # Further split using SemanticChunker
+            sub_chunks = semantic_splitter.split_text(chunk_text)
+            for sub_chunk in sub_chunks:
+                # Create a copy of the metadata for each sub-chunk
+                sub_chunk_metadata = chunk_metadata.copy()
+
+                chunks.append({
+                    "text": sub_chunk,
+                    "metadata": sub_chunk_metadata
+                })
+        else:
+            # Use the chunk as is
+            chunks.append({
+                "text": chunk_text,
+                "metadata": chunk_metadata
+            })
 
 
     return chunks
