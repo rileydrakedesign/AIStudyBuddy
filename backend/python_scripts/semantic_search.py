@@ -3,7 +3,8 @@ import json
 import sys
 from pymongo import MongoClient
 from dotenv import load_dotenv
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_openai import ChatOpenAI
+from langchain_openai import OpenAIEmbeddings
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from pprint import pprint
@@ -220,7 +221,7 @@ def main():
     # Perform semantic search
     search_results = perform_semantic_search(query_vector, filters)
     similarity_results = [doc for doc in search_results]
-    filtered_results = [doc for doc in similarity_results if doc['score'] > 0.50]
+    filtered_results = [doc for doc in similarity_results if doc['score'] > 0.10]
     
     print(f"results: {search_results}", file=sys.stderr)
     print(f"processed results: {similarity_results}", file=sys.stderr)

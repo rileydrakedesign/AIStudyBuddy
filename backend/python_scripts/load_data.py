@@ -5,21 +5,19 @@ from pymongo import MongoClient
 from dotenv import load_dotenv
 from PyPDF2 import PdfReader
 from io import BytesIO
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
-from langchain_community.vectorstores import MongoDBAtlasVectorSearch
+from langchain_openai import ChatOpenAI
+from langchain_mongodb import MongoDBAtlasVectorSearch
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import PromptTemplate
-import streamlit as st
-from streamlit_extras.add_vertical_space import add_vertical_space
-from unstructured.partition.auto import partition
-from langchain_community.document_loaders import UnstructuredFileLoader
-from pydantic import BaseModel
-from langchain_experimental.text_splitter import SemanticChunker
+from langchain.prompts import PromptTemplate
 import boto3
 import sys
 from bson import ObjectId
+import pymupdf4llm
+from langchain_text_splitters import MarkdownHeaderTextSplitter
+from langchain_experimental.text_splitter import SemanticChunker
+import pymupdf
 
 
 
@@ -67,7 +65,57 @@ def summarize_document(text_input):
     response = chain.invoke({"text": text_input})
     return response
 
-def process_pdf(pdf_stream, user_id, class_id, doc_id, file_name):
+def process_markdown(pdf_stream, user_id, class_id, doc_id, file_name):
+    doc = pymupdf.open(stream=pdf_stream, filetype="pdf")
+
+    # Convert to Markdown
+    md_text = pymupdf4llm.to_markdown(doc)
+
+    headers_to_split_on = [
+    ("#", "Level 1 Heading"),
+    ("##", "Level 2 Heading"),
+    ("###", "Level 3 Heading"),
+    ("####", "Level 4 Heading"),
+    ("#####", "Level 5 Heading"),
+    ("######", "Level 6 Heading"),
+    ]
+
+    # Split Markdown by headings
+    splitter = MarkdownHeaderTextSplitter(headers_to_split_on)
+    documents = splitter.split_text(md_text)
+    
+
+    if not documents:
+        # Fallback splitter
+        splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
+        documents = splitter.create_documents([md_text])
+
+
+
+    chunks = []
+    for doc_chunk in documents:
+        chunk_text = doc_chunk.page_content
+        
+
+        chunk_metadata = {
+            "file_name": file_name,
+            "title": doc.metadata.get('title', 'Unknown'),
+            "author": doc.metadata.get('author', 'Unknown'),
+            "user_id": user_id,
+            "class_id": class_id,
+            "doc_id": doc_id,
+            "is_summary": False,
+        }
+
+        chunks.append({
+            "text": chunk_text,
+            "metadata": chunk_metadata
+        })
+
+
+    return chunks
+
+def process_pdf_semantic_chunker(pdf_stream, user_id, class_id, doc_id, file_name):
     """Process a PDF file to extract text, split into chunks, and generate embeddings"""
     pdf_reader = PdfReader(pdf_stream)
     pdf_info = pdf_reader.metadata
@@ -177,7 +225,7 @@ def main():
         sys.exit(1)
 
      # Process the PDF file
-    chunks = process_pdf(pdf_stream, user_id, class_name, doc_id, file_name)
+    chunks = process_markdown(pdf_stream, user_id, class_name, doc_id, file_name)
     # Store embeddings
     store_embeddings(chunks, collection)
     print(f'Processed and stored embeddings for {s3_key} successfully.')
