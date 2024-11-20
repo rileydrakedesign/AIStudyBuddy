@@ -1,5 +1,7 @@
 import mongoose from "mongoose";
 import { randomUUID } from "crypto";
+import { citationSchema } from "./chatSession.js";
+
 
 const chatSchema = new mongoose.Schema({
     id: {
@@ -15,7 +17,7 @@ const chatSchema = new mongoose.Schema({
       required: true,
     },
     citation: {
-      type: [String],
+      type: [citationSchema],
       required: false,
     },
   });

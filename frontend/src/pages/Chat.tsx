@@ -14,7 +14,7 @@ import toast from "react-hot-toast";
 type Message = {
   role: "user" | "assistant";
   content: string;
-  citation?: string;
+  citation?: { href: string | null; text: string }[];
 };
 const Chat = () => {
   const navigate = useNavigate();
@@ -167,7 +167,7 @@ const Chat = () => {
               key={index}
               content={chat.content}
               role={chat.role}
-              citation={chat.citation ? chat.citation[0] : ""}
+              citation={chat.citation}
             />
           ))}
         </Box>

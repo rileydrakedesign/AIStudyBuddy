@@ -1,5 +1,5 @@
 import { NextFunction, Request, Response } from "express";
-import { body, param, ValidationChain, validationResult } from "express-validator";
+import { body, param, query, ValidationChain, validationResult } from "express-validator";
 
 export const validate = (validations: ValidationChain[]) => {
     return async (req: Request, res: Response, next: NextFunction) => {
@@ -44,4 +44,14 @@ export const documentUploadValidator = [
 export const objectIdValidator = [
   param('id').isMongoId().withMessage('Invalid document ID'),
 ];
+
+export const downloadValidator = [
+  query("s3_key")
+    .notEmpty()
+    .withMessage("s3_key query parameter is required")
+    .isString()
+    .withMessage("s3_key must be a string"),
+  // Add further validations if needed
+];
+
 

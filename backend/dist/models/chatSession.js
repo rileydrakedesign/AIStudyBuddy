@@ -1,5 +1,16 @@
 import mongoose from "mongoose";
 import { randomUUID } from "crypto";
+// Define the Citation schema
+export const citationSchema = new mongoose.Schema({
+    href: {
+        type: String,
+        required: false, // href can be null
+    },
+    text: {
+        type: String,
+        required: false,
+    },
+});
 const messageSchema = new mongoose.Schema({
     id: {
         type: String,
@@ -15,7 +26,7 @@ const messageSchema = new mongoose.Schema({
         required: true,
     },
     citation: {
-        type: [String],
+        type: [citationSchema],
         required: false,
     },
 });

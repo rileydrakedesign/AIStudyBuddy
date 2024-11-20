@@ -16,6 +16,7 @@
     "@aws-sdk/client-s3": "^3.654.0",
     "@aws-sdk/credential-provider-node": "^3.654.0",
     "@aws-sdk/s3-request-presigner": "^3.654.0",
+    "@aws-sdk/util-stream-node": "^3.370.0",
     "bcrypt": "^5.1.0",
     "concurrently": "^8.2.0",
     "cookie-parser": "^1.4.6",

@@ -9,6 +9,7 @@ function extractCodeFromString(message: string) {
     const blocks = message.split("```");
     return blocks;
   }
+  return [message]; // Ensure we always return an array
 }
 
 function isCodeBlock(str: string) {
@@ -27,15 +28,13 @@ function isCodeBlock(str: string) {
   return false;
 }
 
-const ChatItem = ({
-  content,
-  role,
-  citation,
-}: {
+type ChatItemProps = {
   content: string;
   role: "user" | "assistant";
-  citation?: string;
-}) => {
+  citation?: { href: string | null; text: string }[];
+};
+
+const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation }) => {
   const messageBlocks = extractCodeFromString(content);
   const auth = useAuth();
   return role === "assistant" ? (
@@ -51,23 +50,45 @@ const ChatItem = ({
     >
       <Avatar sx={{ ml: "0" }}></Avatar>
       <Box>
-        {!messageBlocks && (
-          <Typography sx={{ fontSize: "20px" }}>{content}</Typography>
-        )}
         {messageBlocks &&
-          messageBlocks.length &&
-          messageBlocks.map((block) =>
+          messageBlocks.map((block, idx) =>
             isCodeBlock(block) ? (
-              <SyntaxHighlighter style={coldarkDark} language="javascript">
+              <SyntaxHighlighter
+                key={idx}
+                style={coldarkDark}
+                language="javascript"
+              >
                 {block}
               </SyntaxHighlighter>
             ) : (
-              <Typography sx={{ fontSize: "20px" }}>{block}</Typography>
+              <Typography key={idx} sx={{ fontSize: "20px" }}>
+                {block}
+              </Typography>
             )
           )}
-        {citation && (
-          <Typography sx={{ fontSize: "16px", fontStyle: "italic" }}>
-            {citation}
+        {citation && citation.length > 0 && (
+          <Typography sx={{ fontSize: "16px", fontStyle: "italic", mt: 1 }}>
+            {citation.map((cit, idx) =>
+              cit.href ? (
+                <a
+                  key={idx}
+                  href={cit.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    color: "#1976d2",
+                    textDecoration: "underline",
+                    marginRight: "8px",
+                  }}
+                >
+                  {cit.text}
+                </a>
+              ) : (
+                <span key={idx} style={{ marginRight: "8px" }}>
+                  {cit.text}
+                </span>
+              )
+            )}
           </Typography>
         )}
       </Box>
@@ -87,18 +108,20 @@ const ChatItem = ({
         {auth?.user?.name.split(" ")[1][0]}
       </Avatar>
       <Box>
-        {!messageBlocks && (
-          <Typography sx={{ fontSize: "20px" }}>{content}</Typography>
-        )}
         {messageBlocks &&
-          messageBlocks.length &&
-          messageBlocks.map((block) =>
+          messageBlocks.map((block, idx) =>
             isCodeBlock(block) ? (
-              <SyntaxHighlighter style={coldarkDark} language="javascript">
+              <SyntaxHighlighter
+                key={idx}
+                style={coldarkDark}
+                language="javascript"
+              >
                 {block}
               </SyntaxHighlighter>
             ) : (
-              <Typography sx={{ fontSize: "20px" }}>{block}</Typography>
+              <Typography key={idx} sx={{ fontSize: "20px" }}>
+                {block}
+              </Typography>
             )
           )}
       </Box>

@@ -1,4 +1,4 @@
-import { body, param, validationResult } from "express-validator";
+import { body, param, query, validationResult } from "express-validator";
 export const validate = (validations) => {
     return async (req, res, next) => {
         for (let validation of validations) {
@@ -35,5 +35,13 @@ export const documentUploadValidator = [
 ];
 export const objectIdValidator = [
     param('id').isMongoId().withMessage('Invalid document ID'),
+];
+export const downloadValidator = [
+    query("s3_key")
+        .notEmpty()
+        .withMessage("s3_key query parameter is required")
+        .isString()
+        .withMessage("s3_key must be a string"),
+    // Add further validations if needed
 ];
 //# sourceMappingURL=validators.js.map
