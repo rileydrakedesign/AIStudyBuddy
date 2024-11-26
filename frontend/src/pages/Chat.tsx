@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Box, Avatar, Typography, Button, IconButton } from "@mui/material";
+import { Box, Avatar, Typography, Button, IconButton, Select,
+  MenuItem, SelectChangeEvent } from "@mui/material";
 import red from "@mui/material/colors/red";
 import { useAuth } from "../context/authContext";
 import ChatItem from "../components/chat/chatItem";
@@ -9,6 +10,7 @@ import {
   deleteUserChats,
   getUserChats,
   sendChatRequest,
+  getUserClasses,
 } from "../helpers/api-communicators";
 import toast from "react-hot-toast";
 type Message = {
@@ -16,11 +18,80 @@ type Message = {
   content: string;
   citation?: { href: string | null; text: string }[];
 };
+
+type ClassOption = {
+  name: string;
+  _id: string;
+};
+
+
 const Chat = () => {
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const auth = useAuth();
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
+  const [classes, setClasses] = useState<ClassOption[]>([]);
+  const [selectedClass, setSelectedClass] = useState<string | null>(null);
+
+  // Fetch user's classes
+  useEffect(() => {
+    const fetchClasses = async () => {
+      try {
+        const { classes } = await getUserClasses();
+        setClasses(classes);
+
+        const storedClass = localStorage.getItem("selectedClass");
+        if (storedClass && classes.some((cls: ClassOption) => cls.name === storedClass)) {
+          setSelectedClass(storedClass); // Restore selected class
+        } else if (classes.length > 0) {
+          setSelectedClass(classes[0].name); // Default to first class if no stored class
+        }
+      } catch (error) {
+        console.error("Error fetching classes", error);
+      }
+    };
+
+    if (auth?.isLoggedIn) {
+      fetchClasses();
+    }
+  }, [auth]);
+
+  // Save selected class to localStorage whenever it changes
+  useEffect(() => {
+    if (selectedClass) {
+      localStorage.setItem("selectedClass", selectedClass);
+    }
+  }, [selectedClass]);
+
+  // Fetch chat messages on load
+  useLayoutEffect(() => {
+    if (auth?.isLoggedIn && auth.user) {
+      toast.loading("Loading Chats", { id: "loadchats" });
+      getUserChats()
+        .then((data) => {
+          setChatMessages([...data.chats]);
+          toast.success("Successfully loaded chats", { id: "loadchats" });
+        })
+        .catch((err) => {
+          console.error(err);
+          toast.error("Loading Failed", { id: "loadchats" });
+        });
+    }
+  }, [auth]);
+
+  // Redirect to login if not logged in
+  useEffect(() => {
+    if (!auth?.user) {
+      return navigate("/login");
+    }
+  }, [auth]);
+
+  // Handle class selection change
+  const handleClassChange = (event: SelectChangeEvent<string>) => {
+    const selectedClassName = event.target.value; // Get the class name
+    setSelectedClass(selectedClassName); // Update the state
+  };
+  
   const handleSubmit = async () => {
     const content = inputRef.current?.value as string;
     if (inputRef && inputRef.current) {
@@ -28,7 +99,7 @@ const Chat = () => {
     }
     const newMessage: Message = { role: "user", content };
     setChatMessages((prev) => [...prev, newMessage]);
-    const chatData = await sendChatRequest(content);
+    const chatData = await sendChatRequest(content, selectedClass);
     setChatMessages([...chatData.chats]);
     //sends post request to chat/new that is defined in the chat routes file and calls the generateChatCompletion func
   };
@@ -73,6 +144,7 @@ const Chat = () => {
         gap: 3,
       }}
     >
+      {/* Sidebar */}
       <Box
         sx={{
           display: { md: "flex", xs: "none", sm: "none" },
@@ -128,6 +200,8 @@ const Chat = () => {
           </Button>
         </Box>
       </Box>
+
+      {/* Main Chat Section */}
       <Box
         sx={{
           display: "flex",
@@ -136,17 +210,44 @@ const Chat = () => {
           px: 3,
         }}
       >
-        <Typography
-          sx={{
-            fontSize: "40px",
-            color: "white",
-            mb: 2,
-            mx: "auto",
-            fontWeight: "600",
-          }}
-        >
-          AI Study Buddy
-        </Typography>
+        {/* Header Section */}
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <Typography
+            sx={{
+              fontSize: "40px",
+              color: "white",
+              mb: 2,
+              fontWeight: "600",
+            }}
+          >
+            AI Study Buddy
+          </Typography>
+          <Select
+            value={selectedClass || ""}
+            onChange={handleClassChange}
+            displayEmpty
+            inputProps={{ "aria-label": "Select Class" }}
+            sx={{
+              backgroundColor: "white",
+              color: "black",
+              minWidth: "150px",
+              mx: 2,
+              borderRadius: 2,
+            }}
+          >
+            <MenuItem disabled value="">
+              <em>Select Class</em>
+            </MenuItem>
+            {classes.map((cls) => (
+              <MenuItem key={cls._id} value={cls.name}>
+                {cls.name}
+              </MenuItem>
+            ))}
+
+          </Select>
+        </Box>
+
+        {/* Chat Messages */}
         <Box
           sx={{
             width: "100%",
@@ -162,7 +263,6 @@ const Chat = () => {
           }}
         >
           {chatMessages.map((chat, index) => (
-            //@ts-ignore
             <ChatItem
               key={index}
               content={chat.content}
@@ -171,6 +271,8 @@ const Chat = () => {
             />
           ))}
         </Box>
+
+        {/* Input Section */}
         <div
           style={{
             width: "100%",
@@ -180,7 +282,6 @@ const Chat = () => {
             margin: "auto",
           }}
         >
-          {" "}
           <input
             ref={inputRef}
             type="text"

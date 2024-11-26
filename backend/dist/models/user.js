@@ -19,6 +19,12 @@ const chatSchema = new mongoose.Schema({
         required: false,
     },
 });
+const classSchema = new mongoose.Schema({
+    name: {
+        type: String,
+        required: true,
+    },
+});
 const userSchema = new mongoose.Schema({
     name: {
         type: String,
@@ -34,6 +40,7 @@ const userSchema = new mongoose.Schema({
         required: true,
     },
     chats: [chatSchema],
+    classes: [classSchema],
 });
 export default mongoose.model("User", userSchema);
 //# sourceMappingURL=user.js.map

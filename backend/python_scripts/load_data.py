@@ -31,7 +31,7 @@ db_name = "study_buddy_demo"
 collection_name = "study_materials2"
 collection = client[db_name][collection_name]
 
-# Delete all documents in the collection
+#Delete all documents in the collection
 #collection.delete_many({})
 
 #initialize collection that file meta is stored in

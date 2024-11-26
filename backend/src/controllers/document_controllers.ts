@@ -107,6 +107,14 @@ export const uploadDocument = async (
       mimetype: file.mimetype,
     });
 
+    // Ensure the class is added to the user's classes if not already present
+    const classExists = currentUser.classes.some(cls => cls.name === className);
+    if (!classExists) {
+      currentUser.classes.push({ name: className });
+      await currentUser.save();
+      console.log(`Added class '${className}' to user ${userId}`);
+    }
+
     // Access s3Key from req.body
     const s3Key = req.body.s3Key;
     const s3Url = `https://${bucketName}.s3.${region}.amazonaws.com/${s3Key}`;

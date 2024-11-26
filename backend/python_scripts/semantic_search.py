@@ -238,8 +238,10 @@ def main():
 
     # Get user_id, message, and chat history from command-line arguments
     user_id = sys.argv[1]
-    user_query = sys.argv[2]
-    chat_history = json.loads(sys.argv[3])
+    class_name = sys.argv[2]
+    user_query = sys.argv[3]
+    chat_history = json.loads(sys.argv[4])
+    
 
     #print(user_id)
 
@@ -267,6 +269,9 @@ def main():
     query_vector = create_embedding(semantic_query)
     filters = {"user_id": {"$eq": user_id}}
     #print(json.dumps({"filters": filters}))
+    # Optionally add class_name or class_id if provided
+    if class_name and class_name != "undefined":  # Only include class_id if provided
+        filters["class_id"] = {"$eq": class_name}
 
     print(f"filter: {filters}", file=sys.stderr)
         

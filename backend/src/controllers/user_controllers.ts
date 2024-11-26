@@ -129,6 +129,21 @@ export const getAllUsers = async (
     }
   };
 
+  export const getUserClasses = async (req, res) => {
+    try {
+      const currentUser = await user.findById(res.locals.jwtData.id);
+      if (!currentUser) {
+        return res.status(401).json({ message: "User not registered or token malfunctioned" });
+      }
+  
+      const userClasses = currentUser.classes || [];
+      return res.status(200).json({ classes: userClasses });
+    } catch (error) {
+      console.error(error);
+      return res.status(500).json({ message: "Failed to fetch user classes" });
+    }
+  };
+
   export const userLogout = async (
     req: Request,
     res: Response,

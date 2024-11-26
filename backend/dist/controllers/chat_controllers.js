@@ -1,7 +1,7 @@
 import user from "../models/user.js";
 import { execFile } from 'child_process';
 export const generateChatCompletion = async (req, res, next) => {
-    const { message } = req.body;
+    const { message, class_name } = req.body;
     try {
         const currentUser = await user.findById(res.locals.jwtData.id);
         if (!currentUser) {
@@ -10,6 +10,7 @@ export const generateChatCompletion = async (req, res, next) => {
                 .json({ message: "User not registered OR Token malfunctioned" });
         }
         const user_id = currentUser._id.toString();
+        //const class_name = "class test"
         // Grab chats of user and append new message
         const chats = currentUser.chats.map(({ role, content, citation }) => ({
             role,
@@ -36,7 +37,7 @@ export const generateChatCompletion = async (req, res, next) => {
             }
         };
         // Execute Python script
-        execFile(pythonPath, [scriptPath, user_id, message, JSON.stringify(chats)], options, async (error, stdout, stderr) => {
+        execFile(pythonPath, [scriptPath, user_id, class_name, message, JSON.stringify(chats)], options, async (error, stdout, stderr) => {
             if (error) {
                 console.error(`exec error: ${error}`);
                 return res.status(500).json({ message: "Something went wrong" });

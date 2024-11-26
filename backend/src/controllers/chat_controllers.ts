@@ -8,7 +8,7 @@ export const generateChatCompletion = async (
     res: Response,
     next: NextFunction
 ) => {
-    const { message } = req.body;
+    const { message, class_name } = req.body;
     try {
         const currentUser = await user.findById(res.locals.jwtData.id);
         if (!currentUser) {
@@ -18,6 +18,7 @@ export const generateChatCompletion = async (
         }
 
         const user_id = currentUser._id.toString();
+        //const class_name = "class test"
 
         // Grab chats of user and append new message
         const chats = currentUser.chats.map(({ role, content, citation }) => ({
@@ -50,7 +51,7 @@ export const generateChatCompletion = async (
         };
 
         // Execute Python script
-        execFile(pythonPath, [scriptPath, user_id, message, JSON.stringify(chats)], options, async (error, stdout, stderr) => {
+        execFile(pythonPath, [scriptPath, user_id, class_name, message, JSON.stringify(chats)], options, async (error, stdout, stderr) => {
             if (error) {
                 console.error(`exec error: ${error}`);
                 return res.status(500).json({ message: "Something went wrong" });

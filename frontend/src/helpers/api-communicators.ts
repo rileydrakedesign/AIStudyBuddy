@@ -33,8 +33,8 @@ export const checkAuthStatus = async () => {
 };
 
 
-export const sendChatRequest = async (message: string) => {
-  const res = await axios.post("/chat/new", { message });
+export const sendChatRequest = async (message: string, selectedClass: string | null) => {
+  const res = await axios.post("/chat/new", { message, class_name: selectedClass });
   if (res.status !== 200) {
     throw new Error("Unable to send chat");
   }
@@ -78,4 +78,13 @@ export const uploadDocument = async (formData: FormData) => {
     },
   });
   return response.data;
+};
+
+export const getUserClasses = async () => {
+  const res = await axios.get("/user/classes");
+  if (res.status !== 200) {
+    throw new Error("Unable to fetch user classes");
+  }
+  const data = await res.data;
+  return data; // Should return an array of class objects (id and name)
 };
