@@ -41,10 +41,10 @@ const Chat = () => {
         setClasses(classes);
 
         const storedClass = localStorage.getItem("selectedClass");
-        if (storedClass && classes.some((cls: ClassOption) => cls.name === storedClass)) {
+        if (storedClass === "null") {
+          setSelectedClass(null);
+        } else if (storedClass && classes.some((cls: ClassOption) => cls.name === storedClass)) {
           setSelectedClass(storedClass); // Restore selected class
-        } else if (classes.length > 0) {
-          setSelectedClass(classes[0].name); // Default to first class if no stored class
         }
       } catch (error) {
         console.error("Error fetching classes", error);
@@ -58,9 +58,7 @@ const Chat = () => {
 
   // Save selected class to localStorage whenever it changes
   useEffect(() => {
-    if (selectedClass) {
-      localStorage.setItem("selectedClass", selectedClass);
-    }
+    localStorage.setItem("selectedClass", selectedClass || "null");
   }, [selectedClass]);
 
   // Fetch chat messages on load
@@ -88,7 +86,7 @@ const Chat = () => {
 
   // Handle class selection change
   const handleClassChange = (event: SelectChangeEvent<string>) => {
-    const selectedClassName = event.target.value; // Get the class name
+    const selectedClassName = event.target.value === "null" ? null : event.target.value;
     setSelectedClass(selectedClassName); // Update the state
   };
   
@@ -223,7 +221,7 @@ const Chat = () => {
             AI Study Buddy
           </Typography>
           <Select
-            value={selectedClass || ""}
+            value={selectedClass || "null"}
             onChange={handleClassChange}
             displayEmpty
             inputProps={{ "aria-label": "Select Class" }}
@@ -235,8 +233,8 @@ const Chat = () => {
               borderRadius: 2,
             }}
           >
-            <MenuItem disabled value="">
-              <em>Select Class</em>
+            <MenuItem value="null">
+              <em>All Classes</em>
             </MenuItem>
             {classes.map((cls) => (
               <MenuItem key={cls._id} value={cls.name}>

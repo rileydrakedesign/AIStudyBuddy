@@ -270,7 +270,7 @@ def main():
     filters = {"user_id": {"$eq": user_id}}
     #print(json.dumps({"filters": filters}))
     # Optionally add class_name or class_id if provided
-    if class_name and class_name != "undefined":  # Only include class_id if provided
+    if class_name and class_name != "null":  # Only include class_id if provided
         filters["class_id"] = {"$eq": class_name}
 
     print(f"filter: {filters}", file=sys.stderr)
