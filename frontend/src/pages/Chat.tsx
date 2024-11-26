@@ -232,6 +232,16 @@ const Chat = () => {
               mx: 2,
               borderRadius: 2,
             }}
+            MenuProps={{
+              PaperProps: {
+                sx: {
+                  bgcolor: "white", // Background color of the menu
+                  "& .MuiMenuItem-root": {
+                    color: "black", // Text color of menu items
+                  },
+                },
+              },
+            }}
           >
             <MenuItem value="null">
               <em>All Classes</em>
