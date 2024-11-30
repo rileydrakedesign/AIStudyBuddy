@@ -19,6 +19,18 @@ const chatSchema = new mongoose.Schema({
         required: false,
     },
 });
+const chatSessionSchema = new mongoose.Schema({
+    id: {
+        type: String,
+        default: randomUUID(),
+    },
+    name: {
+        type: String,
+        required: true,
+        default: "New Chat",
+    },
+    messages: [chatSchema],
+});
 const classSchema = new mongoose.Schema({
     name: {
         type: String,
@@ -39,7 +51,6 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: true,
     },
-    chats: [chatSchema],
     classes: [classSchema],
 });
 export default mongoose.model("User", userSchema);

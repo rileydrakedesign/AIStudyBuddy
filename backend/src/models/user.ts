@@ -22,6 +22,19 @@ const chatSchema = new mongoose.Schema({
     },
   });
 
+const chatSessionSchema = new mongoose.Schema({
+  id: {
+    type: String,
+    default: randomUUID(),
+  },
+  name: {
+    type: String,
+    required: true,
+    default: "New Chat",
+  },
+  messages: [chatSchema],
+});
+
 const classSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -30,21 +43,21 @@ const classSchema = new mongoose.Schema({
 })
 
 const userSchema = new mongoose.Schema({
-    name: {
-        type: String,
-        required: true,
-      },
-      email: {
-        type: String,
-        required: true,
-        unique: true,
-      },
-      password: {
-        type: String,
-        required: true,
-      },
-      chats: [chatSchema],
-      classes: [classSchema],
+  name: {
+    type: String,
+    required: true,
+  },
+  email: {
+    type: String,
+    required: true,
+    unique: true,
+  },
+  password: {
+    type: String,
+    required: true,
+  },
+  classes: [classSchema],
 });
+
 
 export default mongoose.model("User", userSchema);

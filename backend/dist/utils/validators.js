@@ -15,26 +15,50 @@ export const validate = (validations) => {
     };
 };
 export const loginValidator = [
-    body("email").trim().isEmail().withMessage("Email is required"),
-    body("password") //for password add validation for contains special characters and 1 upper case
+    body("email").trim().isEmail().withMessage("Valid email is required"),
+    body("password")
         .trim()
         .isLength({ min: 6 })
-        .withMessage("Password should contain atleast 6 characters"),
-    //polish off error messages to be more descriptive 
+        .withMessage("Password should contain at least 6 characters"),
 ];
 export const signupValidator = [
     body("name").notEmpty().withMessage("Name is required"),
     ...loginValidator,
 ];
 export const chatCompletionValidator = [
-    body("message").notEmpty().withMessage("Message  is required"),
+    body("message")
+        .notEmpty()
+        .withMessage("Message is required"),
+    body("class_name")
+        .optional()
+        .isString()
+        .withMessage("Class name must be a string"),
+    body("chatSessionId")
+        .optional()
+        .isMongoId()
+        .withMessage("Invalid chat session ID"),
+];
+export const chatSessionValidator = [
+    body("name")
+        .optional()
+        .isString()
+        .withMessage("Session name must be a string"),
+];
+export const chatSessionIdValidator = [
+    param('chatSessionId')
+        .isMongoId()
+        .withMessage('Invalid chat session ID'),
 ];
 export const documentUploadValidator = [
-    body("className").optional().isString().withMessage("Class Name must be a string"),
-    // Add other validations if needed
+    body("className")
+        .optional()
+        .isString()
+        .withMessage("Class name must be a string"),
 ];
 export const objectIdValidator = [
-    param('id').isMongoId().withMessage('Invalid document ID'),
+    param('id')
+        .isMongoId()
+        .withMessage('Invalid document ID'),
 ];
 export const downloadValidator = [
     query("s3_key")
@@ -42,6 +66,5 @@ export const downloadValidator = [
         .withMessage("s3_key query parameter is required")
         .isString()
         .withMessage("s3_key must be a string"),
-    // Add further validations if needed
 ];
 //# sourceMappingURL=validators.js.map

@@ -1,43 +1,106 @@
-import user from "../models/user.js";
-import { execFile } from 'child_process';
-export const generateChatCompletion = async (req, res, next) => {
-    const { message, class_name } = req.body;
+import User from "../models/user.js";
+import ChatSession from "../models/chatSession.js";
+import { execFile } from "child_process";
+// Function to create a new chat session
+export const createNewChatSession = async (req, res, next) => {
     try {
-        const currentUser = await user.findById(res.locals.jwtData.id);
+        const currentUser = await User.findById(res.locals.jwtData.id);
+        if (!currentUser) {
+            return res.status(401).send("User not registered or token malfunctioned");
+        }
+        const chatSession = await ChatSession.create({
+            userId: currentUser._id,
+            sessionName: req.body.name || "New Chat",
+            messages: [],
+        });
+        return res
+            .status(201)
+            .json({ message: "Chat session created", chatSession });
+    }
+    catch (error) {
+        console.log(error);
+        return res.status(500).json({ message: "ERROR", cause: error.message });
+    }
+};
+// Function to get all chat sessions for the user
+export const getUserChatSessions = async (req, res, next) => {
+    try {
+        const currentUser = await User.findById(res.locals.jwtData.id);
+        if (!currentUser) {
+            return res.status(401).send("User not registered or token malfunctioned");
+        }
+        const chatSessions = await ChatSession.find({ userId: currentUser._id });
+        return res.status(200).json({ chatSessions });
+    }
+    catch (error) {
+        console.log(error);
+        return res.status(500).json({ message: "ERROR", cause: error.message });
+    }
+};
+// Function to generate chat completion (send a message in a chat session)
+export const generateChatCompletion = async (req, res, next) => {
+    const { message, class_name, chatSessionId } = req.body;
+    try {
+        // Fetch the current user
+        const currentUser = await User.findById(res.locals.jwtData.id);
         if (!currentUser) {
             return res
                 .status(401)
-                .json({ message: "User not registered OR Token malfunctioned" });
+                .json({ message: "User not registered or token malfunctioned" });
         }
-        const user_id = currentUser._id.toString();
-        //const class_name = "class test"
-        // Grab chats of user and append new message
-        const chats = currentUser.chats.map(({ role, content, citation }) => ({
+        const userId = currentUser._id;
+        let chatSession;
+        if (chatSessionId) {
+            // Find the existing chat session for the user
+            chatSession = await ChatSession.findOne({
+                _id: chatSessionId,
+                userId: userId,
+            });
+            if (!chatSession) {
+                return res.status(404).json({ message: "Chat session not found" });
+            }
+        }
+        else {
+            // Create a new chat session if no chatSessionId is provided
+            chatSession = new ChatSession({
+                userId: userId,
+                sessionName: "New Chat",
+                messages: [],
+            });
+            // Save the new chat session to generate an _id
+            await chatSession.save();
+        }
+        // Append the user's message to the chat session
+        chatSession.messages.push({
+            content: message,
+            role: "user",
+            citation: null,
+        });
+        // Prepare the chats array for the Python script
+        const chats = chatSession.messages.map(({ role, content, citation }) => ({
             role,
             content,
-            citation
+            citation,
         }));
-        chats.push({ content: message, role: "user", citation: null });
-        // Call Python script to process the chat
+        // Call the Python script to process the chat
         const pythonPath = process.env.PYTHON_PATH;
-        const scriptPath = '/Users/rileydrake/Desktop/AIStudyBuddy/backend/python_scripts/semantic_search.py';
-        // Log the paths to ensure correctness
-        /*
-        console.log(`Python Path: ${pythonPath}`);
-        console.log(`Script Path: ${scriptPath}`);
-        console.log(`User ID: ${user_id}`);
-        console.log(`Message: ${message}`);
-        console.log(`Chats: ${JSON.stringify(chats)}`);
-        */
-        console.log(`User ID: ${user_id}`);
+        const scriptPath = "/Users/rileydrake/Desktop/AIStudyBuddy/backend/python_scripts/semantic_search.py";
+        // Log the paths and user ID for debugging
+        console.log(`User ID: ${userId}`);
         const options = {
             env: {
                 ...process.env,
                 MONGO_CONNECTION_STRING: process.env.MONGO_CONNECTION_STRING,
-            }
+            },
         };
-        // Execute Python script
-        execFile(pythonPath, [scriptPath, user_id, class_name, message, JSON.stringify(chats)], options, async (error, stdout, stderr) => {
+        // Execute the Python script
+        execFile(pythonPath, [
+            scriptPath,
+            userId.toString(),
+            class_name,
+            message,
+            JSON.stringify(chats),
+        ], options, async (error, stdout, stderr) => {
             if (error) {
                 console.error(`exec error: ${error}`);
                 return res.status(500).json({ message: "Something went wrong" });
@@ -45,30 +108,22 @@ export const generateChatCompletion = async (req, res, next) => {
             if (stderr) {
                 console.error(`stderr: ${stderr}`); // Log stderr from Python script
             }
-            //remove extra chars
-            const cleanedOutput = stdout.trim().replace(/^\(|\)$/g, '');
-            //chats as json 
-            const jsonChats = JSON.stringify(chats);
             // Parse the output from the Python script
-            const result = JSON.parse(jsonChats);
-            //parse stdout to get ai response
             const resultMessage = JSON.parse(stdout.trim());
-            //const resultMessage = stdout.trim();
             const aiResponse = resultMessage.message;
             const citation = resultMessage.citation;
-            const chatHistory = resultMessage.chats;
-            chats.push({ content: aiResponse, role: "assistant", citation: citation });
-            // Update user's chat history
-            chatHistory.push({ content: aiResponse, role: "assistant", citation: citation });
-            console.log(chatHistory);
-            currentUser.chats = chatHistory;
-            // Save the updated user chat history
-            await currentUser.save();
-            // Return response with updated chat history
+            // Append the assistant's response to the chat session
+            chatSession.messages.push({
+                content: aiResponse,
+                role: "assistant",
+                citation: citation,
+            });
+            // Save the updated chat session
+            await chatSession.save();
+            // Return the updated messages and the chat session ID
             return res.status(200).json({
-                chats: [
-                    ...chatHistory
-                ]
+                chatSessionId: chatSession._id,
+                messages: chatSession.messages,
             });
         });
     }
@@ -77,41 +132,47 @@ export const generateChatCompletion = async (req, res, next) => {
         return res.status(500).json({ message: "Something went wrong" });
     }
 };
-export const sendChatsToUser = async (req, res, next) => {
+// Function to delete a specific chat session
+export const deleteChatSession = async (req, res, next) => {
     try {
-        //user token check
-        const currentUser = await user.findById(res.locals.jwtData.id);
-        if (!user) {
-            return res.status(401).send("User not registered OR Token malfunctioned");
+        const { chatSessionId } = req.params;
+        const currentUser = await User.findById(res.locals.jwtData.id);
+        if (!currentUser) {
+            return res
+                .status(401)
+                .send("User not registered or token malfunctioned");
         }
-        if (currentUser._id.toString() !== res.locals.jwtData.id) {
-            return res.status(401).send("Permissions didn't match");
+        const chatSession = await ChatSession.findOneAndDelete({
+            _id: chatSessionId,
+            userId: currentUser._id,
+        });
+        if (!chatSession) {
+            return res.status(404).json({ message: "Chat session not found" });
         }
-        return res.status(200).json({ message: "OK", chats: currentUser.chats });
+        return res.status(200).json({ message: "Chat session deleted" });
     }
     catch (error) {
         console.log(error);
-        return res.status(200).json({ message: "ERROR", cause: error.message });
+        return res.status(500).json({ message: "ERROR", cause: error.message });
     }
 };
-export const deleteChats = async (req, res, next) => {
+// Function to delete all chat sessions for the user
+export const deleteAllChatSessions = async (req, res, next) => {
     try {
-        //user token check
-        const currentUser = await user.findById(res.locals.jwtData.id);
+        // User token check
+        const currentUser = await User.findById(res.locals.jwtData.id);
         if (!currentUser) {
-            return res.status(401).send("User not registered OR Token malfunctioned");
+            return res
+                .status(401)
+                .send("User not registered or token malfunctioned");
         }
-        if (currentUser._id.toString() !== res.locals.jwtData.id) {
-            return res.status(401).send("Permissions didn't match");
-        }
-        //@ts-ignore
-        currentUser.chats = [];
-        await currentUser.save();
-        return res.status(200).json({ message: "OK" });
+        // Delete all chat sessions for the user
+        await ChatSession.deleteMany({ userId: currentUser._id });
+        return res.status(200).json({ message: "All chat sessions deleted" });
     }
     catch (error) {
         console.log(error);
-        return res.status(200).json({ message: "ERROR", cause: error.message });
+        return res.status(500).json({ message: "ERROR", cause: error.message });
     }
 };
 //# sourceMappingURL=chat_controllers.js.map
