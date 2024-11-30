@@ -1,22 +1,42 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Box, Avatar, Typography, Button, IconButton, Select,
-  MenuItem, SelectChangeEvent } from "@mui/material";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  Box,
+  Avatar,
+  Typography,
+  Button,
+  IconButton,
+  Select,
+  MenuItem,
+  SelectChangeEvent,
+  List,
+  ListItem,
+  ListItemText,
+} from "@mui/material";
 import red from "@mui/material/colors/red";
 import { useAuth } from "../context/authContext";
 import ChatItem from "../components/chat/chatItem";
 import { IoMdSend } from "react-icons/io";
 import { useNavigate } from "react-router-dom";
 import {
-  deleteUserChats,
-  getUserChats,
+  getUserChatSessions,
+  createChatSession,
+  deleteChatSession,
+  deleteAllChatSessions,
   sendChatRequest,
   getUserClasses,
 } from "../helpers/api-communicators";
 import toast from "react-hot-toast";
+
 type Message = {
   role: "user" | "assistant";
   content: string;
   citation?: { href: string | null; text: string }[];
+};
+
+type ChatSession = {
+  _id: string;
+  sessionName: string;
+  messages: Message[];
 };
 
 type ClassOption = {
@@ -24,26 +44,32 @@ type ClassOption = {
   _id: string;
 };
 
-
 const Chat = () => {
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const auth = useAuth();
+  const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
+  const [currentChatSessionId, setCurrentChatSessionId] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
   const [classes, setClasses] = useState<ClassOption[]>([]);
   const [selectedClass, setSelectedClass] = useState<string | null>(null);
+  const [isNamingChat, setIsNamingChat] = useState(false);
+  const [newChatName, setNewChatName] = useState('');
 
   // Fetch user's classes
   useEffect(() => {
     const fetchClasses = async () => {
       try {
-        const { classes } = await getUserClasses();
+        const { classes }: { classes: ClassOption[] } = await getUserClasses();
         setClasses(classes);
 
         const storedClass = localStorage.getItem("selectedClass");
         if (storedClass === "null") {
           setSelectedClass(null);
-        } else if (storedClass && classes.some((cls: ClassOption) => cls.name === storedClass)) {
+        } else if (
+          storedClass &&
+          classes.some((cls: ClassOption) => cls.name === storedClass)
+        ) {
           setSelectedClass(storedClass); // Restore selected class
         }
       } catch (error) {
@@ -61,18 +87,23 @@ const Chat = () => {
     localStorage.setItem("selectedClass", selectedClass || "null");
   }, [selectedClass]);
 
-  // Fetch chat messages on load
-  useLayoutEffect(() => {
+  // Fetch chat sessions on load
+  useEffect(() => {
     if (auth?.isLoggedIn && auth.user) {
-      toast.loading("Loading Chats", { id: "loadchats" });
-      getUserChats()
+      toast.loading("Loading Chat Sessions", { id: "loadchatsessions" });
+      getUserChatSessions()
         .then((data) => {
-          setChatMessages([...data.chats]);
-          toast.success("Successfully loaded chats", { id: "loadchats" });
+          setChatSessions(data.chatSessions);
+          if (data.chatSessions.length > 0) {
+            // Set the first chat session as current by default
+            setCurrentChatSessionId(data.chatSessions[0]._id);
+            setChatMessages(data.chatSessions[0].messages);
+          }
+          toast.success("Successfully loaded chat sessions", { id: "loadchatsessions" });
         })
         .catch((err) => {
           console.error(err);
-          toast.error("Loading Failed", { id: "loadchats" });
+          toast.error("Loading Chat Sessions Failed", { id: "loadchatsessions" });
         });
     }
   }, [auth]);
@@ -87,9 +118,9 @@ const Chat = () => {
   // Handle class selection change
   const handleClassChange = (event: SelectChangeEvent<string>) => {
     const selectedClassName = event.target.value === "null" ? null : event.target.value;
-    setSelectedClass(selectedClassName); // Update the state
+    setSelectedClass(selectedClassName);
   };
-  
+
   const handleSubmit = async () => {
     const content = inputRef.current?.value as string;
     if (inputRef && inputRef.current) {
@@ -97,40 +128,108 @@ const Chat = () => {
     }
     const newMessage: Message = { role: "user", content };
     setChatMessages((prev) => [...prev, newMessage]);
-    const chatData = await sendChatRequest(content, selectedClass);
-    setChatMessages([...chatData.chats]);
-    //sends post request to chat/new that is defined in the chat routes file and calls the generateChatCompletion func
-  };
-  const handleDeleteChats = async () => {
+
     try {
-      toast.loading("Deleting Chats", { id: "deletechats" });
-      await deleteUserChats();
-      setChatMessages([]);
-      toast.success("Deleted Chats Successfully", { id: "deletechats" });
+      const chatData = await sendChatRequest(content, selectedClass, currentChatSessionId);
+      // Update chat messages and current chat session ID if necessary
+      setChatMessages(chatData.messages);
+      if (!currentChatSessionId && chatData.chatSessionId) {
+        setCurrentChatSessionId(chatData.chatSessionId);
+        // Add the new chat session to chatSessions
+        setChatSessions((prev) => [
+          ...prev,
+          {
+            _id: chatData.chatSessionId,
+            sessionName: "New Chat",
+            messages: chatData.messages,
+          },
+        ]);
+      } else {
+        // Update the messages in the chatSessions array
+        setChatSessions((prev) =>
+          prev.map((session) =>
+            session._id === chatData.chatSessionId
+              ? { ...session, messages: chatData.messages }
+              : session
+          )
+        );
+      }
     } catch (error) {
-      console.log(error);
-      toast.error("Deleting chats failed", { id: "deletechats" });
+      console.error(error);
+      toast.error("Failed to send message");
     }
   };
-  useLayoutEffect(() => {
-    if (auth?.isLoggedIn && auth.user) {
-      toast.loading("Loading Chats", { id: "loadchats" });
-      getUserChats()
-        .then((data) => {
-          setChatMessages([...data.chats]);
-          toast.success("Successfully loaded chats", { id: "loadchats" });
-        })
-        .catch((err) => {
-          console.log(err);
-          toast.error("Loading Failed", { id: "loadchats" });
-        });
+
+  const handleCreateNewChatSession = () => {
+    setIsNamingChat(true);
+    setNewChatName('');
+  };
+
+  const handleSubmitNewChatName = async () => {
+    if (newChatName.trim() === '') {
+      toast.error('Please enter a chat name');
+      return;
     }
-  }, [auth]);
-  useEffect(() => {
-    if (!auth?.user) {
-      return navigate("/login");
+    try {
+      const data = await createChatSession(newChatName.trim());
+      setChatSessions((prev) => [...prev, data.chatSession]);
+      setCurrentChatSessionId(data.chatSession._id);
+      setChatMessages([]);
+      setIsNamingChat(false);
+      setNewChatName('');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to create new chat session');
     }
-  }, [auth]);
+  };
+
+  const handleCancelNewChat = () => {
+    setIsNamingChat(false);
+    setNewChatName('');
+  };
+
+  const handleSelectChatSession = (chatSessionId: string) => {
+    const selectedSession = chatSessions.find((session) => session._id === chatSessionId);
+    if (selectedSession) {
+      setCurrentChatSessionId(chatSessionId);
+      setChatMessages(selectedSession.messages);
+    }
+  };
+
+  const handleDeleteChatSession = async (chatSessionId: string) => {
+    try {
+      await deleteChatSession(chatSessionId);
+      setChatSessions((prev) => prev.filter((session) => session._id !== chatSessionId));
+      if (currentChatSessionId === chatSessionId) {
+        // If the deleted session was the current one, reset
+        if (chatSessions.length > 0) {
+          const nextSession = chatSessions[0];
+          setCurrentChatSessionId(nextSession._id);
+          setChatMessages(nextSession.messages);
+        } else {
+          setCurrentChatSessionId(null);
+          setChatMessages([]);
+        }
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to delete chat session");
+    }
+  };
+
+  const handleDeleteAllChatSessions = async () => {
+    try {
+      await deleteAllChatSessions();
+      setChatSessions([]);
+      setCurrentChatSessionId(null);
+      setChatMessages([]);
+      toast.success("All chat sessions deleted");
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to delete all chat sessions");
+    }
+  };
+
   return (
     <Box
       sx={{
@@ -179,23 +278,101 @@ const Chat = () => {
           <Typography sx={{ mx: "auto", fontFamily: "work sans", my: 4, p: 3 }}>
             Prototype AI tutor application
           </Typography>
-          <Button
-            onClick={handleDeleteChats}
-            sx={{
-              width: "200px",
-              my: "auto",
-              color: "white",
-              fontWeight: "700",
-              borderRadius: 3,
-              mx: "auto",
-              bgcolor: red[300],
-              ":hover": {
-                bgcolor: red.A400,
-              },
-            }}
-          >
-            Clear Conversation
-          </Button>
+          {isNamingChat ? (
+            <Box
+              sx={{
+                mx: "auto",
+                my: 2,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+              }}
+            >
+              <input
+                type="text"
+                value={newChatName}
+                onChange={(e) => setNewChatName(e.target.value)}
+                placeholder="Enter chat name"
+                style={{
+                  width: "200px",
+                  padding: "8px",
+                  borderRadius: "4px",
+                  border: "1px solid #ccc",
+                  marginBottom: "8px",
+                  color: "black"
+                }}
+              />
+              <Box sx={{ display: "flex", gap: 1 }}>
+                <Button
+                  onClick={handleSubmitNewChatName}
+                  sx={{
+                    color: "white",
+                    fontWeight: "700",
+                    borderRadius: 3,
+                    bgcolor: "blue",
+                    ":hover": {
+                      bgcolor: "darkblue",
+                    },
+                  }}
+                >
+                  Create
+                </Button>
+                <Button
+                  onClick={handleCancelNewChat}
+                  sx={{
+                    color: "white",
+                    fontWeight: "700",
+                    borderRadius: 3,
+                    bgcolor: red[300],
+                    ":hover": {
+                      bgcolor: red.A400,
+                    },
+                  }}
+                >
+                  Cancel
+                </Button>
+              </Box>
+            </Box>
+          ) : (
+            <Button
+              onClick={handleCreateNewChatSession}
+              sx={{
+                width: "200px",
+                my: "auto",
+                color: "white",
+                fontWeight: "700",
+                borderRadius: 3,
+                mx: "auto",
+                bgcolor: "blue",
+                ":hover": {
+                  bgcolor: "darkblue",
+                },
+              }}
+            >
+              New Chat
+            </Button>
+          )}
+          <List sx={{ color: "white", overflowY: "auto", mt: 2 }}>
+            {chatSessions.map((session) => (
+              <ListItem
+                button
+                key={session._id}
+                selected={session._id === currentChatSessionId}
+                onClick={() => handleSelectChatSession(session._id)}
+              >
+                <ListItemText primary={session.sessionName} />
+                <IconButton
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteChatSession(session._id);
+                  }}
+                  sx={{ color: "red" }}
+                >
+                  Delete
+                </IconButton>
+              </ListItem>
+            ))}
+          </List>
         </Box>
       </Box>
 
@@ -235,9 +412,9 @@ const Chat = () => {
             MenuProps={{
               PaperProps: {
                 sx: {
-                  bgcolor: "white", // Background color of the menu
+                  bgcolor: "white",
                   "& .MuiMenuItem-root": {
-                    color: "black", // Text color of menu items
+                    color: "black",
                   },
                 },
               },
@@ -251,7 +428,6 @@ const Chat = () => {
                 {cls.name}
               </MenuItem>
             ))}
-
           </Select>
         </Box>
 

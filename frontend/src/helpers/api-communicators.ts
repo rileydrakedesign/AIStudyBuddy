@@ -33,34 +33,53 @@ export const checkAuthStatus = async () => {
 };
 
 
-export const sendChatRequest = async (message: string, selectedClass: string | null) => {
-  const res = await axios.post("/chat/new", { message, class_name: selectedClass });
+export const sendChatRequest = async (
+  message: string,
+  selectedClass: string | null,
+  chatSessionId: string | null
+) => {
+  const res = await axios.post("/chat/new", {
+    message,
+    class_name: selectedClass,
+    chatSessionId,
+  });
   if (res.status !== 200) {
     throw new Error("Unable to send chat");
   }
-  const data = await res.data;
-  return data;
+  return res.data; // Should return { chatSessionId, messages }
 };
 
-export const getUserChats = async () => {
-  const res = await axios.get("/chat/all-chats");
+export const getUserChatSessions = async () => {
+  const res = await axios.get("/chat/sessions");
   if (res.status !== 200) {
-    throw new Error("Unable to send chat");
+    throw new Error("Unable to fetch chat sessions");
   }
-  const data = await res.data;
-  return data;
+  return res.data; // Should return { chatSessions }
 };
 
-export const deleteUserChats = async () => {
-  const res = await axios.delete("/chat/delete");
+export const createChatSession = async (name: string) => {
+  const res = await axios.post("/chat/new-session", { name });
+  if (res.status !== 201) {
+    throw new Error("Unable to create chat session");
+  }
+  return res.data; // Should return { chatSession }
+};
+
+export const deleteChatSession = async (chatSessionId: string) => {
+  const res = await axios.delete(`/chat/session/${chatSessionId}`);
   if (res.status !== 200) {
-    throw new Error("Unable to delete chats");
+    throw new Error("Unable to delete chat session");
   }
-  const data = await res.data;
-  return data;
+  return res.data;
 };
 
-
+export const deleteAllChatSessions = async () => {
+  const res = await axios.delete("/chat/sessions");
+  if (res.status !== 200) {
+    throw new Error("Unable to delete all chat sessions");
+  }
+  return res.data;
+};
 
 export const logoutUser = async () => {
   const res = await axios.get("/user/logout");
