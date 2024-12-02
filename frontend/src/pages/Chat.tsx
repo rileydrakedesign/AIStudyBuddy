@@ -10,7 +10,12 @@ import {
   SelectChangeEvent,
   List,
   ListItem,
+  ListItemButton,
   ListItemText,
+  TextField,
+  ListSubheader,
+  Divider,
+  ListItemIcon,
 } from "@mui/material";
 import red from "@mui/material/colors/red";
 import { useAuth } from "../context/authContext";
@@ -26,6 +31,14 @@ import {
   getUserClasses,
 } from "../helpers/api-communicators";
 import toast from "react-hot-toast";
+import ChatIcon from '@mui/icons-material/Chat';
+import ClassIcon from '@mui/icons-material/Book';
+import AddIcon from '@mui/icons-material/Add';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import { styled } from '@mui/material/styles';
+
+
+
 
 type Message = {
   role: "user" | "assistant";
@@ -116,7 +129,7 @@ const Chat = () => {
   }, [auth]);
 
   // Handle class selection change
-  const handleClassChange = (event: SelectChangeEvent<string>) => {
+  const handleClassChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedClassName = event.target.value === "null" ? null : event.target.value;
     setSelectedClass(selectedClassName);
   };
@@ -230,6 +243,8 @@ const Chat = () => {
     }
   };
 
+
+
   return (
     <Box
       sx={{
@@ -253,129 +268,163 @@ const Chat = () => {
           sx={{
             display: "flex",
             width: "100%",
-            height: "60vh",
+            height: "100vh",
             bgcolor: "rgb(17,29,39)",
-            borderRadius: 5,
+            borderRadius: 0,
             flexDirection: "column",
             mx: 3,
+            overflowY: "auto",
           }}
         >
-          <Avatar
+          {/* Chats Section */}
+          <List
             sx={{
-              mx: "auto",
-              my: 2,
-              bgcolor: "white",
-              color: "black",
-              fontWeight: 700,
+              color: "white",
+              mt: 2,
             }}
+            subheader={
+              <ListSubheader
+                component="div"
+                id="chats-list-subheader"
+                sx={{ bgcolor: "inherit", color: "white", fontSize: "1.2em", fontWeight: "bold" }}
+              >
+                Chats
+              </ListSubheader>
+            }
           >
-            {auth?.user?.name[0]}
-            {auth?.user?.name.split(" ")[1][0]}
-          </Avatar>
-          <Typography sx={{ mx: "auto", fontFamily: "work sans" }}>
-            You are talking to a ChatBOT
-          </Typography>
-          <Typography sx={{ mx: "auto", fontFamily: "work sans", my: 4, p: 3 }}>
-            Prototype AI tutor application
-          </Typography>
-          {isNamingChat ? (
-            <Box
-              sx={{
-                mx: "auto",
-                my: 2,
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-              }}
-            >
-              <input
-                type="text"
-                value={newChatName}
-                onChange={(e) => setNewChatName(e.target.value)}
-                placeholder="Enter chat name"
-                style={{
-                  width: "200px",
-                  padding: "8px",
-                  borderRadius: "4px",
-                  border: "1px solid #ccc",
-                  marginBottom: "8px",
-                  color: "black"
+            {isNamingChat ? (
+              <Box
+                sx={{
+                  mx: "auto",
+                  my: 2,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
                 }}
-              />
-              <Box sx={{ display: "flex", gap: 1 }}>
-                <Button
-                  onClick={handleSubmitNewChatName}
-                  sx={{
-                    color: "white",
-                    fontWeight: "700",
-                    borderRadius: 3,
-                    bgcolor: "blue",
-                    ":hover": {
-                      bgcolor: "darkblue",
-                    },
+              >
+                <input
+                  type="text"
+                  value={newChatName}
+                  onChange={(e) => setNewChatName(e.target.value)}
+                  placeholder="Enter chat name"
+                  style={{
+                    width: "200px",
+                    padding: "8px",
+                    borderRadius: "4px",
+                    border: "1px solid #ccc",
+                    marginBottom: "8px",
+                    color: "black",
                   }}
-                >
-                  Create
-                </Button>
-                <Button
-                  onClick={handleCancelNewChat}
-                  sx={{
-                    color: "white",
-                    fontWeight: "700",
-                    borderRadius: 3,
-                    bgcolor: red[300],
-                    ":hover": {
-                      bgcolor: red.A400,
-                    },
-                  }}
-                >
-                  Cancel
-                </Button>
+                />
+                <Box sx={{ display: "flex", gap: 1 }}>
+                  <Button
+                    onClick={handleSubmitNewChatName}
+                    sx={{
+                      color: "white",
+                      fontWeight: "700",
+                      borderRadius: 3,
+                      bgcolor: "blue",
+                      ":hover": {
+                        bgcolor: "darkblue",
+                      },
+                    }}
+                  >
+                    Create
+                  </Button>
+                  <Button
+                    onClick={handleCancelNewChat}
+                    sx={{
+                      color: "white",
+                      fontWeight: "700",
+                      borderRadius: 3,
+                      bgcolor: red[300],
+                      ":hover": {
+                        bgcolor: red.A400,
+                      },
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </Box>
               </Box>
-            </Box>
-          ) : (
-            <Button
-              onClick={handleCreateNewChatSession}
-              sx={{
-                width: "200px",
-                my: "auto",
-                color: "white",
-                fontWeight: "700",
-                borderRadius: 3,
-                mx: "auto",
-                bgcolor: "blue",
-                ":hover": {
-                  bgcolor: "darkblue",
-                },
-              }}
-            >
-              New Chat
-            </Button>
-          )}
-          <List sx={{ color: "white", overflowY: "auto", mt: 2 }}>
+            ) : (
+              <ListItemButton onClick={handleCreateNewChatSession} sx={{ pl: 2 }}>
+                <ListItemIcon sx={{ color: 'white' }}>
+                  <AddIcon />
+                </ListItemIcon>
+                <ListItemText primary="New Chat" sx={{ color: 'white' }} />
+              </ListItemButton>
+            )}
+
             {chatSessions.map((session) => (
-              <ListItem
-                button
+              <ListItemButton
                 key={session._id}
+                className="chat-list-item"
                 selected={session._id === currentChatSessionId}
                 onClick={() => handleSelectChatSession(session._id)}
+                sx={{ pl: 2 }}
               >
+                <ListItemIcon sx={{ color: "white" }}>
+                  <ChatIcon />
+                </ListItemIcon>
                 <ListItemText primary={session.sessionName} />
                 <IconButton
                   onClick={(e) => {
                     e.stopPropagation();
                     handleDeleteChatSession(session._id);
                   }}
-                  sx={{ color: "red" }}
+                  sx={{ 
+                    color: "red",
+                    opacity: 0,
+                    transition: 'opacity 0.3s',
+                    '.chat-list-item:hover &': {
+                      opacity: 1,
+                    },
+                   }}
                 >
-                  Delete
+                  <DeleteOutlineIcon />
                 </IconButton>
+            </ListItemButton>
+            ))}
+          </List>
+
+          {/* Divider between sections */}
+          <Divider sx={{ backgroundColor: "white", my: 2 }} />
+
+          {/* Classes Section */}
+          <List
+            sx={{
+              color: "white",
+            }}
+            subheader={
+              <ListSubheader
+                component="div"
+                id="classes-list-subheader"
+                sx={{ bgcolor: "inherit", color: "white", fontSize: "1.2em", fontWeight: "bold" }}
+              >
+                Classes
+              </ListSubheader>
+            }
+          >
+            {/* New Class Button */}
+            <ListItemButton /*onClick={handleCreateNewClass}*/ sx={{ pl: 2 }}>
+              <ListItemIcon sx={{ color: 'white' }}>
+                <AddIcon />
+              </ListItemIcon>
+              <ListItemText primary="New Class" sx={{ color: 'white' }} />
+            </ListItemButton>
+
+            {classes.map((cls) => (
+              <ListItem key={cls._id} sx={{ pl: 2 }}>
+                <ListItemIcon sx={{ color: "white" }}>
+                  <ClassIcon />
+                </ListItemIcon>
+                <ListItemText primary={cls.name} />
               </ListItem>
             ))}
           </List>
         </Box>
       </Box>
-
       {/* Main Chat Section */}
       <Box
         sx={{
@@ -383,38 +432,49 @@ const Chat = () => {
           flex: { md: 0.8, xs: 1, sm: 1 },
           flexDirection: "column",
           px: 3,
+          height: '100vh',
         }}
       >
         {/* Header Section */}
         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <Typography
-            sx={{
-              fontSize: "40px",
-              color: "white",
-              mb: 2,
-              fontWeight: "600",
-            }}
-          >
-            AI Study Buddy
-          </Typography>
-          <Select
+          {/* If you have removed the 'AI Study Buddy' title from the header, you can skip this or adjust accordingly */}
+        
+          {/* Class Selector */}
+          <TextField
+            id="class-select"
+            select
+            label="Select Class"
             value={selectedClass || "null"}
             onChange={handleClassChange}
-            displayEmpty
-            inputProps={{ "aria-label": "Select Class" }}
+            variant="outlined"
             sx={{
-              backgroundColor: "white",
-              color: "black",
-              minWidth: "150px",
-              mx: 2,
-              borderRadius: 2,
+              '& .MuiSvgIcon-root': {
+                color: 'white',
+              },
             }}
-            MenuProps={{
-              PaperProps: {
-                sx: {
-                  bgcolor: "white",
-                  "& .MuiMenuItem-root": {
-                    color: "black",
+            InputProps={{
+              sx: {
+                color: 'white', // Text color of the selected value
+              },
+            }}
+            SelectProps={{
+              MenuProps: {
+                PaperProps: {
+                  sx: {
+                    bgcolor: '#424242',
+                    '& .MuiMenuItem-root': {
+                      color: 'white',
+                      '&.Mui-selected': {
+                        bgcolor: '#616161',
+                        color: 'white',
+                        '&:hover': {
+                          bgcolor: '#616161',
+                        },
+                      },
+                      '&:hover': {
+                        bgcolor: '#757575',
+                      },
+                    },
                   },
                 },
               },
@@ -428,61 +488,129 @@ const Chat = () => {
                 {cls.name}
               </MenuItem>
             ))}
-          </Select>
+          </TextField>
+        
+
         </Box>
 
-        {/* Chat Messages */}
-        <Box
-          sx={{
-            width: "100%",
-            height: "60vh",
-            borderRadius: 3,
-            mx: "auto",
-            display: "flex",
-            flexDirection: "column",
-            overflow: "scroll",
-            overflowX: "hidden",
-            overflowY: "auto",
-            scrollBehavior: "smooth",
-          }}
-        >
-          {chatMessages.map((chat, index) => (
-            <ChatItem
-              key={index}
-              content={chat.content}
-              role={chat.role}
-              citation={chat.citation}
-            />
-          ))}
-        </Box>
 
-        {/* Input Section */}
-        <div
-          style={{
-            width: "100%",
-            borderRadius: 8,
-            backgroundColor: "rgb(17,27,39)",
-            display: "flex",
-            margin: "auto",
-          }}
-        >
-          <input
-            ref={inputRef}
-            type="text"
-            style={{
-              width: "100%",
-              backgroundColor: "transparent",
-              padding: "30px",
-              border: "none",
-              outline: "none",
-              color: "white",
-              fontSize: "20px",
+        {chatMessages.length === 0 ? (
+          // **Render the initial view when there are no messages**
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexGrow: 1,
+              textAlign: 'center',
             }}
-          />
-          <IconButton onClick={handleSubmit} sx={{ color: "white", mx: 1 }}>
-            <IoMdSend />
-          </IconButton>
-        </div>
+          >
+            {/* Title */}
+            <Typography variant="h4" sx={{ mb: 3 }}>
+              How can StudyBuddy help?
+            </Typography>
+
+            {/* Text Field */}
+            <Box
+              sx={{
+                width: '100%',
+                maxWidth: 600,
+                mb: 3,
+              }}
+            >
+              <Box
+                sx={{
+                  width: "100%",
+                  borderRadius: 2,
+                  backgroundColor: "rgb(17,27,39)",
+                  display: "flex",
+                  alignItems: "center",
+                }}
+              >
+                <input
+                  ref={inputRef}
+                  type="text"
+                  style={{
+                    width: "100%",
+                    backgroundColor: "transparent",
+                    padding: "16px",
+                    border: "none",
+                    outline: "none",
+                    color: "white",
+                    fontSize: "18px",
+                  }}
+                />
+                <IconButton onClick={handleSubmit} sx={{ color: "white", mx: 1 }}>
+                  <IoMdSend />
+                </IconButton>
+              </Box>
+            </Box>
+
+            {/* Buttons */}
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <Button variant="contained">Create Study Guide</Button>
+              <Button variant="contained">Generate Notes</Button>
+              {/* Add more buttons as desired */}
+            </Box>
+          </Box>
+        ) : (
+          // **Render the normal chat view when there are messages**
+          <>
+            {/* Chat Messages */}
+            <Box
+              sx={{
+                width: "100%",
+                flexGrow: 1,
+                borderRadius: 3,
+                mx: "auto",
+                display: "flex",
+                flexDirection: "column",
+                overflowY: "auto",
+                scrollBehavior: "smooth",
+                mb: 2,
+              }}
+            >
+              {chatMessages.map((chat, index) => (
+                <ChatItem
+                  key={index}
+                  content={chat.content}
+                  role={chat.role}
+                  citation={chat.citation}
+                />
+              ))}
+            </Box>
+
+            {/* Input Section */}
+            <Box
+              sx={{
+                width: "100%",
+                borderRadius: 2,
+                backgroundColor: "rgb(17,27,39)",
+                display: "flex",
+                alignItems: "center",
+                mb: 2,
+              }}
+            >
+              <input
+                ref={inputRef}
+                type="text"
+                style={{
+                  width: "100%",
+                  backgroundColor: "transparent",
+                  padding: "16px",
+                  border: "none",
+                  outline: "none",
+                  color: "white",
+                  fontSize: "18px",
+                }}
+              />
+              <IconButton onClick={handleSubmit} sx={{ color: "white", mx: 1 }}>
+                <IoMdSend />
+              </IconButton>
+            </Box>
+          </>
+        )}
       </Box>
     </Box>
   );
