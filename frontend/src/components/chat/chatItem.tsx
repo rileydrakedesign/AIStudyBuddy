@@ -105,7 +105,7 @@ const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation }) => {
             )
           )}
         {role === "assistant" && citation && citation.length > 0 && (
-          <Typography sx={{ fontSize: "16px", fontStyle: "italic", mt: 1 }}>
+           <Box sx={{ mt: 2, display: "flex", gap: 1, flexWrap: "wrap" }}>
             {citation.map((cit, idx) =>
               cit.href ? (
                 <a
@@ -114,10 +114,15 @@ const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation }) => {
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{
+                    display: "inline-block",
+                    padding: "4px 8px",
+                    border: "1px solid #1976d2",
+                    borderRadius: "12px",
                     color: "#1976d2",
-                    textDecoration: "underline",
-                    marginRight: "8px",
-                    wordWrap: "break-word",
+                    textDecoration: "none",
+                    fontSize: "14px",
+                    backgroundColor: "#e3f2fd",
+                    fontWeight: 500,
                   }}
                 >
                   {cit.text}
@@ -125,13 +130,22 @@ const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation }) => {
               ) : (
                 <span
                   key={idx}
-                  style={{ marginRight: "8px", wordWrap: "break-word" }}
+                  style={{
+                    display: "inline-block",
+                    padding: "4px 8px",
+                    border: "1px solid #ccc",
+                    borderRadius: "12px",
+                    color: "#333",
+                    fontSize: "14px",
+                    backgroundColor: "#f5f5f5",
+                    fontWeight: 500,
+                  }}
                 >
                   {cit.text}
                 </span>
               )
             )}
-          </Typography>
+          </Box>
         )}
       </Box>
     </Box>
