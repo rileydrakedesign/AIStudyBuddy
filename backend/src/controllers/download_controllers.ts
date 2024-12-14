@@ -34,6 +34,8 @@ export const downloadFile = async (req: Request, res: Response) => {
     const params: GetObjectCommandInput = {
       Bucket: bucketName,
       Key: s3Key,
+      ResponseContentDisposition: 'inline',
+      ResponseContentType: 'application/pdf',
     };
 
     const command = new GetObjectCommand(params);

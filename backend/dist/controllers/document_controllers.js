@@ -31,6 +31,7 @@ async function uploadFileToS3(fileBuffer, fileName, mimetype) {
         Body: fileBuffer,
         Key: fileName,
         ContentType: mimetype,
+        ContentDisposition: 'inline',
     };
     await s3Client.send(new PutObjectCommand(uploadParams));
 }

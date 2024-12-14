@@ -22,6 +22,8 @@ export const downloadFile = async (req, res) => {
         const params = {
             Bucket: bucketName,
             Key: s3Key,
+            ResponseContentDisposition: 'inline',
+            ResponseContentType: 'application/pdf',
         };
         const command = new GetObjectCommand(params);
         const expiresIn = 60; // URL valid for 60 seconds

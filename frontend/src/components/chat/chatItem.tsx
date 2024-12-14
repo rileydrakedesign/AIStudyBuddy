@@ -37,19 +37,32 @@ type ChatItemProps = {
 const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation }) => {
   const messageBlocks = extractCodeFromString(content);
   const auth = useAuth();
-  return role === "assistant" ? (
+
+  return (
     <Box
       sx={{
         display: "flex",
         p: 2,
-        bgcolor: "#004d5612",
+        bgcolor: role === "assistant" ? "#004d5612" : "#004d56",
         gap: 2,
         borderRadius: 2,
         my: 1,
+        width: "100%", // Ensure the component doesn't exceed parent width
+        boxSizing: "border-box",
       }}
     >
-      <Avatar sx={{ ml: "0" }}></Avatar>
-      <Box>
+      <Avatar
+        sx={{
+          ml: "0",
+          bgcolor: role === "assistant" ? undefined : "black",
+          color: role === "assistant" ? undefined : "white",
+        }}
+      >
+        {role === "assistant"
+          ? null
+          : `${auth?.user?.name[0]}${auth?.user?.name.split(" ")[1][0]}`}
+      </Avatar>
+      <Box sx={{ flex: 1, width: "100%" }}>
         {messageBlocks &&
           messageBlocks.map((block, idx) =>
             isCodeBlock(block) ? (
@@ -57,16 +70,41 @@ const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation }) => {
                 key={idx}
                 style={coldarkDark}
                 language="javascript"
+                customStyle={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  overflowX: "auto",
+                }}
+                wrapLongLines={true}
+                codeTagProps={{
+                  style: {
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                  },
+                }}
+                preTagProps={{
+                  style: {
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    margin: 0,
+                  },
+                }}
               >
                 {block}
               </SyntaxHighlighter>
             ) : (
-              <Typography key={idx} sx={{ fontSize: "20px" }}>
+              <Typography
+                key={idx}
+                sx={{
+                  fontSize: "20px",
+                  wordWrap: "break-word",
+                }}
+              >
                 {block}
               </Typography>
             )
           )}
-        {citation && citation.length > 0 && (
+        {role === "assistant" && citation && citation.length > 0 && (
           <Typography sx={{ fontSize: "16px", fontStyle: "italic", mt: 1 }}>
             {citation.map((cit, idx) =>
               cit.href ? (
@@ -79,51 +117,22 @@ const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation }) => {
                     color: "#1976d2",
                     textDecoration: "underline",
                     marginRight: "8px",
+                    wordWrap: "break-word",
                   }}
                 >
                   {cit.text}
                 </a>
               ) : (
-                <span key={idx} style={{ marginRight: "8px" }}>
+                <span
+                  key={idx}
+                  style={{ marginRight: "8px", wordWrap: "break-word" }}
+                >
                   {cit.text}
                 </span>
               )
             )}
           </Typography>
         )}
-      </Box>
-    </Box>
-  ) : (
-    <Box
-      sx={{
-        display: "flex",
-        p: 2,
-        bgcolor: "#004d56",
-        gap: 2,
-        borderRadius: 2,
-      }}
-    >
-      <Avatar sx={{ ml: "0", bgcolor: "black", color: "white" }}>
-        {auth?.user?.name[0]}
-        {auth?.user?.name.split(" ")[1][0]}
-      </Avatar>
-      <Box>
-        {messageBlocks &&
-          messageBlocks.map((block, idx) =>
-            isCodeBlock(block) ? (
-              <SyntaxHighlighter
-                key={idx}
-                style={coldarkDark}
-                language="javascript"
-              >
-                {block}
-              </SyntaxHighlighter>
-            ) : (
-              <Typography key={idx} sx={{ fontSize: "20px" }}>
-                {block}
-              </Typography>
-            )
-          )}
       </Box>
     </Box>
   );
