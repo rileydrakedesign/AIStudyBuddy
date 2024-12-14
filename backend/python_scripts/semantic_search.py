@@ -104,6 +104,7 @@ def get_citation(search_results):
 def get_file_citation(search_results):
     """Generate citations with clickable links from search results."""
     citations = []
+    seen_files = set()
     s3_client = boto3.client(
         's3',
         aws_access_key_id=os.getenv('AWS_ACCESS_KEY'),
@@ -113,20 +114,22 @@ def get_file_citation(search_results):
     bucket_name = os.getenv('AWS_S3_BUCKET_NAME') # Replace with your S3 bucket name
 
     for result in search_results:
-        # Assuming the S3 key is stored in the 's3_key' field in your documents
-        s3_key = result.get('file_name')
+        s3_key = result.get('file_name')  # Assuming 'file_name' contains the unique identifier
         file_title = result.get('file_name')
 
-        if s3_key:
+        if s3_key and s3_key not in seen_files:  # Check if the file has not been added yet
+            seen_files.add(s3_key)  # Mark the file as seen
+
             # URL-encode the s3_key to safely include it in the URL
             encoded_s3_key = quote(s3_key, safe='')
             # Create a link to your download endpoint
             download_url = f"{backend_url}/download?s3_key={encoded_s3_key}"
             # Append the link and text to the citations list
             citations.append({"href": download_url, "text": file_title})
-        else:
-            # If no S3 key is available, just include the file title
-            citations.append({"href": None, "text": file_title})
+        elif not s3_key:  # Handle the case where the file name is missing
+            if file_title not in seen_files:  # Prevent duplicate titles as well
+                seen_files.add(file_title)
+                citations.append({"href": None, "text": file_title})
 
     return citations
 
