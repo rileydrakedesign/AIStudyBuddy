@@ -249,12 +249,10 @@ const Chat = () => {
     <Box
       sx={{
         display: "flex",
-        //flex: 1,
         width: "100%",
-        height: "100%",
-        //position: "relative",
-        mt: 3,
+        height: "100vh",
         gap: 3,
+        overflow: "hidden",
       }}
     >
       {/* Sidebar */}
@@ -262,19 +260,19 @@ const Chat = () => {
         sx={{
           display: { md: "flex", xs: "none", sm: "none" },
           flex: 0.25,
-          //width: 300,
           flexDirection: "column",
-          top: 0,
           left: 0,
           bottom: 0,
+          boxShadow: "2px 0 5px rgba(0,0,0,0.8)",
+          height: "100vh",
         }}
       >
         <Box
           sx={{
             display: "flex",
             width: "100%",
-            height: "100vh",
-            bgcolor: "rgb(17,29,39)",
+            height: "100%",
+            bgcolor: "#004d5612",
             borderRadius: 0,
             flexDirection: "column",
             overflowY: "auto",
@@ -286,7 +284,7 @@ const Chat = () => {
           <List
             sx={{
               color: "white",
-              mt: 2,
+              mt: "64px",
             }}
             subheader={
               <ListSubheader
@@ -438,16 +436,15 @@ const Chat = () => {
           flex: { md: 0.75, xs: 1, sm: 1 }, 
           flexDirection: "column",
           //px: 3,
-          height: '100vh',
+          height: '90vh',
           //ml: { md: '300px', xs: 0 },
           padding: 0, // Ensure no padding pushes content
-          margin: 0,
+          mt: 8,
+          mr: 3,
         }}
       >
         {/* Header Section */}
         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          {/* If you have removed the 'AI Study Buddy' title from the header, you can skip this or adjust accordingly */}
-        
           {/* Class Selector */}
           <TextField
             id="class-select"
@@ -595,7 +592,7 @@ const Chat = () => {
               sx={{
                 width: "100%",
                 borderRadius: 2,
-                backgroundColor: "rgb(17,27,39)",
+                backgroundColor: "#1d2d44",
                 display: "flex",
                 alignItems: "center",
                 mb: 2,

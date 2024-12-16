@@ -11,7 +11,15 @@ const Header = () => {
   const auth = useAuth();
   return (
     <AppBar
-    sx={{ bgcolor: "transparent", position: "static", boxShadow: "none" }}
+      sx={{ 
+        bgcolor: "transparent", 
+        position: "fixed", // Make the header fixed
+        top: 0, 
+        left: 0,
+        width: "100%",
+        boxShadow: "none",
+        zIndex: 1300 // Higher z-index so it stays above the sidebar
+      }}
     >
     <Toolbar sx={{ display: "flex" }}>
       <Logo />
@@ -19,16 +27,16 @@ const Header = () => {
         {auth?.isLoggedIn ? (
           <>
             <NavigationLink
-              bg="#00fffc"
+              bg="#1d2d44"
               to="/chat"
               text="Go To Chat"
-              textColor="black"
+              textColor="white"
             />
             <NavigationLink
-                bg="#00fffc"
+                bg="#1d2d44"
                 to="/upload"
                 text="Upload Document"
-                textColor="black"
+                textColor="white"
               />
             <NavigationLink
               bg="#51538f"

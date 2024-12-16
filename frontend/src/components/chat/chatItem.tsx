@@ -43,7 +43,7 @@ const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation }) => {
       sx={{
         display: "flex",
         p: 2,
-        bgcolor: role === "assistant" ? "#004d5612" : "#004d56",
+        bgcolor: role === "assistant" ? "#004d5612" : "#1d2d44",
         gap: 2,
         borderRadius: 2,
         my: 1,
@@ -62,7 +62,7 @@ const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation }) => {
           ? null
           : `${auth?.user?.name[0]}${auth?.user?.name.split(" ")[1][0]}`}
       </Avatar>
-      <Box sx={{ flex: 1, width: "100%" }}>
+      <Box sx={{ flex: 1, maxWidth: "100%" }}>
         {messageBlocks &&
           messageBlocks.map((block, idx) =>
             isCodeBlock(block) ? (

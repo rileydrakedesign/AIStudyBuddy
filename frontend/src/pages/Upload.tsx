@@ -56,7 +56,7 @@ const UploadDocument = () => {
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        mt: 3,
+        mt: 20,
         gap: 3,
         width: "100%",
       }}
