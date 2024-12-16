@@ -153,7 +153,8 @@ const Chat = () => {
     setPartialAssistantMessage("");
 
     try {
-      const chatData = await sendChatRequest(content, selectedClass, currentChatSessionId);
+      const classNameForRequest = selectedClass === null ? "null" : selectedClass;
+      const chatData = await sendChatRequest(content, classNameForRequest, currentChatSessionId);
 
       // Identify the assistant message
       const assistantMessage = chatData.messages[chatData.messages.length - 1];

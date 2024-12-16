@@ -40,6 +40,7 @@ export const getUserChatSessions = async (req, res, next) => {
 // Function to generate chat completion (send a message in a chat session)
 export const generateChatCompletion = async (req, res, next) => {
     const { message, class_name, chatSessionId } = req.body;
+    const classNameForPython = class_name && class_name !== "null" ? class_name : "null";
     try {
         // Fetch the current user
         const currentUser = await User.findById(res.locals.jwtData.id);
@@ -97,7 +98,7 @@ export const generateChatCompletion = async (req, res, next) => {
         execFile(pythonPath, [
             scriptPath,
             userId.toString(),
-            class_name,
+            classNameForPython,
             message,
             JSON.stringify(chats),
         ], options, async (error, stdout, stderr) => {
