@@ -1,13 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   Box,
-  Avatar,
   Typography,
   Button,
   IconButton,
   Select,
   MenuItem,
-  SelectChangeEvent,
   List,
   ListItem,
   ListItemButton,
@@ -35,10 +33,6 @@ import ChatIcon from '@mui/icons-material/Chat';
 import ClassIcon from '@mui/icons-material/Book';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
-import { styled } from '@mui/material/styles';
-
-
-
 
 type Message = {
   role: "user" | "assistant";
@@ -68,6 +62,10 @@ const Chat = () => {
   const [selectedClass, setSelectedClass] = useState<string | null>(null);
   const [isNamingChat, setIsNamingChat] = useState(false);
   const [newChatName, setNewChatName] = useState('');
+
+  // New states for streaming
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [partialAssistantMessage, setPartialAssistantMessage] = useState<string>("");
 
   // Fetch user's classes
   useEffect(() => {
@@ -134,42 +132,90 @@ const Chat = () => {
     setSelectedClass(selectedClassName);
   };
 
+  // Submit handler with streaming simulation
   const handleSubmit = async () => {
-    const content = inputRef.current?.value as string;
-    if (inputRef && inputRef.current) {
-      inputRef.current.value = "";
-    }
+    if (!inputRef.current || !inputRef.current.value.trim()) return;
+    const content = inputRef.current.value.trim();
+    inputRef.current.value = "";
     const newMessage: Message = { role: "user", content };
     setChatMessages((prev) => [...prev, newMessage]);
+    setIsGenerating(true);
+    setPartialAssistantMessage("");
 
     try {
       const chatData = await sendChatRequest(content, selectedClass, currentChatSessionId);
-      // Update chat messages and current chat session ID if necessary
-      setChatMessages(chatData.messages);
-      if (!currentChatSessionId && chatData.chatSessionId) {
-        setCurrentChatSessionId(chatData.chatSessionId);
-        // Add the new chat session to chatSessions
-        setChatSessions((prev) => [
-          ...prev,
-          {
-            _id: chatData.chatSessionId,
-            sessionName: "New Chat",
-            messages: chatData.messages,
-          },
-        ]);
-      } else {
-        // Update the messages in the chatSessions array
-        setChatSessions((prev) =>
-          prev.map((session) =>
-            session._id === chatData.chatSessionId
-              ? { ...session, messages: chatData.messages }
-              : session
-          )
-        );
+
+      // Identify the assistant message
+      const assistantMessage = chatData.messages[chatData.messages.length - 1];
+      if (!assistantMessage || assistantMessage.role !== "assistant") {
+        // If no assistant message or unexpected format, fallback
+        setChatMessages(chatData.messages);
+        setIsGenerating(false);
+        if (!currentChatSessionId && chatData.chatSessionId) {
+          setCurrentChatSessionId(chatData.chatSessionId);
+          setChatSessions((prev) => [
+            ...prev,
+            {
+              _id: chatData.chatSessionId,
+              sessionName: "New Chat",
+              messages: chatData.messages,
+            },
+          ]);
+        } else {
+          setChatSessions((prev) =>
+            prev.map((session) =>
+              session._id === chatData.chatSessionId
+                ? { ...session, messages: chatData.messages }
+                : session
+            )
+          );
+        }
+        return;
       }
+
+      // Temporarily remove the full assistant message
+      const updatedMessages = [...chatData.messages];
+      updatedMessages.pop(); // remove the assistant message for now
+      setChatMessages(updatedMessages);
+
+      // Simulate streaming the assistant's response
+      const fullText = assistantMessage.content;
+      let currentIndex = 0;
+      const interval = setInterval(() => {
+        currentIndex += 1;
+        setPartialAssistantMessage(fullText.substring(0, currentIndex));
+        if (currentIndex >= fullText.length) {
+          clearInterval(interval);
+          // Once done, add the full assistant message back
+          const finalMessages = [...updatedMessages, { ...assistantMessage, content: fullText }];
+          setChatMessages(finalMessages);
+          setIsGenerating(false);
+
+          if (!currentChatSessionId && chatData.chatSessionId) {
+            setCurrentChatSessionId(chatData.chatSessionId);
+            setChatSessions((prev) => [
+              ...prev,
+              {
+                _id: chatData.chatSessionId,
+                sessionName: "New Chat",
+                messages: finalMessages,
+              },
+            ]);
+          } else {
+            setChatSessions((prev) =>
+              prev.map((session) =>
+                session._id === chatData.chatSessionId
+                  ? { ...session, messages: finalMessages }
+                  : session
+              )
+            );
+          }
+        }
+      }, 10); // Adjust speed as desired
     } catch (error) {
       console.error(error);
       toast.error("Failed to send message");
+      setIsGenerating(false);
     }
   };
 
@@ -243,8 +289,6 @@ const Chat = () => {
     }
   };
 
-
-
   return (
     <Box
       sx={{
@@ -276,7 +320,7 @@ const Chat = () => {
             borderRadius: 0,
             flexDirection: "column",
             overflowY: "auto",
-            padding: 0, // Ensure no padding pushes content
+            padding: 0,
             margin: 0,
           }}
         >
@@ -388,7 +432,7 @@ const Chat = () => {
                 >
                   <DeleteOutlineIcon />
                 </IconButton>
-            </ListItemButton>
+              </ListItemButton>
             ))}
           </List>
 
@@ -410,8 +454,7 @@ const Chat = () => {
               </ListSubheader>
             }
           >
-            {/* New Class Button */}
-            <ListItemButton /*onClick={handleCreateNewClass}*/ sx={{ pl: 2 }}>
+            <ListItemButton sx={{ pl: 2 }}>
               <ListItemIcon sx={{ color: 'white' }}>
                 <AddIcon />
               </ListItemIcon>
@@ -429,16 +472,14 @@ const Chat = () => {
           </List>
         </Box>
       </Box>
+
       {/* Main Chat Section */}
       <Box
         sx={{
           display: "flex",
           flex: { md: 0.75, xs: 1, sm: 1 }, 
           flexDirection: "column",
-          //px: 3,
           height: '90vh',
-          //ml: { md: '300px', xs: 0 },
-          padding: 0, // Ensure no padding pushes content
           mt: 8,
           mr: 3,
         }}
@@ -460,7 +501,7 @@ const Chat = () => {
             }}
             InputProps={{
               sx: {
-                color: 'white', // Text color of the selected value
+                color: 'white',
               },
             }}
             SelectProps={{
@@ -495,12 +536,9 @@ const Chat = () => {
               </MenuItem>
             ))}
           </TextField>
-        
-
         </Box>
 
-
-        {chatMessages.length === 0 ? (
+        {chatMessages.length === 0 && partialAssistantMessage === "" ? (
           // **Render the initial view when there are no messages**
           <Box
             sx={{
@@ -536,6 +574,7 @@ const Chat = () => {
               >
                 <input
                   ref={inputRef}
+                  disabled={isGenerating}
                   type="text"
                   style={{
                     width: "100%",
@@ -547,7 +586,7 @@ const Chat = () => {
                     fontSize: "18px",
                   }}
                 />
-                <IconButton onClick={handleSubmit} sx={{ color: "white", mx: 1 }}>
+                <IconButton onClick={handleSubmit} sx={{ color: "white", mx: 1 }} disabled={isGenerating}>
                   <IoMdSend />
                 </IconButton>
               </Box>
@@ -561,7 +600,7 @@ const Chat = () => {
             </Box>
           </Box>
         ) : (
-          // **Render the normal chat view when there are messages**
+          // **Render the normal chat view when there are messages or partial streams**
           <>
             {/* Chat Messages */}
             <Box
@@ -585,6 +624,13 @@ const Chat = () => {
                   citation={chat.citation}
                 />
               ))}
+              {isGenerating && partialAssistantMessage && (
+                <ChatItem
+                  content={partialAssistantMessage}
+                  role="assistant"
+                  citation={[]}
+                />
+              )}
             </Box>
 
             {/* Input Section */}
@@ -600,6 +646,7 @@ const Chat = () => {
             >
               <input
                 ref={inputRef}
+                disabled={isGenerating}
                 type="text"
                 style={{
                   width: "100%",
@@ -611,7 +658,7 @@ const Chat = () => {
                   fontSize: "18px",
                 }}
               />
-              <IconButton onClick={handleSubmit} sx={{ color: "white", mx: 1 }}>
+              <IconButton onClick={handleSubmit} sx={{ color: "white", mx: 1 }} disabled={isGenerating}>
                 <IoMdSend />
               </IconButton>
             </Box>
