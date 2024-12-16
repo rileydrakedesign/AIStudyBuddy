@@ -63,9 +63,12 @@ const Chat = () => {
   const [isNamingChat, setIsNamingChat] = useState(false);
   const [newChatName, setNewChatName] = useState('');
 
-  // New states for streaming
+  // States for streaming
   const [isGenerating, setIsGenerating] = useState(false);
   const [partialAssistantMessage, setPartialAssistantMessage] = useState<string>("");
+
+  // Refs for scrolling
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   // Fetch user's classes
   useEffect(() => {
@@ -125,6 +128,13 @@ const Chat = () => {
       return navigate("/login");
     }
   }, [auth]);
+
+  // Scroll to bottom whenever messages or partial messages change
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatMessages, partialAssistantMessage]);
 
   // Handle class selection change
   const handleClassChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -211,7 +221,7 @@ const Chat = () => {
             );
           }
         }
-      }, 10); // Adjust speed as desired
+      }, 10); // adjust typing speed as needed
     } catch (error) {
       console.error(error);
       toast.error("Failed to send message");
@@ -596,11 +606,11 @@ const Chat = () => {
             <Box sx={{ display: 'flex', gap: 2 }}>
               <Button variant="contained">Create Study Guide</Button>
               <Button variant="contained">Generate Notes</Button>
-              {/* Add more buttons as desired */}
+              {/* Additional buttons as desired */}
             </Box>
           </Box>
         ) : (
-          // **Render the normal chat view when there are messages or partial streams**
+          // **Render the normal chat view (with streaming)**
           <>
             {/* Chat Messages */}
             <Box
@@ -631,6 +641,7 @@ const Chat = () => {
                   citation={[]}
                 />
               )}
+              <div ref={messagesEndRef} />
             </Box>
 
             {/* Input Section */}
