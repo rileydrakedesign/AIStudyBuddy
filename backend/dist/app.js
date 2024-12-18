@@ -8,7 +8,25 @@ config();
 //const var holds functionality of exprerss application
 const app = express();
 //middlewares
-app.use(cors({ origin: "http://localhost:5173", credentials: true }));
+// Dynamic CORS Configuration
+const allowedOrigins = [
+    "http://localhost:5173", // Local frontend app
+    "chrome-extension://fgammdbnfifiohdnmdlcgofflpgbhklk", // Production Chrome extension
+];
+// CORS middleware with conditional logic for null origin
+app.use(cors({
+    origin: (origin, callback) => {
+        // Allow requests with 'null' origin for unpacked Chrome extensions (development)
+        if (!origin || allowedOrigins.includes(origin) || origin === "null") {
+            callback(null, true);
+        }
+        else {
+            callback(new Error("Not allowed by CORS"));
+        }
+    },
+    credentials: true, // Allow cookies to be sent
+    methods: ["GET", "POST", "OPTIONS"], // Allowed HTTP methods
+}));
 app.use(express.json());
 app.use(cookieParser(process.env.COOKIE_SECRET));
 //remove in production

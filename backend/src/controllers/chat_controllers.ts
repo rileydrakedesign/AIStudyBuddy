@@ -109,6 +109,9 @@ export const generateChatCompletion = async (
       citation,
     }));
 
+    // Determine the source of the request
+    //const source = req.headers['x-source'] === 'chrome_extension' ? 'chrome_extension' : 'main_app';
+
     // Call the Python script to process the chat
     const pythonPath = process.env.PYTHON_PATH;
     const scriptPath =
@@ -133,6 +136,7 @@ export const generateChatCompletion = async (
         classNameForPython,
         message,
         JSON.stringify(chats),
+        //source,
       ],
       options,
       async (error, stdout, stderr) => {

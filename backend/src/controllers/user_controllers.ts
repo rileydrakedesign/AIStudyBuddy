@@ -95,7 +95,11 @@ export const getAllUsers = async (
       expires,
       httpOnly: true,
       signed: true,
+      secure: false, //change in production when HTTPS is set
+      sameSite: "none",
     });
+
+    console.log("Set-Cookie Header:", res.getHeaders()["set-cookie"]);
 
       return res.status(200).json({ message: "OK", name: currentUser.name, email: currentUser.email });
     } catch (error) {
