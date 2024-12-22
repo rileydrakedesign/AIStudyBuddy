@@ -37,7 +37,7 @@ embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
 llm = ChatOpenAI(model="gpt-3.5-turbo-0125", temperature=0.5)
 
 #initialize backend url
-backend_url = os.getenv('BACKEND_URL', 'http://localhost:3000/api/v1')
+backend_url = os.getenv('BACKEND_URL', 'https://localhost:3000/api/v1')
 
 #Global variables for current user and class context
 #current_classes = {"PSTAT 8"}
