@@ -83,6 +83,8 @@ export const generateChatCompletion = async (req, res, next) => {
             content,
             citation,
         }));
+        // Determine the source of the request
+        const source = req.headers['x-source'] === 'chrome_extension' ? 'chrome_extension' : 'main_app';
         // Call the Python script to process the chat
         const pythonPath = process.env.PYTHON_PATH;
         const scriptPath = "/Users/rileydrake/Desktop/AIStudyBuddy/backend/python_scripts/semantic_search.py";
@@ -101,6 +103,7 @@ export const generateChatCompletion = async (req, res, next) => {
             classNameForPython,
             message,
             JSON.stringify(chats),
+            source,
         ], options, async (error, stdout, stderr) => {
             if (error) {
                 console.error(`exec error: ${error}`);

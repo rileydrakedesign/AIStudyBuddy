@@ -20,8 +20,6 @@ from botocore.exceptions import ClientError
 import boto3
 from urllib.parse import quote
 
-
-
 # Load environment variables
 load_dotenv()
 
@@ -36,13 +34,8 @@ collection = client[db_name][collection_name]
 embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
 llm = ChatOpenAI(model="gpt-3.5-turbo-0125", temperature=0.5)
 
-#initialize backend url
-backend_url = os.getenv('BACKEND_URL', 'https://localhost:3000/api/v1')
-
-#Global variables for current user and class context
-#current_classes = {"PSTAT 8"}
-#current_user_id = "rileydrake"
-
+# Initialize backend URL
+backend_url = os.getenv('BACKEND_URL', 'http://localhost:3000/api/v1')
 
 def create_embedding(text):
     """Create an embedding for the given text."""
@@ -63,7 +56,6 @@ def gather_text_from_summary_documents(user_id, classes):
     results = collection.aggregate(pipeline)
     full_text = " ".join(result['text'] for result in results)
     return full_text
-
 
 def perform_semantic_search(query_vector, filters=None):
     """Perform a semantic search with optional filters."""
@@ -142,7 +134,6 @@ def format_prompt(template, **kwargs):
     formatted_prompt = prompt.format(**kwargs)
     return formatted_prompt
 
-
 def format_prompt1(template, **kwargs):
     """Format the given template with the provided keyword arguments."""
     prompt = PromptTemplate.from_template(template)
@@ -153,17 +144,15 @@ def load_prompts(file_path):
     with open(file_path, 'r') as file:
         return json.load(file)
 
-
 def construct_chain(prompt_template, user_query, chat_history):
     # Construct a chain to answer questions on your data
     parser = StrOutputParser()
     chain = prompt_template | llm | parser
     response = chain.invoke({"chat_history": chat_history, "input": user_query})
 
-    return(response)
+    return response
 
 def semantic_router(user_query):
-    
     # Define routes for general question and answer
     general_qa = Route(
         name="general_qa",
@@ -217,13 +206,11 @@ def semantic_router(user_query):
         return "general_qa"
     else:
         return route_name
-    
-    
+
 def escape_curly_braces(text):
     """Escape curly braces in the text to prevent them from being treated as variables."""
     return text.replace('{', '{{').replace('}', '}}')
 
-    
 def message_to_dict(message):
     if isinstance(message, HumanMessage):
         return {"role": "human", "content": message.content}
@@ -232,76 +219,92 @@ def message_to_dict(message):
     else:
         raise TypeError(f"Unexpected message type: {type(message)}")
 
-    
-
 def main():
     """Main function to handle user interactions and perform semantic search."""
     # Load prompts from JSON file
     prompts = load_prompts('/Users/rileydrake/Desktop/AIStudyBuddy/backend/prompts.json')
 
-    # Get user_id, message, and chat history from command-line arguments
+    # Get user_id, class_name, message, chat history, and source from command-line arguments
+    # Expected order: user_id, class_name, message, chat_history, source
+    if len(sys.argv) < 6:
+        print("Error: Not enough arguments provided.", file=sys.stderr)
+        sys.exit(1)
+
     user_id = sys.argv[1]
     class_name = sys.argv[2]
     user_query = sys.argv[3]
     chat_history = json.loads(sys.argv[4])
-    
+    source = sys.argv[5].lower()  # 'chrome_extension' or 'main_app'
 
-    #print(user_id)
+    # Log the source for debugging
+    print(f"Source: {source}", file=sys.stderr)
 
     # Filter chat_history to include only role and content (not citation)
     chat_history_cleaned = [{"role": chat["role"], "content": escape_curly_braces(chat["content"])} for chat in chat_history]
 
+    # Rephrase the user query for semantic search
     rephrase_prompt = PromptTemplate(
-        template="""You are an assistant tasked with taking a natural languge query from a user
-        and converting it into a query for a vectorstore. In the process, strip out all 
-        information that is not relevant for the retrieval task and return a new, simplified
-        question for vectorstore retrieval. The new user query should capture the semantic meaning of what
-        the user is searching for in the most efficient way so that the proper documents are retrieved from the vectorstore.
-        Only return the response with no other information or descriptors. 
-        user query: {input}
-        """
+        template="""You are an assistant tasked with taking a natural language query from a user
+                    and converting it into a query for a vectorstore. In the process, strip out all 
+                    information that is not relevant for the retrieval task and return a new, simplified
+                    question for vectorstore retrieval. The new user query should capture the semantic meaning of what
+                    the user is searching for in the most efficient way so that the proper documents are retrieved from the vectorstore.
+                    Only return the response with no other information or descriptors. 
+                    user query: {input}
+                    """
     )
 
     semantic_query = construct_chain(rephrase_prompt, user_query, chat_history_cleaned)
 
     route = semantic_router(semantic_query)
     print(f"Route: {route}", file=sys.stderr)
-    
 
     # Create embeddings for the query
     query_vector = create_embedding(semantic_query)
     filters = {"user_id": {"$eq": user_id}}
-    #print(json.dumps({"filters": filters}))
     # Optionally add class_name or class_id if provided
     if class_name and class_name != "null":  # Only include class_id if provided
         filters["class_id"] = {"$eq": class_name}
 
     print(f"filter: {filters}", file=sys.stderr)
-        
+
     # Perform semantic search
     search_results = perform_semantic_search(query_vector, filters)
     similarity_results = [doc for doc in search_results]
     filtered_results = [doc for doc in similarity_results if doc['score'] > 0.10]
-    
+
     print(f"results: {search_results}", file=sys.stderr)
     print(f"processed results: {similarity_results}", file=sys.stderr)
     #json.dumps({"results": similarity_results})
 
-    # Format the prompt and generate response
-    selected_prompt = prompts[route]
-    context = " ".join([doc['text'] for doc in filtered_results])
-    formatted_prompt = format_prompt(selected_prompt, context=context)
-    #json.dumps({"prompt": formatted_prompt})
+    # Determine which prompt to use based on the source
+    if source == "chrome_extension":
+        selected_prompt = prompts.get("chrome_extension")
+        if not selected_prompt:
+            print("Error: 'chrome_extension' prompt not found in prompts.json", file=sys.stderr)
+            sys.exit(1)
+        # For chrome_extension, ensure that 'question' is included
+        context = " ".join([doc['text'] for doc in filtered_results])
+        formatted_prompt = format_prompt(selected_prompt, context=context)
+    else:
+        # Use existing routing based prompts
+        selected_prompt = prompts.get(route)
+        if not selected_prompt:
+            print(f"Error: Prompt for route '{route}' not found in prompts.json", file=sys.stderr)
+            sys.exit(1)
+        context = " ".join([doc['text'] for doc in filtered_results])
+        formatted_prompt = format_prompt(selected_prompt, context=context)
 
+    # Prepare the chat prompt template
     prompt_template = ChatPromptTemplate.from_messages([
         ("system", formatted_prompt),
         MessagesPlaceholder(variable_name="chat_history"),
         ("user", "{input}")
     ])
-    
+
     citation = get_file_citation(similarity_results)
 
-    #call LLM chain
+    # Call LLM chain
     response = construct_chain(prompt_template, user_query, chat_history_cleaned)
 
     # Print the response as JSON to be captured by the Node.js script
@@ -313,5 +316,3 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         sys.exit(1)
-
-

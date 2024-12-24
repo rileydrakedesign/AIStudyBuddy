@@ -109,6 +109,9 @@ export const generateChatCompletion = async (
       citation,
     }));
 
+    // Determine the source of the request
+    const source = req.headers['x-source'] === 'chrome_extension' ? 'chrome_extension' : 'main_app';
+
     // Call the Python script to process the chat
     const pythonPath = process.env.PYTHON_PATH;
     const scriptPath =
@@ -116,6 +119,7 @@ export const generateChatCompletion = async (
 
     // Log the paths and user ID for debugging
     console.log(`User ID: ${userId}`);
+    console.log(`Source: ${source}`);
 
     const options = {
       env: {
@@ -133,6 +137,7 @@ export const generateChatCompletion = async (
         classNameForPython,
         message,
         JSON.stringify(chats),
+        source // Pass the source as the fifth argument
       ],
       options,
       async (error, stdout, stderr) => {
@@ -146,7 +151,13 @@ export const generateChatCompletion = async (
         }
 
         // Parse the output from the Python script
-        const resultMessage = JSON.parse(stdout.trim());
+        let resultMessage;
+        try {
+          resultMessage = JSON.parse(stdout.trim());
+        } catch (parseError) {
+          console.error("Error parsing Python script output:", parseError);
+          return res.status(500).json({ message: "Invalid response from backend" });
+        }
 
         const aiResponse = resultMessage.message;
         const citation = resultMessage.citation;
