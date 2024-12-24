@@ -36,6 +36,8 @@ export const getAllUsers = async (
       //create token and store cookie
       res.clearCookie(COOKIE_NAME, {
         httpOnly: true,
+        secure: true,        
+        sameSite: "none",
         domain: "localhost",
         signed: true,
         path: "/",
@@ -47,8 +49,10 @@ export const getAllUsers = async (
 
       res.cookie(COOKIE_NAME, token, {
         path: "/",
-        domain: "localhost",  //change to domain for production
+        domain: "localhost",  
         expires,
+        secure: true,        
+        sameSite: "none",
         httpOnly: true,
         signed: true,
       });
@@ -80,6 +84,8 @@ export const getAllUsers = async (
 
     res.clearCookie(COOKIE_NAME, {
       httpOnly: true,
+      secure: true,        
+      sameSite: "none",
       domain: "localhost",
       signed: true,
       path: "/",
@@ -91,8 +97,10 @@ export const getAllUsers = async (
 
     res.cookie(COOKIE_NAME, token, {
       path: "/",
-      domain: "localhost",  //change to domain for production
+      domain: "localhost",  
       expires,
+      secure: true,        
+      sameSite: "none",
       httpOnly: true,
       signed: true,
     });
@@ -161,6 +169,8 @@ export const getAllUsers = async (
   
       res.clearCookie(COOKIE_NAME, {
         httpOnly: true,
+        secure: true,        
+        sameSite: "none",
         domain: "localhost",
         signed: true,
         path: "/",
