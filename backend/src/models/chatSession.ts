@@ -48,6 +48,11 @@ const chatSessionSchema = new mongoose.Schema({
     default: Date.now,
   },
   messages: [messageSchema],
+  source: {
+    type: String,
+    enum: ["main_app", "chrome_extension"],
+    default: "main_app",
+  },
 });
 
 export default mongoose.model("ChatSession", chatSessionSchema);

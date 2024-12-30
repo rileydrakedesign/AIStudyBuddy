@@ -8,14 +8,24 @@ export const createNewChatSession = async (req, res, next) => {
         if (!currentUser) {
             return res.status(401).send("User not registered or token malfunctioned");
         }
+        // Determine the source from headers
+        const sourceHeader = req.headers["x-source"];
+        const source = sourceHeader === "chrome_extension" ? "chrome_extension" : "main_app";
+        // If request is from the extension, do NOT create a brand-new session
+        // (We want only a single "Extension Chat" session, so return 403 here or skip this route)
+        if (source === "chrome_extension") {
+            return res.status(403).json({
+                message: "Cannot create new chat session from Chrome extension.",
+            });
+        }
+        // Otherwise, create a new session for the main app
         const chatSession = await ChatSession.create({
             userId: currentUser._id,
             sessionName: req.body.name || "New Chat",
             messages: [],
+            source, // 'main_app'
         });
-        return res
-            .status(201)
-            .json({ message: "Chat session created", chatSession });
+        return res.status(201).json({ message: "Chat session created", chatSession });
     }
     catch (error) {
         console.log(error);
@@ -29,7 +39,16 @@ export const getUserChatSessions = async (req, res, next) => {
         if (!currentUser) {
             return res.status(401).send("User not registered or token malfunctioned");
         }
-        const chatSessions = await ChatSession.find({ userId: currentUser._id });
+        // Determine if this request is from the extension
+        const sourceHeader = req.headers["x-source"];
+        const isExtension = sourceHeader === "chrome_extension";
+        // If request is from the extension => filter for 'chrome_extension' sessions
+        // Otherwise (main app or no header), filter for 'main_app'
+        const query = {
+            userId: currentUser._id,
+            source: isExtension ? "chrome_extension" : "main_app",
+        };
+        const chatSessions = await ChatSession.find(query);
         return res.status(200).json({ chatSessions });
     }
     catch (error) {
@@ -50,26 +69,54 @@ export const generateChatCompletion = async (req, res, next) => {
                 .json({ message: "User not registered or token malfunctioned" });
         }
         const userId = currentUser._id;
+        // Determine the source of the request
+        const sourceHeader = req.headers["x-source"];
+        const source = sourceHeader === "chrome_extension" ? "chrome_extension" : "main_app";
         let chatSession;
         if (chatSessionId) {
             // Find the existing chat session for the user
             chatSession = await ChatSession.findOne({
                 _id: chatSessionId,
-                userId: userId,
+                userId,
             });
             if (!chatSession) {
                 return res.status(404).json({ message: "Chat session not found" });
             }
+            // Ensure the existing session matches the source
+            if (chatSession.source !== source) {
+                return res
+                    .status(400)
+                    .json({ message: "Chat session source mismatch" });
+            }
         }
         else {
-            // Create a new chat session if no chatSessionId is provided
-            chatSession = new ChatSession({
-                userId: userId,
-                sessionName: "New Chat",
-                messages: [],
-            });
-            // Save the new chat session to generate an _id
-            await chatSession.save();
+            // No chatSessionId provided
+            if (source === "chrome_extension") {
+                // Attempt to find a single, existing "chrome_extension" session
+                chatSession = await ChatSession.findOne({
+                    userId,
+                    source: "chrome_extension",
+                });
+                if (!chatSession) {
+                    // Create a single extension chat session if none exists
+                    chatSession = await ChatSession.create({
+                        userId,
+                        sessionName: "Extension Chat",
+                        messages: [],
+                        source: "chrome_extension",
+                    });
+                }
+            }
+            else {
+                // If from main app => create a new session
+                chatSession = new ChatSession({
+                    userId,
+                    sessionName: "New Chat",
+                    messages: [],
+                    source: "main_app",
+                });
+                await chatSession.save();
+            }
         }
         // Append the user's message to the chat session
         chatSession.messages.push({
@@ -83,13 +130,11 @@ export const generateChatCompletion = async (req, res, next) => {
             content,
             citation,
         }));
-        // Determine the source of the request
-        const source = req.headers['x-source'] === 'chrome_extension' ? 'chrome_extension' : 'main_app';
-        // Call the Python script to process the chat
+        // Log for debugging
+        console.log(`User ID: ${userId}`);
+        console.log(`Source: ${source}`);
         const pythonPath = process.env.PYTHON_PATH;
         const scriptPath = "/Users/rileydrake/Desktop/AIStudyBuddy/backend/python_scripts/semantic_search.py";
-        // Log the paths and user ID for debugging
-        console.log(`User ID: ${userId}`);
         const options = {
             env: {
                 ...process.env,
@@ -103,28 +148,37 @@ export const generateChatCompletion = async (req, res, next) => {
             classNameForPython,
             message,
             JSON.stringify(chats),
-            source,
+            source, // Pass the source as the fifth argument
         ], options, async (error, stdout, stderr) => {
             if (error) {
                 console.error(`exec error: ${error}`);
                 return res.status(500).json({ message: "Something went wrong" });
             }
             if (stderr) {
-                console.error(`stderr: ${stderr}`); // Log stderr from Python script
+                console.error(`stderr: ${stderr}`);
             }
             // Parse the output from the Python script
-            const resultMessage = JSON.parse(stdout.trim());
+            let resultMessage;
+            try {
+                resultMessage = JSON.parse(stdout.trim());
+            }
+            catch (parseError) {
+                console.error("Error parsing Python script output:", parseError);
+                return res
+                    .status(500)
+                    .json({ message: "Invalid response from backend" });
+            }
             const aiResponse = resultMessage.message;
             const citation = resultMessage.citation;
-            // Append the assistant's response to the chat session
+            // Append the assistant's response
             chatSession.messages.push({
                 content: aiResponse,
                 role: "assistant",
-                citation: citation,
+                citation,
             });
-            // Save the updated chat session
+            // Save the updated session
             await chatSession.save();
-            // Return the updated messages and the chat session ID
+            // Return the updated messages and the chatSessionId
             return res.status(200).json({
                 chatSessionId: chatSession._id,
                 messages: chatSession.messages,
