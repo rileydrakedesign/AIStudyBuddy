@@ -20,23 +20,24 @@ export const createNewChatSession = async (
     const source =
       sourceHeader === "chrome_extension" ? "chrome_extension" : "main_app";
 
-    // If request is from the extension, do NOT create a brand-new session
-    // (We want only a single "Extension Chat" session, so return 403 here or skip this route)
+    // If request is from the extension, block new sessions
     if (source === "chrome_extension") {
       return res.status(403).json({
         message: "Cannot create new chat session from Chrome extension.",
       });
     }
 
-    // Otherwise, create a new session for the main app
     const chatSession = await ChatSession.create({
       userId: currentUser._id,
       sessionName: req.body.name || "New Chat",
       messages: [],
-      source, // 'main_app'
+      source,
+      // assignedClass: null by default
     });
 
-    return res.status(201).json({ message: "Chat session created", chatSession });
+    return res
+      .status(201)
+      .json({ message: "Chat session created", chatSession });
   } catch (error) {
     console.log(error);
     return res.status(500).json({ message: "ERROR", cause: error.message });
@@ -59,8 +60,7 @@ export const getUserChatSessions = async (
     const sourceHeader = req.headers["x-source"];
     const isExtension = sourceHeader === "chrome_extension";
 
-    // If request is from the extension => filter for 'chrome_extension' sessions
-    // Otherwise (main app or no header), filter for 'main_app'
+    // Filter sessions by source
     const query = {
       userId: currentUser._id,
       source: isExtension ? "chrome_extension" : "main_app",
@@ -68,6 +68,7 @@ export const getUserChatSessions = async (
 
     const chatSessions = await ChatSession.find(query);
 
+    // **Return the assignedClass** so the frontend knows which class is selected
     return res.status(200).json({ chatSessions });
   } catch (error) {
     console.log(error);
@@ -82,11 +83,11 @@ export const generateChatCompletion = async (
   next: NextFunction
 ) => {
   const { message, class_name, chatSessionId } = req.body;
+  // We'll store class_name in assignedClass if it's not "null"
   const classNameForPython =
-    class_name && class_name !== "null" ? class_name : "null";
+    class_name && class_name !== "null" ? class_name : null;
 
   try {
-    // Fetch the current user
     const currentUser = await User.findById(res.locals.jwtData.id);
     if (!currentUser) {
       return res
@@ -96,7 +97,6 @@ export const generateChatCompletion = async (
 
     const userId = currentUser._id;
 
-    // Determine the source of the request
     const sourceHeader = req.headers["x-source"];
     const source =
       sourceHeader === "chrome_extension" ? "chrome_extension" : "main_app";
@@ -104,7 +104,7 @@ export const generateChatCompletion = async (
     let chatSession;
 
     if (chatSessionId) {
-      // Find the existing chat session for the user
+      // Find existing session
       chatSession = await ChatSession.findOne({
         _id: chatSessionId,
         userId,
@@ -114,23 +114,20 @@ export const generateChatCompletion = async (
         return res.status(404).json({ message: "Chat session not found" });
       }
 
-      // Ensure the existing session matches the source
       if (chatSession.source !== source) {
         return res
           .status(400)
           .json({ message: "Chat session source mismatch" });
       }
     } else {
-      // No chatSessionId provided
+      // No chatSessionId
       if (source === "chrome_extension") {
-        // Attempt to find a single, existing "chrome_extension" session
         chatSession = await ChatSession.findOne({
           userId,
           source: "chrome_extension",
         });
-
         if (!chatSession) {
-          // Create a single extension chat session if none exists
+          // Create single extension chat session
           chatSession = await ChatSession.create({
             userId,
             sessionName: "Extension Chat",
@@ -139,7 +136,7 @@ export const generateChatCompletion = async (
           });
         }
       } else {
-        // If from main app => create a new session
+        // main_app => create new
         chatSession = new ChatSession({
           userId,
           sessionName: "New Chat",
@@ -150,23 +147,29 @@ export const generateChatCompletion = async (
       }
     }
 
-    // Append the user's message to the chat session
+    // **If a class_name is provided (and not "null"), store it**
+    if (classNameForPython) {
+      chatSession.assignedClass = classNameForPython;
+    }
+
+    // Append user message
     chatSession.messages.push({
       content: message,
       role: "user",
       citation: null,
     });
 
-    // Prepare the chats array for the Python script
+    // Prepare data for Python
     const chats = chatSession.messages.map(({ role, content, citation }) => ({
       role,
       content,
       citation,
     }));
 
-    // Log for debugging
+    // Debug logs
     console.log(`User ID: ${userId}`);
     console.log(`Source: ${source}`);
+    console.log(`Assigned Class: ${chatSession.assignedClass || "none"}`);
 
     const pythonPath = process.env.PYTHON_PATH;
     const scriptPath =
@@ -179,16 +182,16 @@ export const generateChatCompletion = async (
       },
     };
 
-    // Execute the Python script
+    // Execute Python
     execFile(
       pythonPath,
       [
         scriptPath,
         userId.toString(),
-        classNameForPython,
+        chatSession.assignedClass || "null", // pass the stored class to Python
         message,
         JSON.stringify(chats),
-        source, // Pass the source as the fifth argument
+        source,
       ],
       options,
       async (error, stdout, stderr) => {
@@ -196,39 +199,36 @@ export const generateChatCompletion = async (
           console.error(`exec error: ${error}`);
           return res.status(500).json({ message: "Something went wrong" });
         }
-
         if (stderr) {
           console.error(`stderr: ${stderr}`);
         }
 
-        // Parse the output from the Python script
         let resultMessage;
         try {
           resultMessage = JSON.parse(stdout.trim());
         } catch (parseError) {
           console.error("Error parsing Python script output:", parseError);
-          return res
-            .status(500)
-            .json({ message: "Invalid response from backend" });
+          return res.status(500).json({ message: "Invalid response from backend" });
         }
 
         const aiResponse = resultMessage.message;
         const citation = resultMessage.citation;
 
-        // Append the assistant's response
+        // Append assistant's response
         chatSession.messages.push({
           content: aiResponse,
           role: "assistant",
           citation,
         });
 
-        // Save the updated session
+        // **Save updated session** (includes assignedClass)
         await chatSession.save();
 
-        // Return the updated messages and the chatSessionId
         return res.status(200).json({
           chatSessionId: chatSession._id,
           messages: chatSession.messages,
+          // **Return assignedClass** so the frontend can sync if needed
+          assignedClass: chatSession.assignedClass,
         });
       }
     );

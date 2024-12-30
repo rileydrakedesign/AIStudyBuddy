@@ -45,6 +45,10 @@ const chatSessionSchema = new mongoose.Schema({
         default: Date.now,
     },
     messages: [messageSchema],
+    assignedClass: {
+        type: String,
+        default: null,
+    },
     source: {
         type: String,
         enum: ["main_app", "chrome_extension"],

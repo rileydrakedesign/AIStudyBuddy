@@ -29,11 +29,15 @@ import {
   getUserClasses,
 } from "../helpers/api-communicators";
 import toast from "react-hot-toast";
-import ChatIcon from '@mui/icons-material/Chat';
-import ClassIcon from '@mui/icons-material/Book';
-import AddIcon from '@mui/icons-material/Add';
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import ChatIcon from "@mui/icons-material/Chat";
+import ClassIcon from "@mui/icons-material/Book";
+import AddIcon from "@mui/icons-material/Add";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import Loader from "../components/ui/loader";
 
+/* ------------------------------
+   TYPES
+   ------------------------------ */
 type Message = {
   role: "user" | "assistant";
   content: string;
@@ -44,6 +48,7 @@ type ChatSession = {
   _id: string;
   sessionName: string;
   messages: Message[];
+  assignedClass?: string | null;
 };
 
 type ClassOption = {
@@ -51,26 +56,37 @@ type ClassOption = {
   _id: string;
 };
 
+/* ------------------------------
+   COMPONENT
+   ------------------------------ */
 const Chat = () => {
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const auth = useAuth();
+
+  // Chat session state
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
   const [currentChatSessionId, setCurrentChatSessionId] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
+
+  // Classes & selection
   const [classes, setClasses] = useState<ClassOption[]>([]);
   const [selectedClass, setSelectedClass] = useState<string | null>(null);
-  const [isNamingChat, setIsNamingChat] = useState(false);
-  const [newChatName, setNewChatName] = useState('');
 
-  // States for streaming
+  // New chat creation
+  const [isNamingChat, setIsNamingChat] = useState(false);
+  const [newChatName, setNewChatName] = useState("");
+
+  // Streaming and loading state
   const [isGenerating, setIsGenerating] = useState(false);
   const [partialAssistantMessage, setPartialAssistantMessage] = useState<string>("");
 
-  // Refs for scrolling
+  // For auto-scroll
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
-  // Fetch user's classes
+  /* ------------------------------
+     FETCH CLASSES ON LOAD
+     ------------------------------ */
   useEffect(() => {
     const fetchClasses = async () => {
       try {
@@ -84,7 +100,7 @@ const Chat = () => {
           storedClass &&
           classes.some((cls: ClassOption) => cls.name === storedClass)
         ) {
-          setSelectedClass(storedClass); // Restore selected class
+          setSelectedClass(storedClass);
         }
       } catch (error) {
         console.error("Error fetching classes", error);
@@ -96,22 +112,29 @@ const Chat = () => {
     }
   }, [auth]);
 
-  // Save selected class to localStorage whenever it changes
+  /* ------------------------------
+     SAVE SELECTED CLASS LOCALLY (OPTIONAL)
+     ------------------------------ */
   useEffect(() => {
     localStorage.setItem("selectedClass", selectedClass || "null");
   }, [selectedClass]);
 
-  // Fetch chat sessions on load
+  /* ------------------------------
+     FETCH CHAT SESSIONS ON LOAD
+     ------------------------------ */
   useEffect(() => {
     if (auth?.isLoggedIn && auth.user) {
       toast.loading("Loading Chat Sessions", { id: "loadchatsessions" });
       getUserChatSessions()
         .then((data) => {
           setChatSessions(data.chatSessions);
+
           if (data.chatSessions.length > 0) {
-            // Set the first chat session as current by default
-            setCurrentChatSessionId(data.chatSessions[0]._id);
-            setChatMessages(data.chatSessions[0].messages);
+            // Default to the first session
+            const first = data.chatSessions[0];
+            setCurrentChatSessionId(first._id);
+            setChatMessages(first.messages);
+            setSelectedClass(first.assignedClass || null);
           }
           toast.success("Successfully loaded chat sessions", { id: "loadchatsessions" });
         })
@@ -122,33 +145,51 @@ const Chat = () => {
     }
   }, [auth]);
 
-  // Redirect to login if not logged in
+  /* ------------------------------
+     REDIRECT IF NOT LOGGED IN
+     ------------------------------ */
   useEffect(() => {
     if (!auth?.user) {
-      return navigate("/login");
+      navigate("/login");
     }
-  }, [auth]);
+  }, [auth, navigate]);
 
-  // Scroll to bottom whenever messages or partial messages change
+  /* ------------------------------
+     AUTO-SCROLL TO BOTTOM
+     ------------------------------ */
   useEffect(() => {
     if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [chatMessages, partialAssistantMessage]);
 
-  // Handle class selection change
+  /* ------------------------------
+     CLASS SELECT CHANGE
+     ------------------------------ */
   const handleClassChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedClassName = event.target.value === "null" ? null : event.target.value;
-    setSelectedClass(selectedClassName);
+    const c = event.target.value === "null" ? null : event.target.value;
+    setSelectedClass(c);
   };
 
-  // Submit handler with streaming simulation
+  // Press Enter to submit
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter" && !isGenerating) {
+      event.preventDefault();
+      handleSubmit();
+    }
+  };
+
+  /* ------------------------------
+     SUBMIT HANDLER (STREAMING)
+     ------------------------------ */
   const handleSubmit = async () => {
     if (!inputRef.current || !inputRef.current.value.trim()) return;
     const content = inputRef.current.value.trim();
     inputRef.current.value = "";
+
     const newMessage: Message = { role: "user", content };
     setChatMessages((prev) => [...prev, newMessage]);
+
     setIsGenerating(true);
     setPartialAssistantMessage("");
 
@@ -156,12 +197,16 @@ const Chat = () => {
       const classNameForRequest = selectedClass === null ? "null" : selectedClass;
       const chatData = await sendChatRequest(content, classNameForRequest, currentChatSessionId);
 
-      // Identify the assistant message
-      const assistantMessage = chatData.messages[chatData.messages.length - 1];
-      if (!assistantMessage || assistantMessage.role !== "assistant") {
-        // If no assistant message or unexpected format, fallback
+      const assistantMsg =
+        chatData.messages.length > 0
+          ? chatData.messages[chatData.messages.length - 1]
+          : null;
+
+      if (!assistantMsg || assistantMsg.role !== "assistant") {
         setChatMessages(chatData.messages);
         setIsGenerating(false);
+
+        // If brand new session
         if (!currentChatSessionId && chatData.chatSessionId) {
           setCurrentChatSessionId(chatData.chatSessionId);
           setChatSessions((prev) => [
@@ -170,35 +215,46 @@ const Chat = () => {
               _id: chatData.chatSessionId,
               sessionName: "New Chat",
               messages: chatData.messages,
+              assignedClass: chatData.assignedClass || null,
             },
           ]);
         } else {
           setChatSessions((prev) =>
             prev.map((session) =>
               session._id === chatData.chatSessionId
-                ? { ...session, messages: chatData.messages }
+                ? {
+                    ...session,
+                    messages: chatData.messages,
+                    assignedClass: chatData.assignedClass || null,
+                  }
                 : session
             )
           );
         }
+
+        if (chatData.assignedClass !== undefined) {
+          setSelectedClass(chatData.assignedClass || null);
+        }
         return;
       }
 
-      // Temporarily remove the full assistant message
-      const updatedMessages = [...chatData.messages];
-      updatedMessages.pop(); // remove the assistant message for now
-      setChatMessages(updatedMessages);
+      // Temporarily remove final assistant msg for streaming
+      const updated = [...chatData.messages];
+      updated.pop();
+      setChatMessages(updated);
 
-      // Simulate streaming the assistant's response
-      const fullText = assistantMessage.content;
-      let currentIndex = 0;
+      if (chatData.assignedClass !== undefined) {
+        setSelectedClass(chatData.assignedClass || null);
+      }
+
+      const full = assistantMsg.content;
+      let i = 0;
       const interval = setInterval(() => {
-        currentIndex += 1;
-        setPartialAssistantMessage(fullText.substring(0, currentIndex));
-        if (currentIndex >= fullText.length) {
+        i += 1;
+        setPartialAssistantMessage(full.substring(0, i));
+        if (i >= full.length) {
           clearInterval(interval);
-          // Once done, add the full assistant message back
-          const finalMessages = [...updatedMessages, { ...assistantMessage, content: fullText }];
+          const finalMessages = [...updated, { ...assistantMsg, content: full }];
           setChatMessages(finalMessages);
           setIsGenerating(false);
 
@@ -210,19 +266,24 @@ const Chat = () => {
                 _id: chatData.chatSessionId,
                 sessionName: "New Chat",
                 messages: finalMessages,
+                assignedClass: chatData.assignedClass || null,
               },
             ]);
           } else {
             setChatSessions((prev) =>
               prev.map((session) =>
                 session._id === chatData.chatSessionId
-                  ? { ...session, messages: finalMessages }
+                  ? {
+                      ...session,
+                      messages: finalMessages,
+                      assignedClass: chatData.assignedClass || null,
+                    }
                   : session
               )
             );
           }
         }
-      }, 10); // adjust typing speed as needed
+      }, 10);
     } catch (error) {
       console.error(error);
       toast.error("Failed to send message");
@@ -230,55 +291,78 @@ const Chat = () => {
     }
   };
 
+  /* ------------------------------
+     CREATE NEW CHAT
+     ------------------------------ */
   const handleCreateNewChatSession = () => {
     setIsNamingChat(true);
-    setNewChatName('');
+    setNewChatName("");
   };
 
   const handleSubmitNewChatName = async () => {
-    if (newChatName.trim() === '') {
-      toast.error('Please enter a chat name');
+    if (newChatName.trim() === "") {
+      toast.error("Please enter a chat name");
       return;
     }
     try {
       const data = await createChatSession(newChatName.trim());
-      setChatSessions((prev) => [...prev, data.chatSession]);
+
+      setChatSessions((prev) => [
+        ...prev,
+        {
+          ...data.chatSession,
+          assignedClass: null,
+        },
+      ]);
+
       setCurrentChatSessionId(data.chatSession._id);
       setChatMessages([]);
+      setSelectedClass(null);
+
       setIsNamingChat(false);
-      setNewChatName('');
+      setNewChatName("");
     } catch (err) {
       console.error(err);
-      toast.error('Failed to create new chat session');
+      toast.error("Failed to create new chat session");
     }
   };
 
   const handleCancelNewChat = () => {
     setIsNamingChat(false);
-    setNewChatName('');
+    setNewChatName("");
   };
 
+  /* ------------------------------
+     SELECT A CHAT SESSION
+     ------------------------------ */
   const handleSelectChatSession = (chatSessionId: string) => {
-    const selectedSession = chatSessions.find((session) => session._id === chatSessionId);
-    if (selectedSession) {
+    const session = chatSessions.find((s) => s._id === chatSessionId);
+    if (session) {
       setCurrentChatSessionId(chatSessionId);
-      setChatMessages(selectedSession.messages);
+      setChatMessages(session.messages);
+      setSelectedClass(session.assignedClass || null);
     }
   };
 
+  /* ------------------------------
+     DELETE A CHAT SESSION
+     ------------------------------ */
   const handleDeleteChatSession = async (chatSessionId: string) => {
     try {
       await deleteChatSession(chatSessionId);
       setChatSessions((prev) => prev.filter((session) => session._id !== chatSessionId));
+
       if (currentChatSessionId === chatSessionId) {
-        // If the deleted session was the current one, reset
-        if (chatSessions.length > 0) {
-          const nextSession = chatSessions[0];
-          setCurrentChatSessionId(nextSession._id);
-          setChatMessages(nextSession.messages);
+        const remaining = chatSessions.filter((s) => s._id !== chatSessionId);
+        if (remaining.length > 0) {
+          const next = remaining[0];
+          setCurrentChatSessionId(next._id);
+          setChatMessages(next.messages);
+          setSelectedClass(next.assignedClass || null);
         } else {
           setCurrentChatSessionId(null);
           setChatMessages([]);
+          setSelectedClass(null);
         }
       }
     } catch (error) {
@@ -287,12 +371,16 @@ const Chat = () => {
     }
   };
 
+  /* ------------------------------
+     DELETE ALL CHAT SESSIONS
+     ------------------------------ */
   const handleDeleteAllChatSessions = async () => {
     try {
       await deleteAllChatSessions();
       setChatSessions([]);
       setCurrentChatSessionId(null);
       setChatMessages([]);
+      setSelectedClass(null);
       toast.success("All chat sessions deleted");
     } catch (error) {
       console.error(error);
@@ -300,6 +388,9 @@ const Chat = () => {
     }
   };
 
+  /* ------------------------------
+     RENDER
+     ------------------------------ */
   return (
     <Box
       sx={{
@@ -408,10 +499,10 @@ const Chat = () => {
               </Box>
             ) : (
               <ListItemButton onClick={handleCreateNewChatSession} sx={{ pl: 2 }}>
-                <ListItemIcon sx={{ color: 'white' }}>
+                <ListItemIcon sx={{ color: "white" }}>
                   <AddIcon />
                 </ListItemIcon>
-                <ListItemText primary="New Chat" sx={{ color: 'white' }} />
+                <ListItemText primary="New Chat" sx={{ color: "white" }} />
               </ListItemButton>
             )}
 
@@ -432,14 +523,14 @@ const Chat = () => {
                     e.stopPropagation();
                     handleDeleteChatSession(session._id);
                   }}
-                  sx={{ 
+                  sx={{
                     color: "red",
                     opacity: 0,
-                    transition: 'opacity 0.3s',
-                    '.chat-list-item:hover &': {
+                    transition: "opacity 0.3s",
+                    ".chat-list-item:hover &": {
                       opacity: 1,
                     },
-                   }}
+                  }}
                 >
                   <DeleteOutlineIcon />
                 </IconButton>
@@ -447,7 +538,7 @@ const Chat = () => {
             ))}
           </List>
 
-          {/* Divider between sections */}
+          {/* Divider */}
           <Divider sx={{ backgroundColor: "white", my: 2 }} />
 
           {/* Classes Section */}
@@ -466,10 +557,10 @@ const Chat = () => {
             }
           >
             <ListItemButton sx={{ pl: 2 }}>
-              <ListItemIcon sx={{ color: 'white' }}>
+              <ListItemIcon sx={{ color: "white" }}>
                 <AddIcon />
               </ListItemIcon>
-              <ListItemText primary="New Class" sx={{ color: 'white' }} />
+              <ListItemText primary="New Class" sx={{ color: "white" }} />
             </ListItemButton>
 
             {classes.map((cls) => (
@@ -488,9 +579,9 @@ const Chat = () => {
       <Box
         sx={{
           display: "flex",
-          flex: { md: 0.75, xs: 1, sm: 1 }, 
+          flex: { md: 0.75, xs: 1, sm: 1 },
           flexDirection: "column",
-          height: '90vh',
+          height: "90vh",
           mt: 8,
           mr: 3,
         }}
@@ -506,31 +597,31 @@ const Chat = () => {
             onChange={handleClassChange}
             variant="outlined"
             sx={{
-              '& .MuiSvgIcon-root': {
-                color: 'white',
+              "& .MuiSvgIcon-root": {
+                color: "white",
               },
             }}
             InputProps={{
               sx: {
-                color: 'white',
+                color: "white",
               },
             }}
             SelectProps={{
               MenuProps: {
                 PaperProps: {
                   sx: {
-                    bgcolor: '#424242',
-                    '& .MuiMenuItem-root': {
-                      color: 'white',
-                      '&.Mui-selected': {
-                        bgcolor: '#616161',
-                        color: 'white',
-                        '&:hover': {
-                          bgcolor: '#616161',
+                    bgcolor: "#424242",
+                    "& .MuiMenuItem-root": {
+                      color: "white",
+                      "&.Mui-selected": {
+                        bgcolor: "#616161",
+                        color: "white",
+                        "&:hover": {
+                          bgcolor: "#616161",
                         },
                       },
-                      '&:hover': {
-                        bgcolor: '#757575',
+                      "&:hover": {
+                        bgcolor: "#757575",
                       },
                     },
                   },
@@ -550,26 +641,25 @@ const Chat = () => {
         </Box>
 
         {chatMessages.length === 0 && partialAssistantMessage === "" ? (
-          // **Render the initial view when there are no messages**
+          // If no messages, show initial view
           <Box
             sx={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
               flexGrow: 1,
-              textAlign: 'center',
+              textAlign: "center",
             }}
           >
-            {/* Title */}
             <Typography variant="h4" sx={{ mb: 3 }}>
               How can StudyBuddy help?
             </Typography>
 
-            {/* Text Field */}
+            {/* Input Container */}
             <Box
               sx={{
-                width: '100%',
+                width: "100%",
                 maxWidth: 600,
                 mb: 3,
               }}
@@ -587,6 +677,7 @@ const Chat = () => {
                   ref={inputRef}
                   disabled={isGenerating}
                   type="text"
+                  onKeyDown={handleKeyDown}
                   style={{
                     width: "100%",
                     backgroundColor: "transparent",
@@ -603,17 +694,14 @@ const Chat = () => {
               </Box>
             </Box>
 
-            {/* Buttons */}
-            <Box sx={{ display: 'flex', gap: 2 }}>
+            <Box sx={{ display: "flex", gap: 2 }}>
               <Button variant="contained">Create Study Guide</Button>
               <Button variant="contained">Generate Notes</Button>
-              {/* Additional buttons as desired */}
             </Box>
           </Box>
         ) : (
-          // **Render the normal chat view (with streaming)**
+          // Normal chat view
           <>
-            {/* Chat Messages */}
             <Box
               sx={{
                 width: "100%",
@@ -628,13 +716,10 @@ const Chat = () => {
               }}
             >
               {chatMessages.map((chat, index) => (
-                <ChatItem
-                  key={index}
-                  content={chat.content}
-                  role={chat.role}
-                  citation={chat.citation}
-                />
+                <ChatItem key={index} content={chat.content} role={chat.role} citation={chat.citation} />
               ))}
+
+              {/* If we are streaming partial text, show partial */}
               {isGenerating && partialAssistantMessage && (
                 <ChatItem
                   content={partialAssistantMessage}
@@ -642,6 +727,20 @@ const Chat = () => {
                   citation={[]}
                 />
               )}
+
+              {/* Use loader ONLY (no rotating text) */}
+              {isGenerating && partialAssistantMessage === "" && (
+                <Box sx={{ 
+                  display: "flex", 
+                  alignItems: "center", 
+                  m: 1,
+                  transform: "scale(0.3)",
+                  transformOrigin: "left top" 
+                  }}>
+                  <Loader />
+                </Box>
+              )}
+
               <div ref={messagesEndRef} />
             </Box>
 
@@ -660,6 +759,7 @@ const Chat = () => {
                 ref={inputRef}
                 disabled={isGenerating}
                 type="text"
+                onKeyDown={handleKeyDown}
                 style={{
                   width: "100%",
                   backgroundColor: "transparent",
