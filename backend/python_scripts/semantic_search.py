@@ -35,7 +35,7 @@ embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
 llm = ChatOpenAI(model="gpt-3.5-turbo-0125", temperature=0.5)
 
 # Initialize backend URL
-backend_url = os.getenv('BACKEND_URL', 'http://localhost:3000/api/v1')
+backend_url = os.getenv('BACKEND_URL', 'https://localhost:3000/api/v1')
 
 def create_embedding(text):
     """Create an embedding for the given text."""
