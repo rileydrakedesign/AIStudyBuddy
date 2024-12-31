@@ -25,26 +25,31 @@ const s3 = new S3Client({
   
 
 
-const upload = multer({
+  const upload = multer({
     storage: multerS3({
       s3: s3,
       bucket: process.env.AWS_S3_BUCKET_NAME,
-      acl: 'private', 
+      acl: 'private',
       metadata: function (req, file, cb) {
         cb(null, { fieldName: file.fieldname });
       },
       key: function (req, file, cb) {
+        // Generate a distinct key for each file
         const timestamp = Date.now();
         const sanitizedOriginalName = file.originalname.replace(/\s+/g, '_');
         const s3Key = `${timestamp}_${sanitizedOriginalName}`;
-
-        // Attach s3Key to req object
-        req.body.s3Key = s3Key;
-
+  
+        // Instead of overwriting, we store the key in an array
+        if (!req.body.s3KeyList) {
+          req.body.s3KeyList = [];
+        }
+        req.body.s3KeyList.push(s3Key);
+  
         cb(null, s3Key);
       },
     }),
   });
+  
   
 
 // Create a router instance
@@ -57,7 +62,7 @@ documentRoutes.post(
   "/upload",
   validate(documentUploadValidator),
   verifyToken,
-  upload.single("file"), //"file" denotes the form field name for file uploads
+  upload.array("files", 10),
   uploadDocument
 );
 

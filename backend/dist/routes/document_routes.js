@@ -23,11 +23,15 @@ const upload = multer({
             cb(null, { fieldName: file.fieldname });
         },
         key: function (req, file, cb) {
+            // Generate a distinct key for each file
             const timestamp = Date.now();
             const sanitizedOriginalName = file.originalname.replace(/\s+/g, '_');
             const s3Key = `${timestamp}_${sanitizedOriginalName}`;
-            // Attach s3Key to req object
-            req.body.s3Key = s3Key;
+            // Instead of overwriting, we store the key in an array
+            if (!req.body.s3KeyList) {
+                req.body.s3KeyList = [];
+            }
+            req.body.s3KeyList.push(s3Key);
             cb(null, s3Key);
         },
     }),
@@ -36,8 +40,7 @@ const upload = multer({
 const documentRoutes = Router();
 // Protected API routes
 // Route for uploading a new document
-documentRoutes.post("/upload", validate(documentUploadValidator), verifyToken, upload.single("file"), //"file" denotes the form field name for file uploads
-uploadDocument);
+documentRoutes.post("/upload", validate(documentUploadValidator), verifyToken, upload.array("files", 10), uploadDocument);
 // Route for retrieving all documents of a user
 documentRoutes.get("/all-documents", verifyToken, getUserDocuments);
 // Route for retrieving a specific document file
