@@ -77,7 +77,7 @@ const Chat = () => {
   const [isNamingChat, setIsNamingChat] = useState(false);
   const [newChatName, setNewChatName] = useState("");
 
-  // Streaming and loading state
+  // Streaming state
   const [isGenerating, setIsGenerating] = useState(false);
   const [partialAssistantMessage, setPartialAssistantMessage] = useState<string>("");
 
@@ -171,6 +171,17 @@ const Chat = () => {
     setSelectedClass(c);
   };
 
+  /* 
+     STOP HANDLER:
+     Called when user presses the "Stop" button to end LLM generation.
+     You can adapt it to clear any streaming intervals as needed.
+  */
+  const handleStop = () => {
+    setIsGenerating(false);
+    // Optionally: setPartialAssistantMessage(""); 
+    // or do additional cleanup for streaming intervals if you are storing them.
+  };
+
   // Press Enter to submit
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter" && !isGenerating) {
@@ -219,6 +230,7 @@ const Chat = () => {
             },
           ]);
         } else {
+          // Update existing session
           setChatSessions((prev) =>
             prev.map((session) =>
               session._id === chatData.chatSessionId
@@ -238,7 +250,7 @@ const Chat = () => {
         return;
       }
 
-      // Temporarily remove final assistant msg for streaming
+      // Temporarily remove final assistant message for streaming
       const updated = [...chatData.messages];
       updated.pop();
       setChatMessages(updated);
@@ -249,6 +261,7 @@ const Chat = () => {
 
       const full = assistantMsg.content;
       let i = 0;
+
       const interval = setInterval(() => {
         i += 1;
         setPartialAssistantMessage(full.substring(0, i));
@@ -688,9 +701,29 @@ const Chat = () => {
                     fontSize: "18px",
                   }}
                 />
-                <IconButton onClick={handleSubmit} sx={{ color: "white", mx: 1 }} disabled={isGenerating}>
-                  <IoMdSend />
-                </IconButton>
+                {
+                  !isGenerating ? (
+                    // Normal "Send" button
+                    <IconButton onClick={handleSubmit} sx={{ color: "white", mx: 1 }}>
+                      <IoMdSend />
+                    </IconButton>
+                  ) : (
+                    // "Stop" button with a small square
+                    <IconButton
+                      onClick={handleStop}
+                      sx={{ color: "white", mx: 1 }}
+                    >
+                      {/* A simple square icon (16x16) */}
+                      <Box
+                        sx={{
+                          width: 16,
+                          height: 16,
+                          backgroundColor: "white",
+                        }}
+                      />
+                    </IconButton>
+                  )
+                }
               </Box>
             </Box>
 
@@ -728,13 +761,13 @@ const Chat = () => {
                 />
               )}
 
-              {/* Use loader ONLY (no rotating text) */}
+              {/* Use loader ONLY */}
               {isGenerating && partialAssistantMessage === "" && (
                 <Box sx={{ 
                   display: "flex", 
                   alignItems: "center", 
                   m: 1,
-                  transform: "scale(0.3)",
+                  transform: "scale(0.25)",
                   transformOrigin: "left top" 
                   }}>
                   <Loader />
@@ -770,9 +803,29 @@ const Chat = () => {
                   fontSize: "18px",
                 }}
               />
-              <IconButton onClick={handleSubmit} sx={{ color: "white", mx: 1 }} disabled={isGenerating}>
-                <IoMdSend />
-              </IconButton>
+
+              {
+                !isGenerating ? (
+                  /* Normal "Send" button */
+                  <IconButton onClick={handleSubmit} sx={{ color: "white", mx: 1 }}>
+                    <IoMdSend />
+                  </IconButton>
+                ) : (
+                  /* "Stop" button (square icon) */
+                  <IconButton
+                    onClick={handleStop}
+                    sx={{ color: "white", mx: 1 }}
+                  >
+                    <Box
+                      sx={{
+                        width: 16,
+                        height: 16,
+                        backgroundColor: "white",
+                      }}
+                    />
+                  </IconButton>
+                )
+              }
             </Box>
           </>
         )}

@@ -1,18 +1,27 @@
 import React from "react";
-import { Box, Avatar, Typography } from "@mui/material";
+import { Box, Avatar } from "@mui/material";
 import { useAuth } from "../../context/authContext";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { coldarkDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
+/* ------------------------------
+   HELPERS: detect code blocks
+   ------------------------------ */
 function extractCodeFromString(message: string) {
+  // If the LLM response contains triple backticks ```,
+  // we split on them. E.g., "text ```code``` more text"
+  // returns ["text ", "code", " more text"].
   if (message.includes("```")) {
-    const blocks = message.split("```");
-    return blocks;
+    return message.split("```");
   }
-  return [message]; // Ensure we always return an array
+  return [message]; // fallback: entire message is one block
 }
 
 function isCodeBlock(str: string) {
+  // Basic heuristic to decide if the block is code.
+  // Adjust if needed to fit your syntax detection logic.
   if (
     str.includes("=") ||
     str.includes(";") ||
@@ -28,6 +37,9 @@ function isCodeBlock(str: string) {
   return false;
 }
 
+/* ------------------------------
+   TYPES
+   ------------------------------ */
 type ChatItemProps = {
   content: string;
   role: "user" | "assistant";
@@ -35,8 +47,9 @@ type ChatItemProps = {
 };
 
 const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation }) => {
-  const messageBlocks = extractCodeFromString(content);
   const auth = useAuth();
+  // Split the message into blocks (code vs. non-code)
+  const messageBlocks = extractCodeFromString(content);
 
   return (
     <Box
@@ -47,25 +60,32 @@ const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation }) => {
         gap: 2,
         borderRadius: 2,
         my: 1,
-        width: "100%", // Ensure the component doesn't exceed parent width
+        width: "100%",
         boxSizing: "border-box",
       }}
     >
+      {/* Avatar */}
       <Avatar
         sx={{
-          ml: "0",
+          ml: 0,
           bgcolor: role === "assistant" ? undefined : "black",
           color: role === "assistant" ? undefined : "white",
         }}
       >
         {role === "assistant"
           ? null
-          : `${auth?.user?.name[0]}${auth?.user?.name.split(" ")[1][0]}`}
+          : // e.g. user "John Doe" => "JD"
+            `${auth?.user?.name[0]}${auth?.user?.name.split(" ")[1][0]}`}
       </Avatar>
+
+      {/* Content */}
       <Box sx={{ flex: 1, maxWidth: "100%" }}>
-        {messageBlocks &&
-          messageBlocks.map((block, idx) =>
-            isCodeBlock(block) ? (
+        {messageBlocks.map((block, idx) => {
+          const trimmed = block.trim();
+
+          if (isCodeBlock(trimmed)) {
+            // Render as code block
+            return (
               <SyntaxHighlighter
                 key={idx}
                 style={coldarkDark}
@@ -90,22 +110,31 @@ const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation }) => {
                   },
                 }}
               >
-                {block}
+                {trimmed}
               </SyntaxHighlighter>
-            ) : (
-              <Typography
+            );
+          } else {
+            // Render as Markdown text, wrapped in a Box with custom font/spacing
+            return (
+              <Box
                 key={idx}
                 sx={{
-                  fontSize: "20px",
-                  wordWrap: "break-word",
+                  fontSize: "18px",
+                  lineHeight: 2,
+                  mb: 2, // bottom margin for spacing
                 }}
               >
-                {block}
-              </Typography>
-            )
-          )}
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {trimmed}
+                </ReactMarkdown>
+              </Box>
+            );
+          }
+        })}
+
+        {/* Citations if role=assistant */}
         {role === "assistant" && citation && citation.length > 0 && (
-           <Box sx={{ mt: 2, display: "flex", gap: 1, flexWrap: "wrap" }}>
+          <Box sx={{ mt: 2, display: "flex", gap: 1, flexWrap: "wrap" }}>
             {citation.map((cit, idx) =>
               cit.href ? (
                 <a
