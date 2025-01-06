@@ -34,6 +34,8 @@ import ClassIcon from "@mui/icons-material/Book";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import Loader from "../components/ui/loader";
+import ChatBubbleIcon from '@mui/icons-material/ChatBubble'; // Chat icon
+import StyleIcon from '@mui/icons-material/Style'; // Class icon
 
 /* ------------------------------
    TYPES
@@ -451,6 +453,7 @@ const Chat = () => {
                 id="chats-list-subheader"
                 sx={{ bgcolor: "inherit", color: "white", fontSize: "1.2em", fontWeight: "bold" }}
               >
+                <ChatBubbleIcon sx={{ mr: 1 }} />
                 Chats
               </ListSubheader>
             }
@@ -525,11 +528,8 @@ const Chat = () => {
                 className="chat-list-item"
                 selected={session._id === currentChatSessionId}
                 onClick={() => handleSelectChatSession(session._id)}
-                sx={{ pl: 2 }}
+                sx={{ pl: 3 }}
               >
-                <ListItemIcon sx={{ color: "white" }}>
-                  <ChatIcon />
-                </ListItemIcon>
                 <ListItemText primary={session.sessionName} />
                 <IconButton
                   onClick={(e) => {
@@ -565,6 +565,7 @@ const Chat = () => {
                 id="classes-list-subheader"
                 sx={{ bgcolor: "inherit", color: "white", fontSize: "1.2em", fontWeight: "bold" }}
               >
+                <StyleIcon sx={{ mr: 1 }} />
                 Classes
               </ListSubheader>
             }
@@ -577,10 +578,7 @@ const Chat = () => {
             </ListItemButton>
 
             {classes.map((cls) => (
-              <ListItem key={cls._id} sx={{ pl: 2 }}>
-                <ListItemIcon sx={{ color: "white" }}>
-                  <ClassIcon />
-                </ListItemIcon>
+              <ListItem key={cls._id} sx={{ pl: 3 }}>
                 <ListItemText primary={cls.name} />
               </ListItem>
             ))}
@@ -595,7 +593,7 @@ const Chat = () => {
           flex: { md: 0.75, xs: 1, sm: 1 },
           flexDirection: "column",
           height: "90vh",
-          mt: 8,
+          mt: 10,
           mr: 3,
         }}
       >
