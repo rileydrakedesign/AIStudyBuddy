@@ -29,13 +29,11 @@ import {
   getUserClasses,
 } from "../helpers/api-communicators";
 import toast from "react-hot-toast";
-import ChatIcon from "@mui/icons-material/Chat";
-import ClassIcon from "@mui/icons-material/Book";
+import ChatBubbleIcon from "@mui/icons-material/ChatBubble";
+import StyleIcon from "@mui/icons-material/Style";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import Loader from "../components/ui/loader";
-import ChatBubbleIcon from '@mui/icons-material/ChatBubble'; // Chat icon
-import StyleIcon from '@mui/icons-material/Style'; // Class icon
 
 /* ------------------------------
    TYPES
@@ -56,6 +54,11 @@ type ChatSession = {
 type ClassOption = {
   name: string;
   _id: string;
+};
+
+type Chunk = {
+  chunkNumber: number;
+  text: string;
 };
 
 /* ------------------------------
@@ -82,6 +85,9 @@ const Chat = () => {
   // Streaming state
   const [isGenerating, setIsGenerating] = useState(false);
   const [partialAssistantMessage, setPartialAssistantMessage] = useState<string>("");
+
+  // Chunk state for referencing
+  const [chunks, setChunks] = useState<Chunk[]>([]);
 
   // For auto-scroll
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -115,7 +121,7 @@ const Chat = () => {
   }, [auth]);
 
   /* ------------------------------
-     SAVE SELECTED CLASS LOCALLY (OPTIONAL)
+     SAVE SELECTED CLASS LOCALLY
      ------------------------------ */
   useEffect(() => {
     localStorage.setItem("selectedClass", selectedClass || "null");
@@ -132,7 +138,6 @@ const Chat = () => {
           setChatSessions(data.chatSessions);
 
           if (data.chatSessions.length > 0) {
-            // Default to the first session
             const first = data.chatSessions[0];
             setCurrentChatSessionId(first._id);
             setChatMessages(first.messages);
@@ -141,7 +146,7 @@ const Chat = () => {
           toast.success("Successfully loaded chat sessions", { id: "loadchatsessions" });
         })
         .catch((err) => {
-          console.error(err);
+          console.error("Error loading chat sessions:", err);
           toast.error("Loading Chat Sessions Failed", { id: "loadchatsessions" });
         });
     }
@@ -173,18 +178,10 @@ const Chat = () => {
     setSelectedClass(c);
   };
 
-  /* 
-     STOP HANDLER:
-     Called when user presses the "Stop" button to end LLM generation.
-     You can adapt it to clear any streaming intervals as needed.
-  */
   const handleStop = () => {
     setIsGenerating(false);
-    // Optionally: setPartialAssistantMessage(""); 
-    // or do additional cleanup for streaming intervals if you are storing them.
   };
 
-  // Press Enter to submit
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter" && !isGenerating) {
       event.preventDefault();
@@ -193,7 +190,7 @@ const Chat = () => {
   };
 
   /* ------------------------------
-     SUBMIT HANDLER (STREAMING)
+     SUBMIT HANDLER
      ------------------------------ */
   const handleSubmit = async () => {
     if (!inputRef.current || !inputRef.current.value.trim()) return;
@@ -210,6 +207,11 @@ const Chat = () => {
       const classNameForRequest = selectedClass === null ? "null" : selectedClass;
       const chatData = await sendChatRequest(content, classNameForRequest, currentChatSessionId);
 
+      // Debug log chunk data
+      console.log("DEBUG: chunk data from server =>", chatData.chunks);
+
+      setChunks(chatData.chunks || []);
+
       const assistantMsg =
         chatData.messages.length > 0
           ? chatData.messages[chatData.messages.length - 1]
@@ -219,7 +221,7 @@ const Chat = () => {
         setChatMessages(chatData.messages);
         setIsGenerating(false);
 
-        // If brand new session
+        // If it's a new session
         if (!currentChatSessionId && chatData.chatSessionId) {
           setCurrentChatSessionId(chatData.chatSessionId);
           setChatSessions((prev) => [
@@ -255,6 +257,7 @@ const Chat = () => {
       // Temporarily remove final assistant message for streaming
       const updated = [...chatData.messages];
       updated.pop();
+
       setChatMessages(updated);
 
       if (chatData.assignedClass !== undefined) {
@@ -269,6 +272,7 @@ const Chat = () => {
         setPartialAssistantMessage(full.substring(0, i));
         if (i >= full.length) {
           clearInterval(interval);
+
           const finalMessages = [...updated, { ...assistantMsg, content: full }];
           setChatMessages(finalMessages);
           setIsGenerating(false);
@@ -300,7 +304,7 @@ const Chat = () => {
         }
       }, 10);
     } catch (error) {
-      console.error(error);
+      console.error("Error in handleSubmit:", error);
       toast.error("Failed to send message");
       setIsGenerating(false);
     }
@@ -337,7 +341,7 @@ const Chat = () => {
       setIsNamingChat(false);
       setNewChatName("");
     } catch (err) {
-      console.error(err);
+      console.error("Error creating new chat session:", err);
       toast.error("Failed to create new chat session");
     }
   };
@@ -381,7 +385,7 @@ const Chat = () => {
         }
       }
     } catch (error) {
-      console.error(error);
+      console.error("Error deleting chat session:", error);
       toast.error("Failed to delete chat session");
     }
   };
@@ -398,7 +402,7 @@ const Chat = () => {
       setSelectedClass(null);
       toast.success("All chat sessions deleted");
     } catch (error) {
-      console.error(error);
+      console.error("Error deleting all chat sessions:", error);
       toast.error("Failed to delete all chat sessions");
     }
   };
@@ -600,7 +604,7 @@ const Chat = () => {
         {/* Header Section */}
         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           {/* Class Selector */}
-          <TextField
+          <TextField  
             id="class-select"
             select
             label="Select Class"
@@ -608,6 +612,7 @@ const Chat = () => {
             onChange={handleClassChange}
             variant="outlined"
             sx={{
+              mt: 2,
               "& .MuiSvgIcon-root": {
                 color: "white",
               },
@@ -652,7 +657,7 @@ const Chat = () => {
         </Box>
 
         {chatMessages.length === 0 && partialAssistantMessage === "" ? (
-          // If no messages, show initial view
+          // If no messages, show an initial helpful view
           <Box
             sx={{
               display: "flex",
@@ -699,29 +704,21 @@ const Chat = () => {
                     fontSize: "18px",
                   }}
                 />
-                {
-                  !isGenerating ? (
-                    // Normal "Send" button
-                    <IconButton onClick={handleSubmit} sx={{ color: "white", mx: 1 }}>
-                      <IoMdSend />
-                    </IconButton>
-                  ) : (
-                    // "Stop" button with a small square
-                    <IconButton
-                      onClick={handleStop}
-                      sx={{ color: "white", mx: 1 }}
-                    >
-                      {/* A simple square icon (16x16) */}
-                      <Box
-                        sx={{
-                          width: 16,
-                          height: 16,
-                          backgroundColor: "white",
-                        }}
-                      />
-                    </IconButton>
-                  )
-                }
+                {!isGenerating ? (
+                  <IconButton onClick={handleSubmit} sx={{ color: "white", mx: 1 }}>
+                    <IoMdSend />
+                  </IconButton>
+                ) : (
+                  <IconButton onClick={handleStop} sx={{ color: "white", mx: 1 }}>
+                    <Box
+                      sx={{
+                        width: 16,
+                        height: 16,
+                        backgroundColor: "white",
+                      }}
+                    />
+                  </IconButton>
+                )}
               </Box>
             </Box>
 
@@ -747,7 +744,13 @@ const Chat = () => {
               }}
             >
               {chatMessages.map((chat, index) => (
-                <ChatItem key={index} content={chat.content} role={chat.role} citation={chat.citation} />
+                <ChatItem
+                  key={index}
+                  content={chat.content}
+                  role={chat.role}
+                  citation={chat.citation}
+                  chunks={chunks}
+                />
               ))}
 
               {/* If we are streaming partial text, show partial */}
@@ -756,18 +759,21 @@ const Chat = () => {
                   content={partialAssistantMessage}
                   role="assistant"
                   citation={[]}
+                  chunks={chunks}
                 />
               )}
 
-              {/* Use loader ONLY */}
+              {/* Loader if no partial text yet */}
               {isGenerating && partialAssistantMessage === "" && (
-                <Box sx={{ 
-                  display: "flex", 
-                  alignItems: "center", 
-                  m: 1,
-                  transform: "scale(0.25)",
-                  transformOrigin: "left top" 
-                  }}>
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    m: 1,
+                    transform: "scale(0.25)",
+                    transformOrigin: "left top",
+                  }}
+                >
                   <Loader />
                 </Box>
               )}
@@ -801,29 +807,21 @@ const Chat = () => {
                   fontSize: "18px",
                 }}
               />
-
-              {
-                !isGenerating ? (
-                  /* Normal "Send" button */
-                  <IconButton onClick={handleSubmit} sx={{ color: "white", mx: 1 }}>
-                    <IoMdSend />
-                  </IconButton>
-                ) : (
-                  /* "Stop" button (square icon) */
-                  <IconButton
-                    onClick={handleStop}
-                    sx={{ color: "white", mx: 1 }}
-                  >
-                    <Box
-                      sx={{
-                        width: 16,
-                        height: 16,
-                        backgroundColor: "white",
-                      }}
-                    />
-                  </IconButton>
-                )
-              }
+              {!isGenerating ? (
+                <IconButton onClick={handleSubmit} sx={{ color: "white", mx: 1 }}>
+                  <IoMdSend />
+                </IconButton>
+              ) : (
+                <IconButton onClick={handleStop} sx={{ color: "white", mx: 1 }}>
+                  <Box
+                    sx={{
+                      width: 16,
+                      height: 16,
+                      backgroundColor: "white",
+                    }}
+                  />
+                </IconButton>
+              )}
             </Box>
           </>
         )}

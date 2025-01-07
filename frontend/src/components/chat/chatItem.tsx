@@ -1,32 +1,26 @@
-import React from "react";
-import { Box, Avatar } from "@mui/material";
+import React, { useState } from "react";
+import { Box, Avatar, IconButton } from "@mui/material";
 import { useAuth } from "../../context/authContext";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { coldarkDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import CloseIcon from "@mui/icons-material/Close";
 
 /* ------------------------------
    HELPERS: detect code blocks
    ------------------------------ */
 function extractCodeFromString(message: string) {
-  // If the LLM response contains triple backticks ```,
-  // we split on them. E.g., "text ```code``` more text"
-  // returns ["text ", "code", " more text"].
   if (message.includes("```")) {
     return message.split("```");
   }
-  return [message]; // fallback: entire message is one block
+  return [message];
 }
 
 function isCodeBlock(str: string) {
-  // Basic heuristic to decide if the block is code.
-  // Adjust if needed to fit your syntax detection logic.
+  // Basic heuristic to guess if the block is code
   if (
-    str.includes("=") ||
     str.includes(";") ||
-    str.includes("[") ||
-    str.includes("]") ||
     str.includes("{") ||
     str.includes("}") ||
     str.includes("#") ||
@@ -34,22 +28,175 @@ function isCodeBlock(str: string) {
   ) {
     return true;
   }
-  return false;
 }
 
 /* ------------------------------
    TYPES
    ------------------------------ */
+type Citation = { href: string | null; text: string };
+
+type ChunkData = {
+  chunkNumber: number;
+  text: string;
+};
+
 type ChatItemProps = {
   content: string;
   role: "user" | "assistant";
-  citation?: { href: string | null; text: string }[];
+  citation?: Citation[];
+  chunks?: ChunkData[];
 };
 
-const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation }) => {
+/**
+ * A small tooltip-like popup for chunk text
+ */
+const CitationPopup: React.FC<{
+  chunkText: string;
+  x: number;
+  y: number;
+  onClose: () => void;
+}> = ({ chunkText, x, y, onClose }) => {
+  return (
+    <Box
+      sx={{
+        position: "fixed",
+        top: y,
+        left: x,
+        width: 300,
+        maxHeight: 300,
+        overflowY: "auto",
+        bgcolor: "white",
+        color: "black",
+        p: 2,
+        boxShadow: 8,
+        borderRadius: 2,
+        zIndex: 9999,
+      }}
+    >
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          mb: 1,
+        }}
+      >
+        <strong>Referenced Text</strong>
+        <IconButton
+          size="small"
+          onClick={onClose}
+          sx={{ color: "black", ml: 1 }}
+        >
+          <CloseIcon />
+        </IconButton>
+      </Box>
+      <Box
+        sx={{
+          fontSize: "14px",
+          lineHeight: 1.4,
+          whiteSpace: "pre-wrap",
+        }}
+      >
+        {chunkText}
+      </Box>
+    </Box>
+  );
+};
+
+const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation, chunks }) => {
   const auth = useAuth();
-  // Split the message into blocks (code vs. non-code)
+
+  // State for popup
+  const [popupData, setPopupData] = useState<{
+    open: boolean;
+    chunkText: string;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  // Break the LLM message into blocks (code vs. non-code)
   const messageBlocks = extractCodeFromString(content);
+
+  /**
+   * Convert bracket references "[1]" etc. into clickable <span>.
+   * When clicked, show the chunk text in a floating popup near the cursor.
+   * We also clamp x,y so the popup doesn't spill off-screen.
+   */
+  const parseBrackets = (text: string): React.ReactNode[] => {
+    const bracketRegex = /\[(\d+)\]/g;
+    const parts: React.ReactNode[] = [];
+
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = bracketRegex.exec(text)) !== null) {
+      const index = match.index;
+      const bracketNumber = match[1]; // e.g. "1" or "2"
+
+      // Text before the bracket
+      if (index > lastIndex) {
+        parts.push(text.slice(lastIndex, index));
+      }
+
+      parts.push(
+        <span
+          key={`bracket-${index}`}
+          style={{ color: "blue", cursor: "pointer" }}
+          onClick={(e) => {
+            e.stopPropagation();
+            console.log("Clicked bracket =>", bracketNumber);
+            const chunk = chunks?.find(
+              (c) => c.chunkNumber === Number(bracketNumber)
+            );
+            console.log("Found chunk =>", chunk);
+
+            if (chunk) {
+              // We'll define a popup width/height
+              const popupWidth = 300;
+              const popupHeight = 300;
+
+              // Start with the raw position
+              let xPos = e.clientX + 10;
+              let yPos = e.clientY + window.scrollY + 10;
+
+              // Now clamp horizontally (so it doesn't go off the right edge)
+              if (xPos + popupWidth > window.innerWidth) {
+                xPos = window.innerWidth - popupWidth - 10;
+              }
+
+              // Now clamp vertically (so it doesn't go off the bottom edge)
+              // Remember the user might be scrolled down so we consider window.scrollY
+              const fullHeight = window.innerHeight + window.scrollY;
+              if (yPos + popupHeight > fullHeight) {
+                yPos = fullHeight - popupHeight - 10;
+              }
+
+              setPopupData({
+                open: true,
+                chunkText: chunk.text,
+                x: xPos,
+                y: yPos,
+              });
+            } else {
+              console.error(
+                `No chunk found for bracket [${bracketNumber}] in parseBrackets.`
+              );
+            }
+          }}
+        >
+          [{bracketNumber}]
+        </span>
+      );
+
+      lastIndex = bracketRegex.lastIndex;
+    }
+
+    // Remaining text after the last bracket
+    if (lastIndex < text.length) {
+      parts.push(text.slice(lastIndex));
+    }
+    return parts;
+  };
 
   return (
     <Box
@@ -84,7 +231,7 @@ const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation }) => {
           const trimmed = block.trim();
 
           if (isCodeBlock(trimmed)) {
-            // Render as code block
+            // Render code block
             return (
               <SyntaxHighlighter
                 key={idx}
@@ -114,19 +261,37 @@ const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation }) => {
               </SyntaxHighlighter>
             );
           } else {
-            // Render as Markdown text, wrapped in a Box with custom font/spacing
+            // Non-code block
+            // Parse bracket references first
+            const bracketedNodes = parseBrackets(trimmed);
+
+            // Then feed each text segment to ReactMarkdown
             return (
               <Box
                 key={idx}
                 sx={{
                   fontSize: "18px",
                   lineHeight: 2,
-                  mb: 2, // bottom margin for spacing
+                  mb: 2,
+                  color: "white",
                 }}
               >
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {trimmed}
-                </ReactMarkdown>
+                {bracketedNodes.map((node, i) => {
+                  if (typeof node === "string") {
+                    // If it's just a normal text segment
+                    return (
+                      <ReactMarkdown
+                        key={`txt-${i}`}
+                        remarkPlugins={[remarkGfm]}
+                        components={{ p: ({ children }) => <>{children}</> }}
+                      >
+                        {node}
+                      </ReactMarkdown>
+                    );
+                  }
+                  // It's our clickable bracket <span> or any React element
+                  return node;
+                })}
               </Box>
             );
           }
@@ -177,6 +342,16 @@ const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation }) => {
           </Box>
         )}
       </Box>
+
+      {/* Popup for chunk text */}
+      {popupData && popupData.open && (
+        <CitationPopup
+          chunkText={popupData.chunkText}
+          x={popupData.x}
+          y={popupData.y}
+          onClose={() => setPopupData(null)}
+        />
+      )}
     </Box>
   );
 };

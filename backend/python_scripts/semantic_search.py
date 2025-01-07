@@ -109,17 +109,13 @@ def get_file_citation(search_results):
         s3_key = result.get('file_name')  # Assuming 'file_name' contains the unique identifier
         file_title = result.get('file_name')
 
-        if s3_key and s3_key not in seen_files:  # Check if the file has not been added yet
-            seen_files.add(s3_key)  # Mark the file as seen
-
-            # URL-encode the s3_key to safely include it in the URL
+        if s3_key and s3_key not in seen_files:
+            seen_files.add(s3_key)
             encoded_s3_key = quote(s3_key, safe='')
-            # Create a link to your download endpoint
             download_url = f"{backend_url}/download?s3_key={encoded_s3_key}"
-            # Append the link and text to the citations list
             citations.append({"href": download_url, "text": file_title})
-        elif not s3_key:  # Handle the case where the file name is missing
-            if file_title not in seen_files:  # Prevent duplicate titles as well
+        elif not s3_key:
+            if file_title not in seen_files:
                 seen_files.add(file_title)
                 citations.append({"href": None, "text": file_title})
 
@@ -128,7 +124,6 @@ def get_file_citation(search_results):
 def format_prompt(template, **kwargs):
     """Format the given template with the provided keyword arguments, escaping curly braces in context."""
     if 'context' in kwargs:
-        # Escape curly braces in context to prevent them from being treated as variables
         kwargs['context'] = kwargs['context'].replace('{', '{{').replace('}', '}}')
     prompt = PromptTemplate.from_template(template)
     formatted_prompt = prompt.format(**kwargs)
@@ -149,7 +144,6 @@ def construct_chain(prompt_template, user_query, chat_history):
     parser = StrOutputParser()
     chain = prompt_template | llm | parser
     response = chain.invoke({"chat_history": chat_history, "input": user_query})
-
     return response
 
 def semantic_router(user_query):
@@ -190,7 +184,6 @@ def semantic_router(user_query):
         ]
     )
 
-    # List of all routes
     routes = [
         general_qa,
         generate_study_guide,
@@ -201,7 +194,6 @@ def semantic_router(user_query):
     rl = RouteLayer(encoder=encoder, routes=routes)
 
     route_name = rl(user_query).name
-
     if route_name is None:
         return "general_qa"
     else:
@@ -221,11 +213,8 @@ def message_to_dict(message):
 
 def main():
     """Main function to handle user interactions and perform semantic search."""
-    # Load prompts from JSON file
     prompts = load_prompts('/Users/rileydrake/Desktop/AIStudyBuddy/backend/prompts.json')
 
-    # Get user_id, class_name, message, chat history, and source from command-line arguments
-    # Expected order: user_id, class_name, message, chat_history, source
     if len(sys.argv) < 6:
         print("Error: Not enough arguments provided.", file=sys.stderr)
         sys.exit(1)
@@ -236,13 +225,13 @@ def main():
     chat_history = json.loads(sys.argv[4])
     source = sys.argv[5].lower()  # 'chrome_extension' or 'main_app'
 
-    # Log the source for debugging
     print(f"Source: {source}", file=sys.stderr)
 
-    # Filter chat_history to include only role and content (not citation)
-    chat_history_cleaned = [{"role": chat["role"], "content": escape_curly_braces(chat["content"])} for chat in chat_history]
+    chat_history_cleaned = [
+        {"role": chat["role"], "content": escape_curly_braces(chat["content"])} 
+        for chat in chat_history
+    ]
 
-    # Rephrase the user query for semantic search
     rephrase_prompt = PromptTemplate(
         template="""You are an assistant tasked with taking a natural language query from a user
                     and converting it into a query for a vectorstore. In the process, strip out all 
@@ -255,47 +244,62 @@ def main():
     )
 
     semantic_query = construct_chain(rephrase_prompt, user_query, chat_history_cleaned)
-
     route = semantic_router(semantic_query)
     print(f"Route: {route}", file=sys.stderr)
 
-    # Create embeddings for the query
     query_vector = create_embedding(semantic_query)
     filters = {"user_id": {"$eq": user_id}}
-    # Optionally add class_name or class_id if provided
-    if class_name and class_name != "null":  # Only include class_id if provided
+    if class_name and class_name != "null":
         filters["class_id"] = {"$eq": class_name}
 
     print(f"filter: {filters}", file=sys.stderr)
 
-    # Perform semantic search
     search_results = perform_semantic_search(query_vector, filters)
     similarity_results = [doc for doc in search_results]
-    filtered_results = [doc for doc in similarity_results if doc['score'] > 0.10]
+    filtered_results = [doc for doc in similarity_results if doc['score'] > 0.35]
 
     print(f"results: {search_results}", file=sys.stderr)
     print(f"processed results: {similarity_results}", file=sys.stderr)
-    #json.dumps({"results": similarity_results})
 
-    # Determine which prompt to use based on the source
     if source == "chrome_extension":
         selected_prompt = prompts.get("chrome_extension")
         if not selected_prompt:
             print("Error: 'chrome_extension' prompt not found in prompts.json", file=sys.stderr)
             sys.exit(1)
-        # For chrome_extension, ensure that 'question' is included
-        context = " ".join([doc['text'] for doc in filtered_results])
-        formatted_prompt = format_prompt(selected_prompt, context=context)
+
+        context_list = []
+        for idx, doc in enumerate(filtered_results):
+            labeled_text = f"Chunk {idx+1}: {doc['text']}"
+            context_list.append(labeled_text)
+        context = "\n\n".join(context_list)
+
+        referencing_instruction = (
+            "Whenever you use content from a given chunk in your final answer, "
+            "place a bracketed reference [1], [2], [3], etc. at the end of the relevant sentence.\n\n"
+        )
+        enhanced_prompt = referencing_instruction + selected_prompt
+        formatted_prompt = format_prompt(enhanced_prompt, context=context)
+
     else:
-        # Use existing routing based prompts
         selected_prompt = prompts.get(route)
         if not selected_prompt:
             print(f"Error: Prompt for route '{route}' not found in prompts.json", file=sys.stderr)
             sys.exit(1)
-        context = " ".join([doc['text'] for doc in filtered_results])
-        formatted_prompt = format_prompt(selected_prompt, context=context)
 
-    # Prepare the chat prompt template
+        context_list = []
+        for idx, doc in enumerate(filtered_results):
+            labeled_text = f"Chunk {idx+1}: {doc['text']}"
+            context_list.append(labeled_text)
+        context = "\n\n".join(context_list)
+
+        referencing_instruction = (
+            "Whenever you use content from a given chunk in your final answer, "
+            "place a bracketed reference [1], [2], [3], etc. at the end of the relevant sentence.\n\n"
+        )
+        enhanced_prompt = referencing_instruction + selected_prompt
+        formatted_prompt = format_prompt(enhanced_prompt, context=context)
+
+
     prompt_template = ChatPromptTemplate.from_messages([
         ("system", formatted_prompt),
         MessagesPlaceholder(variable_name="chat_history"),
@@ -303,12 +307,37 @@ def main():
     ])
 
     citation = get_file_citation(similarity_results)
-
-    # Call LLM chain
     response = construct_chain(prompt_template, user_query, chat_history_cleaned)
 
-    # Print the response as JSON to be captured by the Node.js script
-    print(json.dumps({"message": response, "citation": citation, "chats": chat_history,}))
+    # Build an ordered list of chunks for returning to the controller
+    chunk_array = []
+    for idx, doc in enumerate(filtered_results):
+        chunk_array.append({
+            "chunkNumber": idx + 1,
+            "text": doc["text"]
+        })
+
+    print(f"context: {chunk_array}", file=sys.stderr)
+
+    # Construct the final JSON output
+    json_output = json.dumps({
+        "message": response,
+        "citation": citation,
+        "chats": chat_history,
+        "chunks": chunk_array
+    })
+
+    # Print a debug message to stderr so you can see it in logs or Docker output
+    print("DEBUG: JSON to be returned by semantic_search.py:", json_output, file=sys.stderr)
+
+
+    # Return JSON that includes the new "chunks"
+    print(json.dumps({
+        "message": response,
+        "citation": citation,
+        "chats": chat_history,
+        "chunks": chunk_array
+    }))
 
 if __name__ == "__main__":
     try:

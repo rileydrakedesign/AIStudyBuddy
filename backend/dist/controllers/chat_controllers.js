@@ -13,7 +13,7 @@ export const createNewChatSession = async (req, res, next) => {
         const source = sourceHeader === "chrome_extension" ? "chrome_extension" : "main_app";
         // Now extension can create new sessions as well
         const chatSession = await ChatSession.create({
-            _id: req.body.chatSessionId ?? undefined, // If you want the extension to specify the _id here
+            _id: req.body.chatSessionId ?? undefined,
             userId: currentUser._id,
             sessionName: req.body.name || "New Chat",
             messages: [],
@@ -152,6 +152,7 @@ export const generateChatCompletion = async (req, res, next) => {
             }
             const aiResponse = resultMessage.message;
             const citation = resultMessage.citation;
+            const chunks = resultMessage.chunks || [];
             // Append assistant's response
             chatSession.messages.push({
                 content: aiResponse,
@@ -159,10 +160,12 @@ export const generateChatCompletion = async (req, res, next) => {
                 citation,
             });
             await chatSession.save();
+            // Return chunks as well so the frontend can handle them
             return res.status(200).json({
                 chatSessionId: chatSession._id,
                 messages: chatSession.messages,
                 assignedClass: chatSession.assignedClass,
+                chunks: chunks,
             });
         });
     }
@@ -180,7 +183,6 @@ export const deleteChatSession = async (req, res, next) => {
                 .status(401)
                 .send("User not registered or token malfunctioned");
         }
-        // Because _id is a string, we can do:
         const chatSession = await ChatSession.findOneAndDelete({
             _id: chatSessionId,
             userId: currentUser._id,

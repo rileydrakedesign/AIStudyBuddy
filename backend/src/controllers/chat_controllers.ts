@@ -23,7 +23,7 @@ export const createNewChatSession = async (
 
     // Now extension can create new sessions as well
     const chatSession = await ChatSession.create({
-      _id: req.body.chatSessionId ?? undefined, // If you want the extension to specify the _id here
+      _id: req.body.chatSessionId ?? undefined,
       userId: currentUser._id,
       sessionName: req.body.name || "New Chat",
       messages: [],
@@ -194,6 +194,8 @@ export const generateChatCompletion = async (
 
         const aiResponse = resultMessage.message;
         const citation = resultMessage.citation;
+        const chunks = resultMessage.chunks || [];
+
 
         // Append assistant's response
         chatSession.messages.push({
@@ -204,10 +206,12 @@ export const generateChatCompletion = async (
 
         await chatSession.save();
 
+        // Return chunks as well so the frontend can handle them
         return res.status(200).json({
           chatSessionId: chatSession._id,
           messages: chatSession.messages,
           assignedClass: chatSession.assignedClass,
+          chunks: chunks,
         });
       }
     );
@@ -231,7 +235,6 @@ export const deleteChatSession = async (
         .send("User not registered or token malfunctioned");
     }
 
-    // Because _id is a string, we can do:
     const chatSession = await ChatSession.findOneAndDelete({
       _id: chatSessionId,
       userId: currentUser._id,
