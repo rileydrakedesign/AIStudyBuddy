@@ -40,7 +40,7 @@ export const chatCompletionValidator = [
     .withMessage("Class name must be a string"),
   body("chatSessionId")
     .optional()
-    .isMongoId()
+    .isString()
     .withMessage("Invalid chat session ID"),
 ];
 

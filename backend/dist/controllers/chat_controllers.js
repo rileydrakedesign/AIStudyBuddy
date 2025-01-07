@@ -1,28 +1,23 @@
+// controllers/chat_controllers.js
 import User from "../models/user.js";
 import ChatSession from "../models/chatSession.js";
 import { execFile } from "child_process";
-// Function to create a new chat session
 export const createNewChatSession = async (req, res, next) => {
     try {
         const currentUser = await User.findById(res.locals.jwtData.id);
         if (!currentUser) {
             return res.status(401).send("User not registered or token malfunctioned");
         }
-        // Determine the source from headers
+        // Determine source
         const sourceHeader = req.headers["x-source"];
         const source = sourceHeader === "chrome_extension" ? "chrome_extension" : "main_app";
-        // If request is from the extension, block new sessions
-        if (source === "chrome_extension") {
-            return res.status(403).json({
-                message: "Cannot create new chat session from Chrome extension.",
-            });
-        }
+        // Now extension can create new sessions as well
         const chatSession = await ChatSession.create({
+            _id: req.body.chatSessionId ?? undefined, // If you want the extension to specify the _id here
             userId: currentUser._id,
             sessionName: req.body.name || "New Chat",
             messages: [],
             source,
-            // assignedClass: null by default
         });
         return res
             .status(201)
@@ -33,23 +28,19 @@ export const createNewChatSession = async (req, res, next) => {
         return res.status(500).json({ message: "ERROR", cause: error.message });
     }
 };
-// Function to get all chat sessions for the user
 export const getUserChatSessions = async (req, res, next) => {
     try {
         const currentUser = await User.findById(res.locals.jwtData.id);
         if (!currentUser) {
             return res.status(401).send("User not registered or token malfunctioned");
         }
-        // Determine if this request is from the extension
         const sourceHeader = req.headers["x-source"];
         const isExtension = sourceHeader === "chrome_extension";
-        // Filter sessions by source
         const query = {
             userId: currentUser._id,
             source: isExtension ? "chrome_extension" : "main_app",
         };
         const chatSessions = await ChatSession.find(query);
-        // **Return the assignedClass** so the frontend knows which class is selected
         return res.status(200).json({ chatSessions });
     }
     catch (error) {
@@ -57,10 +48,8 @@ export const getUserChatSessions = async (req, res, next) => {
         return res.status(500).json({ message: "ERROR", cause: error.message });
     }
 };
-// Function to generate chat completion (send a message in a chat session)
 export const generateChatCompletion = async (req, res, next) => {
     const { message, class_name, chatSessionId } = req.body;
-    // We'll store class_name in assignedClass if it's not "null"
     const classNameForPython = class_name && class_name !== "null" ? class_name : null;
     try {
         const currentUser = await User.findById(res.locals.jwtData.id);
@@ -74,49 +63,42 @@ export const generateChatCompletion = async (req, res, next) => {
         const source = sourceHeader === "chrome_extension" ? "chrome_extension" : "main_app";
         let chatSession;
         if (chatSessionId) {
-            // Find existing session
+            // Attempt to find with string _id
             chatSession = await ChatSession.findOne({
                 _id: chatSessionId,
                 userId,
             });
             if (!chatSession) {
-                return res.status(404).json({ message: "Chat session not found" });
-            }
-            if (chatSession.source !== source) {
-                return res
-                    .status(400)
-                    .json({ message: "Chat session source mismatch" });
-            }
-        }
-        else {
-            // No chatSessionId
-            if (source === "chrome_extension") {
-                chatSession = await ChatSession.findOne({
-                    userId,
-                    source: "chrome_extension",
-                });
-                if (!chatSession) {
-                    // Create single extension chat session
-                    chatSession = await ChatSession.create({
-                        userId,
-                        sessionName: "Extension Chat",
-                        messages: [],
-                        source: "chrome_extension",
-                    });
-                }
-            }
-            else {
-                // main_app => create new
+                // If not found, create a new doc with that string ID
                 chatSession = new ChatSession({
+                    _id: chatSessionId,
                     userId,
-                    sessionName: "New Chat",
+                    sessionName: source === "chrome_extension" ? "Extension Chat" : "New Chat",
                     messages: [],
-                    source: "main_app",
+                    source,
                 });
                 await chatSession.save();
             }
+            else {
+                // If found, check source match
+                if (chatSession.source !== source) {
+                    return res
+                        .status(400)
+                        .json({ message: "Chat session source mismatch" });
+                }
+            }
         }
-        // **If a class_name is provided (and not "null"), store it**
+        else {
+            // No chatSessionId => always create a new session
+            chatSession = new ChatSession({
+                userId,
+                sessionName: source === "chrome_extension" ? "Extension Chat" : "New Chat",
+                messages: [],
+                source,
+            });
+            await chatSession.save();
+        }
+        // If a class_name is provided, store it
         if (classNameForPython) {
             chatSession.assignedClass = classNameForPython;
         }
@@ -132,7 +114,6 @@ export const generateChatCompletion = async (req, res, next) => {
             content,
             citation,
         }));
-        // Debug logs
         console.log(`User ID: ${userId}`);
         console.log(`Source: ${source}`);
         console.log(`Assigned Class: ${chatSession.assignedClass || "none"}`);
@@ -144,11 +125,10 @@ export const generateChatCompletion = async (req, res, next) => {
                 MONGO_CONNECTION_STRING: process.env.MONGO_CONNECTION_STRING,
             },
         };
-        // Execute Python
         execFile(pythonPath, [
             scriptPath,
             userId.toString(),
-            chatSession.assignedClass || "null", // pass the stored class to Python
+            chatSession.assignedClass || "null",
             message,
             JSON.stringify(chats),
             source,
@@ -166,7 +146,9 @@ export const generateChatCompletion = async (req, res, next) => {
             }
             catch (parseError) {
                 console.error("Error parsing Python script output:", parseError);
-                return res.status(500).json({ message: "Invalid response from backend" });
+                return res
+                    .status(500)
+                    .json({ message: "Invalid response from backend" });
             }
             const aiResponse = resultMessage.message;
             const citation = resultMessage.citation;
@@ -176,12 +158,10 @@ export const generateChatCompletion = async (req, res, next) => {
                 role: "assistant",
                 citation,
             });
-            // **Save updated session** (includes assignedClass)
             await chatSession.save();
             return res.status(200).json({
                 chatSessionId: chatSession._id,
                 messages: chatSession.messages,
-                // **Return assignedClass** so the frontend can sync if needed
                 assignedClass: chatSession.assignedClass,
             });
         });
@@ -191,7 +171,6 @@ export const generateChatCompletion = async (req, res, next) => {
         return res.status(500).json({ message: "Something went wrong" });
     }
 };
-// Function to delete a specific chat session
 export const deleteChatSession = async (req, res, next) => {
     try {
         const { chatSessionId } = req.params;
@@ -201,6 +180,7 @@ export const deleteChatSession = async (req, res, next) => {
                 .status(401)
                 .send("User not registered or token malfunctioned");
         }
+        // Because _id is a string, we can do:
         const chatSession = await ChatSession.findOneAndDelete({
             _id: chatSessionId,
             userId: currentUser._id,
@@ -215,17 +195,14 @@ export const deleteChatSession = async (req, res, next) => {
         return res.status(500).json({ message: "ERROR", cause: error.message });
     }
 };
-// Function to delete all chat sessions for the user
 export const deleteAllChatSessions = async (req, res, next) => {
     try {
-        // User token check
         const currentUser = await User.findById(res.locals.jwtData.id);
         if (!currentUser) {
             return res
                 .status(401)
                 .send("User not registered or token malfunctioned");
         }
-        // Delete all chat sessions for the user
         await ChatSession.deleteMany({ userId: currentUser._id });
         return res.status(200).json({ message: "All chat sessions deleted" });
     }

@@ -1,11 +1,12 @@
+// models/chatSession.js
 import mongoose from "mongoose";
 import { randomUUID } from "crypto";
 
-// Define the Citation schema
+// Citation schema
 export const citationSchema = new mongoose.Schema({
   href: {
     type: String,
-    required: false, // href can be null
+    required: false,
   },
   text: {
     type: String,
@@ -33,30 +34,43 @@ const messageSchema = new mongoose.Schema({
   },
 });
 
-const chatSessionSchema = new mongoose.Schema({
-  userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User",
-    required: true,
+// We define our ChatSession schema with a string-based _id
+const chatSessionSchema = new mongoose.Schema(
+  {
+    _id: {
+      type: String, // <--- store extension's random ID as the session _id
+      default: () => randomUUID(),
+    },
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    sessionName: {
+      type: String,
+      default: "New Chat",
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+    messages: [messageSchema],
+    assignedClass: {
+      type: String,
+      default: null,
+    },
+    source: {
+      type: String,
+      enum: ["main_app", "chrome_extension"],
+      default: "main_app",
+    },
   },
-  sessionName: {
-    type: String,
-    default: "New Chat",
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now,
-  },
-  messages: [messageSchema],
-  assignedClass: {
-    type: String,
-    default: null, 
-  },
-  source: {
-    type: String,
-    enum: ["main_app", "chrome_extension"],
-    default: "main_app",
-  },
-});
+  {
+    _id: false // tells Mongoose not to auto-generate an ObjectId
+  }
+);
+
+// If you want to ensure uniqueness, you can add an index:
+chatSessionSchema.index({ _id: 1 }, { unique: true });
 
 export default mongoose.model("ChatSession", chatSessionSchema);
