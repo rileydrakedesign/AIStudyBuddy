@@ -14,6 +14,7 @@ import {
   ListSubheader,
   Divider,
   ListItemIcon,
+  Collapse,
 } from "@mui/material";
 import red from "@mui/material/colors/red";
 import { useAuth } from "../context/authContext";
@@ -27,6 +28,7 @@ import {
   deleteAllChatSessions,
   sendChatRequest,
   getUserClasses,
+  getClassDocuments,
 } from "../helpers/api-communicators";
 import toast from "react-hot-toast";
 import ChatBubbleIcon from "@mui/icons-material/ChatBubble";
@@ -34,6 +36,7 @@ import StyleIcon from "@mui/icons-material/Style";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import Loader from "../components/ui/loader";
+import { ExpandLess, ExpandMore } from "@mui/icons-material";
 
 /* ------------------------------
    TYPES
@@ -59,6 +62,12 @@ type ClassOption = {
 type Chunk = {
   chunkNumber: number;
   text: string;
+};
+
+type DocumentItem = {
+  _id: string;
+  fileName: string;
+  className: string;
 };
 
 /* ------------------------------
@@ -88,6 +97,11 @@ const Chat = () => {
 
   // Chunk state for referencing
   const [chunks, setChunks] = useState<Chunk[]>([]);
+
+  // NEW: State for expanded class dropdown in sidebar
+  const [expandedClass, setExpandedClass] = useState<string | null>(null);
+  // NEW: Map of class name to its documents
+  const [classDocs, setClassDocs] = useState<{ [className: string]: DocumentItem[] }>({});
 
   // For auto-scroll
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -390,6 +404,31 @@ const Chat = () => {
     }
   };
 
+
+  /* ------------------------------
+     Sidebar: Classes Section with Document Dropdown
+     ------------------------------ */
+  // New state for class dropdown expansion and documents is defined above.
+
+  // Toggle expansion for a given class and fetch its documents if needed.
+  const handleToggleClass = async (clsName: string) => {
+    if (expandedClass === clsName) {
+      setExpandedClass(null);
+      return;
+    }
+    setExpandedClass(clsName);
+    // Only fetch if we haven't already retrieved documents for this class
+    if (!classDocs[clsName]) {
+      try {
+        const docs = await getClassDocuments(clsName);
+        setClassDocs((prev) => ({ ...prev, [clsName]: docs }));
+      } catch (err) {
+        console.error("Failed to fetch documents for class:", clsName, err);
+        toast.error("Failed to fetch documents for " + clsName);
+      }
+    }
+  };
+
   /* ------------------------------
      DELETE ALL CHAT SESSIONS
      ------------------------------ */
@@ -560,14 +599,17 @@ const Chat = () => {
 
           {/* Classes Section */}
           <List
-            sx={{
-              color: "white",
-            }}
+            sx={{ color: "white" }}
             subheader={
               <ListSubheader
                 component="div"
                 id="classes-list-subheader"
-                sx={{ bgcolor: "inherit", color: "white", fontSize: "1.2em", fontWeight: "bold" }}
+                sx={{
+                  bgcolor: "inherit",
+                  color: "white",
+                  fontSize: "1.2em",
+                  fontWeight: "bold",
+                }}
               >
                 <StyleIcon sx={{ mr: 1 }} />
                 Classes
@@ -580,11 +622,49 @@ const Chat = () => {
               </ListItemIcon>
               <ListItemText primary="New Class" sx={{ color: "white" }} />
             </ListItemButton>
-
             {classes.map((cls) => (
-              <ListItem key={cls._id} sx={{ pl: 3 }}>
-                <ListItemText primary={cls.name} />
-              </ListItem>
+              <React.Fragment key={cls._id}>
+                <ListItemButton sx={{ pl: 2 }} onClick={() => handleToggleClass(cls.name)}>
+                  <ListItemIcon sx={{ color: "white" }}>
+                    {expandedClass === cls.name ? <ExpandLess /> : <ExpandMore />}
+                  </ListItemIcon>
+                  <ListItemText primary={cls.name} sx={{ color: "white" }} />
+                </ListItemButton>
+                <Collapse in={expandedClass === cls.name} timeout="auto" unmountOnExit>
+                  <List component="div" disablePadding sx={{ pl: 6 }}>
+                    {classDocs[cls.name] && classDocs[cls.name].length > 0 ? (
+                      classDocs[cls.name].map((doc) => (
+                        <ListItem key={doc._id} sx={{ color: "white" }}>
+                          <a
+                            //href={doc.s3Url} // Assumes your backend stores the document URL in s3Url
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              display: "inline-block",
+                              padding: "4px 8px",
+                              color: "#1976d2",
+                              textDecoration: "none",
+                              fontSize: "14px",
+                              fontWeight: 500,
+                            }}
+                          >
+                            {doc.fileName}
+                          </a>
+                        </ListItem>
+                      ))
+                    ) : classDocs[cls.name] ? (
+                      <ListItem sx={{ color: "gray" }}>
+                        <ListItemText primary="No documents found" />
+                      </ListItem>
+                    ) : (
+                      <ListItem sx={{ color: "gray" }}>
+                        <ListItemText primary="Loading documents..." />
+                      </ListItem>
+                    )}
+                  </List>
+                </Collapse>
+
+              </React.Fragment>
             ))}
           </List>
         </Box>

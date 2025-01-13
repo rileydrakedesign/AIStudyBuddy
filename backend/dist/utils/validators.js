@@ -46,7 +46,7 @@ export const chatSessionValidator = [
 ];
 export const chatSessionIdValidator = [
     param('chatSessionId')
-        .isMongoId()
+        .isString()
         .withMessage('Invalid chat session ID'),
 ];
 export const documentUploadValidator = [

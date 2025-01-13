@@ -107,3 +107,13 @@ export const getUserClasses = async () => {
   const data = await res.data;
   return data; // Should return an array of class objects (id and name)
 };
+
+export const getClassDocuments = async (className: string) => {
+  // Trim any extra spaces and encode the class name to handle spaces
+  const cleanedClassName = encodeURIComponent(className.trim());
+  const res = await axios.get(`/documents/get/${cleanedClassName}`);
+  if (res.status !== 200) {
+    throw new Error("Unable to fetch documents for class " + className);
+  }
+  return res.data; // Returns an array of document objects
+};

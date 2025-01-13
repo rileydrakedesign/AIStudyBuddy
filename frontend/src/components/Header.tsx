@@ -36,7 +36,7 @@ const Header: React.FC = () => {
               <NavigationLink
                 bg={isActive('/chat') ? '#2D3748' : '#1d2d44'}
                 to="/chat"
-                text="Go To Chat"
+                text="Chat"
                 textColor={isActive('/chat') ? '#00B5D8' : '#D1D5DB'} // Active and inactive text colors
                 hoverTextColor="#00B5D8" // Equivalent to text-cyan-400
                 icon={<ChatBubble sx={{ color: "#00B5D8" }} />} // Matching icon color
@@ -44,7 +44,7 @@ const Header: React.FC = () => {
               <NavigationLink
                 bg={isActive('/upload') ? '#2D3748' : '#1d2d44'}
                 to="/upload"
-                text="Upload Document"
+                text="Upload"
                 textColor={isActive('/upload') ? '#00B5D8' : '#D1D5DB'}
                 hoverTextColor="#00B5D8"
                 icon={<NewspaperIcon sx={{ color: "#00B5D8" }} />}

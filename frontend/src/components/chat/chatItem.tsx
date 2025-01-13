@@ -21,6 +21,7 @@ function isCodeBlock(str: string) {
   // Basic heuristic to guess if the block is code
   if (
     str.includes(";") ||
+    str.includes("<-") ||
     str.includes("{") ||
     str.includes("}") ||
     str.includes("#") ||

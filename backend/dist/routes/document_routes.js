@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { verifyToken } from "../utils/token_manager.js";
 import { documentUploadValidator, validate } from "../utils/validators.js";
-import { uploadDocument, getUserDocuments, getDocumentFile, deleteDocument, } from "../controllers/document_controllers.js";
+import { uploadDocument, getUserDocuments, getDocumentFile, deleteDocument, getDocumentsByClass, } from "../controllers/document_controllers.js";
 import { S3Client } from '@aws-sdk/client-s3';
 import multerS3 from 'multer-s3';
 import multer from 'multer';
@@ -51,5 +51,9 @@ getDocumentFile);
 documentRoutes.delete("/delete/:id", verifyToken, 
 //alidate(objectIdValidator),
 deleteDocument);
+// Route for getting class documents
+documentRoutes.get("/get/:className", verifyToken, 
+//alidate(objectIdValidator),
+getDocumentsByClass);
 export default documentRoutes;
 //# sourceMappingURL=document_routes.js.map

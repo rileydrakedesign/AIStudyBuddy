@@ -44,7 +44,7 @@ chatRoutes.get(
 chatRoutes.delete(
   "/session/:chatSessionId",
   verifyToken,
-  validate(chatSessionIdValidator),
+  //validate(chatSessionIdValidator),
   deleteChatSession
 );
 

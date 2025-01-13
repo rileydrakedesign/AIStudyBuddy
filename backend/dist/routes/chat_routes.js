@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { verifyToken } from "../utils/token_manager.js";
-import { chatCompletionValidator, validate, chatSessionValidator, chatSessionIdValidator } from "../utils/validators.js";
+import { chatCompletionValidator, validate, chatSessionValidator } from "../utils/validators.js";
 import { createNewChatSession, getUserChatSessions, generateChatCompletion, deleteChatSession, deleteAllChatSessions, } from "../controllers/chat_controllers.js";
 // Protected API
 const chatRoutes = Router();
@@ -11,7 +11,9 @@ chatRoutes.post("/new-session", verifyToken, validate(chatSessionValidator), cre
 // Get all chat sessions for the user
 chatRoutes.get("/sessions", verifyToken, getUserChatSessions);
 // Delete a specific chat session
-chatRoutes.delete("/session/:chatSessionId", verifyToken, validate(chatSessionIdValidator), deleteChatSession);
+chatRoutes.delete("/session/:chatSessionId", verifyToken, 
+//validate(chatSessionIdValidator),
+deleteChatSession);
 // Delete all chat sessions for the user
 chatRoutes.delete("/sessions", verifyToken, deleteAllChatSessions);
 export default chatRoutes;
