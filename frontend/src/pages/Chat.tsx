@@ -404,12 +404,9 @@ const Chat = () => {
     }
   };
 
-
   /* ------------------------------
      Sidebar: Classes Section with Document Dropdown
      ------------------------------ */
-  // New state for class dropdown expansion and documents is defined above.
-
   // Toggle expansion for a given class and fetch its documents if needed.
   const handleToggleClass = async (clsName: string) => {
     if (expandedClass === clsName) {
@@ -565,7 +562,8 @@ const Chat = () => {
               </ListItemButton>
             )}
 
-            {chatSessions.map((session) => (
+            {/* Reverse the chatSessions order so that the most recent appear first */}
+            {chatSessions.slice().reverse().map((session) => (
               <ListItemButton
                 key={session._id}
                 className="chat-list-item"
@@ -663,7 +661,6 @@ const Chat = () => {
                     )}
                   </List>
                 </Collapse>
-
               </React.Fragment>
             ))}
           </List>

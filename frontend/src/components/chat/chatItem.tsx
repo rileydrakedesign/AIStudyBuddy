@@ -3,32 +3,54 @@ import { Box, Avatar, IconButton } from "@mui/material";
 import { useAuth } from "../../context/authContext";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { coldarkDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import CloseIcon from "@mui/icons-material/Close";
 
 /* ------------------------------
-   HELPERS: detect code blocks
+   HELPER: robust extraction of code blocks
    ------------------------------ */
-function extractCodeFromString(message: string) {
-  if (message.includes("```")) {
-    return message.split("```");
-  }
-  return [message];
-}
 
-function isCodeBlock(str: string) {
-  // Basic heuristic to guess if the block is code
-  if (
-    str.includes(";") ||
-    str.includes("<-") ||
-    str.includes("{") ||
-    str.includes("}") ||
-    str.includes("#") ||
-    str.includes("//")
-  ) {
-    return true;
+/**
+ * Use regex to find code blocks delimited by triple backticks.
+ * This function returns an array of objects, where each object represents either a code block or a text block.
+ * The shape:
+ *   - { type: 'code', value: string, language?: string } for code blocks
+ *   - { type: 'text', value: string } for non-code text
+ */
+function extractBlocks(message: string): { type: "code" | "text"; value: string; language?: string }[] {
+  const blocks: { type: "code" | "text"; value: string; language?: string }[] = [];
+  const regex = /```(\w+)?\n([\s\S]*?)```/gm;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(message)) !== null) {
+    // Push text that appears before the code block match
+    if (match.index > lastIndex) {
+      blocks.push({
+        type: "text",
+        value: message.slice(lastIndex, match.index),
+      });
+    }
+    // match[1] is the optional language (if provided)
+    // match[2] is the code content.
+    blocks.push({
+      type: "code",
+      value: match[2],
+      language: match[1] || "javascript", // default language is javascript
+    });
+    lastIndex = regex.lastIndex;
   }
+  // Push any remaining text after the last code block
+  if (lastIndex < message.length) {
+    blocks.push({
+      type: "text",
+      value: message.slice(lastIndex),
+    });
+  }
+  return blocks;
 }
 
 /* ------------------------------
@@ -49,7 +71,7 @@ type ChatItemProps = {
 };
 
 /**
- * A small tooltip-like popup for chunk text
+ * A small tooltip-like popup for chunk text.
  */
 const CitationPopup: React.FC<{
   chunkText: string;
@@ -115,63 +137,46 @@ const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation, chunks }) 
     y: number;
   } | null>(null);
 
-  // Break the LLM message into blocks (code vs. non-code)
-  const messageBlocks = extractCodeFromString(content);
+  // Extract blocks (code vs text) using the regex-based function
+  const messageBlocks = extractBlocks(content);
 
   /**
    * Convert bracket references "[1]" etc. into clickable <span>.
    * When clicked, show the chunk text in a floating popup near the cursor.
-   * We also clamp x,y so the popup doesn't spill off-screen.
    */
   const parseBrackets = (text: string): React.ReactNode[] => {
     const bracketRegex = /\[(\d+)\]/g;
     const parts: React.ReactNode[] = [];
-
     let lastIndex = 0;
     let match: RegExpExecArray | null;
 
     while ((match = bracketRegex.exec(text)) !== null) {
       const index = match.index;
-      const bracketNumber = match[1]; // e.g. "1" or "2"
-
-      // Text before the bracket
+      const bracketNumber = match[1];
       if (index > lastIndex) {
         parts.push(text.slice(lastIndex, index));
       }
-
       parts.push(
         <span
           key={`bracket-${index}`}
           style={{ color: "blue", cursor: "pointer" }}
           onClick={(e) => {
             e.stopPropagation();
-            console.log("Clicked bracket =>", bracketNumber);
             const chunk = chunks?.find(
               (c) => c.chunkNumber === Number(bracketNumber)
             );
-            console.log("Found chunk =>", chunk);
-
             if (chunk) {
-              // We'll define a popup width/height
               const popupWidth = 300;
               const popupHeight = 300;
-
-              // Start with the raw position
               let xPos = e.clientX + 10;
               let yPos = e.clientY + window.scrollY + 10;
-
-              // Now clamp horizontally (so it doesn't go off the right edge)
               if (xPos + popupWidth > window.innerWidth) {
                 xPos = window.innerWidth - popupWidth - 10;
               }
-
-              // Now clamp vertically (so it doesn't go off the bottom edge)
-              // Remember the user might be scrolled down so we consider window.scrollY
               const fullHeight = window.innerHeight + window.scrollY;
               if (yPos + popupHeight > fullHeight) {
                 yPos = fullHeight - popupHeight - 10;
               }
-
               setPopupData({
                 open: true,
                 chunkText: chunk.text,
@@ -188,11 +193,8 @@ const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation, chunks }) 
           [{bracketNumber}]
         </span>
       );
-
       lastIndex = bracketRegex.lastIndex;
     }
-
-    // Remaining text after the last bracket
     if (lastIndex < text.length) {
       parts.push(text.slice(lastIndex));
     }
@@ -222,22 +224,19 @@ const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation, chunks }) 
       >
         {role === "assistant"
           ? null
-          : // e.g. user "John Doe" => "JD"
-            `${auth?.user?.name[0]}${auth?.user?.name.split(" ")[1][0]}`}
+          : `${auth?.user?.name[0]}${auth?.user?.name.split(" ")[1][0]}`}
       </Avatar>
 
       {/* Content */}
       <Box sx={{ flex: 1, maxWidth: "100%" }}>
         {messageBlocks.map((block, idx) => {
-          const trimmed = block.trim();
-
-          if (isCodeBlock(trimmed)) {
-            // Render code block
+          if (block.type === "code") {
+            // Render code block with syntax highlighter.
             return (
               <SyntaxHighlighter
                 key={idx}
                 style={coldarkDark}
-                language="javascript"
+                language={block.language}
                 customStyle={{
                   width: "100%",
                   boxSizing: "border-box",
@@ -258,15 +257,12 @@ const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation, chunks }) 
                   },
                 }}
               >
-                {trimmed}
+                {block.value.trim()}
               </SyntaxHighlighter>
             );
           } else {
-            // Non-code block
-            // Parse bracket references first
-            const bracketedNodes = parseBrackets(trimmed);
-
-            // Then feed each text segment to ReactMarkdown
+            // For text blocks, parse bracket references and render Markdown.
+            const bracketedNodes = parseBrackets(block.value.trim());
             return (
               <Box
                 key={idx}
@@ -279,18 +275,20 @@ const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation, chunks }) 
               >
                 {bracketedNodes.map((node, i) => {
                   if (typeof node === "string") {
-                    // If it's just a normal text segment
                     return (
                       <ReactMarkdown
                         key={`txt-${i}`}
-                        remarkPlugins={[remarkGfm]}
-                        components={{ p: ({ children }) => <>{children}</> }}
+                        remarkPlugins={[remarkGfm, remarkMath]}
+                        rehypePlugins={[rehypeKatex]}
+                        components={{
+                          // Allow proper new line breaks by rendering <br />
+                          p: ({ node, ...props }) => <p {...props} />,
+                        }}
                       >
                         {node}
                       </ReactMarkdown>
                     );
                   }
-                  // It's our clickable bracket <span> or any React element
                   return node;
                 })}
               </Box>

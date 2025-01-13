@@ -295,6 +295,8 @@ def main():
         referencing_instruction = (
             "Whenever you use content from a given chunk in your final answer, "
             "place a bracketed reference [1], [2], [3], etc. at the end of the relevant sentence.\n\n"
+            "Please format your answer using Markdown. Write all mathematical expressions in LaTeX using '$' for inline math and '$$' for display math."
+            "Ensure that any code is enclosed in triple backticks with the appropriate language, newlines and paragraphs are clearly separated, and links or images use correct Markdown syntax. Check your formatting before submitting the answer."
         )
         enhanced_prompt = referencing_instruction + selected_prompt
         formatted_prompt = format_prompt(enhanced_prompt, context=context)
