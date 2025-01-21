@@ -1,4 +1,3 @@
-// controllers/chat_controllers.js
 
 import { NextFunction, Request, Response } from "express";
 import User from "../models/user.js";
@@ -35,7 +34,7 @@ export const createNewChatSession = async (
       .json({ message: "Chat session created", chatSession });
   } catch (error) {
     console.log(error);
-    return res.status(500).json({ message: "ERROR", cause: error.message });
+    return res.status(500).json({ message: "ERROR", cause: (error as Error).message });
   }
 };
 
@@ -63,7 +62,7 @@ export const getUserChatSessions = async (
     return res.status(200).json({ chatSessions });
   } catch (error) {
     console.log(error);
-    return res.status(500).json({ message: "ERROR", cause: error.message });
+    return res.status(500).json({ message: "ERROR", cause: (error as Error).message });
   }
 };
 
@@ -72,9 +71,12 @@ export const generateChatCompletion = async (
   res: Response,
   next: NextFunction
 ) => {
-  const { message, class_name, chatSessionId } = req.body;
-  const classNameForPython =
-    class_name && class_name !== "null" ? class_name : null;
+  // Add a new optional docId parameter
+  const { message, class_name, docId, chatSessionId } = req.body;
+
+  // We parse them as either valid strings or set them to null if missing:
+  const classNameForPython = class_name && class_name !== "null" ? class_name : null;
+  const docIdForPython = docId && docId !== "null" ? docId : null;
 
   try {
     const currentUser = await User.findById(res.locals.jwtData.id);
@@ -104,7 +106,8 @@ export const generateChatCompletion = async (
         chatSession = new ChatSession({
           _id: chatSessionId,
           userId,
-          sessionName: source === "chrome_extension" ? "Extension Chat" : "New Chat",
+          sessionName:
+            source === "chrome_extension" ? "Extension Chat" : "New Chat",
           messages: [],
           source,
         });
@@ -121,7 +124,8 @@ export const generateChatCompletion = async (
       // No chatSessionId => always create a new session
       chatSession = new ChatSession({
         userId,
-        sessionName: source === "chrome_extension" ? "Extension Chat" : "New Chat",
+        sessionName:
+          source === "chrome_extension" ? "Extension Chat" : "New Chat",
         messages: [],
         source,
       });
@@ -131,6 +135,11 @@ export const generateChatCompletion = async (
     // If a class_name is provided, store it
     if (classNameForPython) {
       chatSession.assignedClass = classNameForPython;
+    }
+
+    // === New addition: If a docId is provided, store it ===
+    if (docIdForPython) {
+      chatSession.assignedDocument = docIdForPython;
     }
 
     // Append user message
@@ -150,6 +159,7 @@ export const generateChatCompletion = async (
     console.log(`User ID: ${userId}`);
     console.log(`Source: ${source}`);
     console.log(`Assigned Class: ${chatSession.assignedClass || "none"}`);
+    console.log(`Assigned Document: ${chatSession.assignedDocument || "none"}`);
 
     const pythonPath = process.env.PYTHON_PATH;
     const scriptPath =
@@ -162,12 +172,17 @@ export const generateChatCompletion = async (
       },
     };
 
+    /*
+      Update execFile call to pass `docIdForPython` as an additional argument.
+      The ordering here matters; make sure you align with how semantic_search.py is expecting them.
+    */
     execFile(
       pythonPath,
       [
         scriptPath,
         userId.toString(),
         chatSession.assignedClass || "null",
+        chatSession.assignedDocument || "null", // pass docId to Python
         message,
         JSON.stringify(chats),
         source,
@@ -196,7 +211,6 @@ export const generateChatCompletion = async (
         const citation = resultMessage.citation;
         const chunks = resultMessage.chunks || [];
 
-
         // Append assistant's response
         chatSession.messages.push({
           content: aiResponse,
@@ -211,6 +225,8 @@ export const generateChatCompletion = async (
           chatSessionId: chatSession._id,
           messages: chatSession.messages,
           assignedClass: chatSession.assignedClass,
+          // We can also return assignedDocument if you need it on the frontend:
+          assignedDocument: chatSession.assignedDocument,
           chunks: chunks,
         });
       }
@@ -247,7 +263,7 @@ export const deleteChatSession = async (
     return res.status(200).json({ message: "Chat session deleted" });
   } catch (error) {
     console.log(error);
-    return res.status(500).json({ message: "ERROR", cause: error.message });
+    return res.status(500).json({ message: "ERROR", cause: (error as Error).message });
   }
 };
 
@@ -269,6 +285,6 @@ export const deleteAllChatSessions = async (
     return res.status(200).json({ message: "All chat sessions deleted" });
   } catch (error) {
     console.log(error);
-    return res.status(500).json({ message: "ERROR", cause: error.message });
+    return res.status(500).json({ message: "ERROR", cause: (error as Error).message });
   }
 };

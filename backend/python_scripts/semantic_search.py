@@ -215,15 +215,16 @@ def main():
     """Main function to handle user interactions and perform semantic search."""
     prompts = load_prompts('/Users/rileydrake/Desktop/AIStudyBuddy/backend/prompts.json')
 
-    if len(sys.argv) < 6:
+    if len(sys.argv) < 7:
         print("Error: Not enough arguments provided.", file=sys.stderr)
         sys.exit(1)
 
     user_id = sys.argv[1]
     class_name = sys.argv[2]
-    user_query = sys.argv[3]
-    chat_history = json.loads(sys.argv[4])
-    source = sys.argv[5].lower()  # 'chrome_extension' or 'main_app'
+    doc_id = sys.argv[3]
+    user_query = sys.argv[4]
+    chat_history = json.loads(sys.argv[5])
+    source = sys.argv[6].lower()  # 'chrome_extension' or 'main_app'
 
     print(f"Source: {source}", file=sys.stderr)
 
@@ -248,8 +249,12 @@ def main():
     print(f"Route: {route}", file=sys.stderr)
 
     query_vector = create_embedding(semantic_query)
+    
     filters = {"user_id": {"$eq": user_id}}
-    if class_name and class_name != "null":
+    if doc_id != "null":
+        # If docId is provided, filter specifically by docId
+        filters["doc_id"] = {"$eq": doc_id}
+    elif class_name and class_name != "null":
         filters["class_id"] = {"$eq": class_name}
 
     print(f"filter: {filters}", file=sys.stderr)

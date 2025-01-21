@@ -1,4 +1,3 @@
-// controllers/chat_controllers.js
 import User from "../models/user.js";
 import ChatSession from "../models/chatSession.js";
 import { execFile } from "child_process";
@@ -49,8 +48,11 @@ export const getUserChatSessions = async (req, res, next) => {
     }
 };
 export const generateChatCompletion = async (req, res, next) => {
-    const { message, class_name, chatSessionId } = req.body;
+    // Add a new optional docId parameter
+    const { message, class_name, docId, chatSessionId } = req.body;
+    // We parse them as either valid strings or set them to null if missing:
     const classNameForPython = class_name && class_name !== "null" ? class_name : null;
+    const docIdForPython = docId && docId !== "null" ? docId : null;
     try {
         const currentUser = await User.findById(res.locals.jwtData.id);
         if (!currentUser) {
@@ -102,6 +104,10 @@ export const generateChatCompletion = async (req, res, next) => {
         if (classNameForPython) {
             chatSession.assignedClass = classNameForPython;
         }
+        // === New addition: If a docId is provided, store it ===
+        if (docIdForPython) {
+            chatSession.assignedDocument = docIdForPython;
+        }
         // Append user message
         chatSession.messages.push({
             content: message,
@@ -117,6 +123,7 @@ export const generateChatCompletion = async (req, res, next) => {
         console.log(`User ID: ${userId}`);
         console.log(`Source: ${source}`);
         console.log(`Assigned Class: ${chatSession.assignedClass || "none"}`);
+        console.log(`Assigned Document: ${chatSession.assignedDocument || "none"}`);
         const pythonPath = process.env.PYTHON_PATH;
         const scriptPath = "/Users/rileydrake/Desktop/AIStudyBuddy/backend/python_scripts/semantic_search.py";
         const options = {
@@ -125,10 +132,15 @@ export const generateChatCompletion = async (req, res, next) => {
                 MONGO_CONNECTION_STRING: process.env.MONGO_CONNECTION_STRING,
             },
         };
+        /*
+          Update execFile call to pass `docIdForPython` as an additional argument.
+          The ordering here matters; make sure you align with how semantic_search.py is expecting them.
+        */
         execFile(pythonPath, [
             scriptPath,
             userId.toString(),
             chatSession.assignedClass || "null",
+            chatSession.assignedDocument || "null", // pass docId to Python
             message,
             JSON.stringify(chats),
             source,
@@ -165,6 +177,8 @@ export const generateChatCompletion = async (req, res, next) => {
                 chatSessionId: chatSession._id,
                 messages: chatSession.messages,
                 assignedClass: chatSession.assignedClass,
+                // We can also return assignedDocument if you need it on the frontend:
+                assignedDocument: chatSession.assignedDocument,
                 chunks: chunks,
             });
         });

@@ -1,4 +1,3 @@
-// models/chatSession.js
 import mongoose from "mongoose";
 import { randomUUID } from "crypto";
 // Citation schema
@@ -31,10 +30,9 @@ const messageSchema = new mongoose.Schema({
         required: false,
     },
 });
-// We define our ChatSession schema with a string-based _id
 const chatSessionSchema = new mongoose.Schema({
     _id: {
-        type: String, // <--- store extension's random ID as the session _id
+        type: String, // existing code
         default: () => randomUUID(),
     },
     userId: {
@@ -52,6 +50,11 @@ const chatSessionSchema = new mongoose.Schema({
     },
     messages: [messageSchema],
     assignedClass: {
+        type: String,
+        default: null,
+    },
+    // === New field to store a single doc reference ===
+    assignedDocument: {
         type: String,
         default: null,
     },
