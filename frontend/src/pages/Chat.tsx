@@ -38,6 +38,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import Loader from "../components/ui/loader";
 import { ExpandLess, ExpandMore } from "@mui/icons-material";
 import Header from "../components/Header.tsx"; // import the updated header
+import DocumentChat from "../components/chat/DocumentChat.tsx";
 
 /* ------------------------------
    TYPES
@@ -99,18 +100,18 @@ const Chat = () => {
   // Chunk state for referencing
   const [chunks, setChunks] = useState<Chunk[]>([]);
 
-  // NEW: State for expanded class dropdown in sidebar
+  // Sidebar
   const [expandedClass, setExpandedClass] = useState<string | null>(null);
-  // NEW: Map of class name to its documents
   const [classDocs, setClassDocs] = useState<{ [className: string]: DocumentItem[] }>({});
-
-  // NEW: State to control sidebar open/closed
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  // For auto-scroll: container for the chat stream and marker
+  // Auto-scroll
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
+
+  // NEW: track whether we’re in doc-based chat mode
+  const [activeDocId, setActiveDocId] = useState<string | null>(null);
 
   /* ------------------------------
      FETCH CLASSES ON LOAD
@@ -182,7 +183,7 @@ const Chat = () => {
   }, [auth, navigate]);
 
   /* ------------------------------
-     SET UP SCROLL HANDLER FOR CHAT CONTAINER
+     SET UP SCROLL HANDLER
      ------------------------------ */
   useEffect(() => {
     const container = chatContainerRef.current;
@@ -201,9 +202,6 @@ const Chat = () => {
     return () => container.removeEventListener("scroll", handleScroll);
   }, []);
 
-  /* ------------------------------
-     AUTO-SCROLL TO BOTTOM WHEN APPROPRIATE
-     ------------------------------ */
   useEffect(() => {
     if (isAtBottom && messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
@@ -290,7 +288,7 @@ const Chat = () => {
         return;
       }
 
-      // Temporarily remove the final assistant message for streaming.
+      // Temporarily remove final assistant message for streaming
       const updated = [...chatData.messages];
       updated.pop();
       setChatMessages(updated);
@@ -420,7 +418,7 @@ const Chat = () => {
   };
 
   /* ------------------------------
-     Sidebar: Classes Section with Document Dropdown
+     Classes & Documents
      ------------------------------ */
   const handleToggleClass = async (clsName: string) => {
     if (expandedClass === clsName) {
@@ -437,6 +435,11 @@ const Chat = () => {
         toast.error("Failed to fetch documents for " + clsName);
       }
     }
+  };
+
+  // If the user wants to open a doc-based chat
+  const handleOpenDocumentChat = (docId: string) => {
+    setActiveDocId(docId);
   };
 
   /* ------------------------------
@@ -464,12 +467,16 @@ const Chat = () => {
   /* ------------------------------
      RENDER
      ------------------------------ */
+  if (!auth?.isLoggedIn) {
+    return null; // or <Navigate to="/login" replace />
+  }
+
   return (
     <Box sx={{ width: "100%", height: "100vh", overflow: "hidden" }}>
       {/* Global Header */}
       <Header sidebarOpen={sidebarOpen} onToggleSidebar={toggleSidebar} />
 
-      {/* Main Content Area - flex container for sidebar + chat */}
+      {/* Main Content - flex container for sidebar + chat area */}
       <Box
         sx={{
           display: "flex",
@@ -478,19 +485,19 @@ const Chat = () => {
           marginTop: "64px",
         }}
       >
-        {/* Sidebar - conditionally shown */}
+        {/* Sidebar */}
         {sidebarOpen && (
           <Box
             sx={{
               display: "flex",
-              flex: "0 0 300px", // fixed width or whatever width you'd like
+              flex: "0 0 300px",
               flexDirection: "column",
               boxShadow: "2px 0 5px rgba(0,0,0,0.8)",
               bgcolor: "#004d5612",
               overflowY: "auto",
             }}
           >
-            {/* Chats Section */}
+            {/* Chats */}
             <List
               sx={{
                 color: "white",
@@ -594,10 +601,9 @@ const Chat = () => {
               ))}
             </List>
 
-            {/* Divider */}
             <Divider sx={{ backgroundColor: "white", my: 2 }} />
 
-            {/* Classes Section */}
+            {/* Classes */}
             <List
               sx={{ color: "white" }}
               subheader={
@@ -622,6 +628,7 @@ const Chat = () => {
                 </ListItemIcon>
                 <ListItemText primary="New Class" sx={{ color: "white" }} />
               </ListItemButton>
+
               {classes.map((cls) => (
                 <React.Fragment key={cls._id}>
                   <ListItemButton sx={{ pl: 2 }} onClick={() => handleToggleClass(cls.name)}>
@@ -635,20 +642,12 @@ const Chat = () => {
                       {classDocs[cls.name] && classDocs[cls.name].length > 0 ? (
                         classDocs[cls.name].map((doc) => (
                           <ListItem key={doc._id} sx={{ color: "white" }}>
-                            <a
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{
-                                display: "inline-block",
-                                padding: "4px 8px",
-                                color: "#1976d2",
-                                textDecoration: "none",
-                                fontSize: "14px",
-                                fontWeight: 500,
-                              }}
+                            <Button
+                              onClick={() => handleOpenDocumentChat(doc._id)}
+                              sx={{ color: "#1976d2", textTransform: "none" }}
                             >
                               {doc.fileName}
-                            </a>
+                            </Button>
                           </ListItem>
                         ))
                       ) : classDocs[cls.name] ? (
@@ -668,224 +667,232 @@ const Chat = () => {
           </Box>
         )}
 
-        {/* Main Chat Section */}
+        {/* Main Chat Section OR Document Chat */}
         <Box
           sx={{
             display: "flex",
             flexDirection: "column",
-            // If sidebar is closed, fill full width; if open, fill remaining space
-            flex: sidebarOpen ? "1" : "1", 
-            // If you want to conditionally size it differently, you can do:
-            // flex: sidebarOpen ? 1 : 1. Or set a margin if needed.
+            flex: 1,
             height: "100%",
             overflow: "hidden",
             p: 2,
             boxSizing: "border-box",
           }}
         >
-          {/* Class Selector */}
-          <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
-            <TextField
-              id="class-select"
-              select
-              label="Select Class"
-              value={selectedClass || "null"}
-              onChange={handleClassChange}
-              variant="outlined"
-              sx={{
-                "& .MuiSvgIcon-root": { color: "white" },
-                mr: 2,
-              }}
-              InputProps={{ sx: { color: "white" } }}
-              SelectProps={{
-                MenuProps: {
-                  PaperProps: {
-                    sx: {
-                      bgcolor: "#424242",
-                      "& .MuiMenuItem-root": {
-                        color: "white",
-                        "&.Mui-selected": {
-                          bgcolor: "#616161",
-                          color: "white",
-                          "&:hover": { bgcolor: "#616161" },
+          {/* If we’re in document chat mode, show the DocumentChat component */}
+          {activeDocId ? (
+            <DocumentChat
+              docId={activeDocId}
+              onClose={() => setActiveDocId(null)}
+            />
+          ) : (
+            // Otherwise, show the normal (class-based) chat UI
+            <>
+              {/* Class Selector */}
+              <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
+                <TextField
+                  id="class-select"
+                  select
+                  label="Select Class"
+                  value={selectedClass || "null"}
+                  onChange={handleClassChange}
+                  variant="outlined"
+                  sx={{
+                    "& .MuiSvgIcon-root": { color: "white" },
+                    mr: 2,
+                  }}
+                  InputProps={{ sx: { color: "white" } }}
+                  SelectProps={{
+                    MenuProps: {
+                      PaperProps: {
+                        sx: {
+                          bgcolor: "#424242",
+                          "& .MuiMenuItem-root": {
+                            color: "white",
+                            "&.Mui-selected": {
+                              bgcolor: "#616161",
+                              color: "white",
+                              "&:hover": { bgcolor: "#616161" },
+                            },
+                            "&:hover": { bgcolor: "#757575" },
+                          },
                         },
-                        "&:hover": { bgcolor: "#757575" },
                       },
                     },
-                  },
-                },
-              }}
-            >
-              <MenuItem value="null">
-                <em>All Classes</em>
-              </MenuItem>
-              {classes.map((cls) => (
-                <MenuItem key={cls._id} value={cls.name}>
-                  {cls.name}
-                </MenuItem>
-              ))}
-            </TextField>
-          </Box>
-
-          {/* Chat Messages Container */}
-          {chatMessages.length === 0 && partialAssistantMessage === "" ? (
-            <Box
-              sx={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                flexGrow: 1,
-                textAlign: "center",
-              }}
-            >
-              <Typography variant="h4" sx={{ mb: 3 }}>
-                How can StudyBuddy help?
-              </Typography>
-
-              <Box sx={{ width: "100%", maxWidth: 600, mb: 3 }}>
-                <Box
-                  sx={{
-                    width: "100%",
-                    borderRadius: 2,
-                    backgroundColor: "rgb(17,27,39)",
-                    display: "flex",
-                    alignItems: "center",
                   }}
                 >
-                  <input
-                    ref={inputRef}
-                    disabled={isGenerating}
-                    type="text"
-                    onKeyDown={handleKeyDown}
-                    style={{
-                      width: "100%",
-                      backgroundColor: "transparent",
-                      padding: "16px",
-                      border: "none",
-                      outline: "none",
-                      color: "white",
-                      fontSize: "18px",
-                    }}
-                  />
-                  {!isGenerating ? (
-                    <IconButton onClick={handleSubmit} sx={{ color: "white", mx: 1 }}>
-                      <IoMdSend />
-                    </IconButton>
-                  ) : (
-                    <IconButton onClick={handleStop} sx={{ color: "white", mx: 1 }}>
-                      <Box
-                        sx={{
-                          width: 16,
-                          height: 16,
-                          backgroundColor: "white",
-                        }}
-                      />
-                    </IconButton>
-                  )}
-                </Box>
+                  <MenuItem value="null">
+                    <em>All Classes</em>
+                  </MenuItem>
+                  {classes.map((cls) => (
+                    <MenuItem key={cls._id} value={cls.name}>
+                      {cls.name}
+                    </MenuItem>
+                  ))}
+                </TextField>
               </Box>
 
-              <Box sx={{ display: "flex", gap: 2 }}>
-                <Button variant="contained">Create Study Guide</Button>
-                <Button variant="contained">Generate Notes</Button>
-              </Box>
-            </Box>
-          ) : (
-            <>
-              {/* Chat scroll area */}
-              <Box
-                ref={chatContainerRef}
-                sx={{
-                  flexGrow: 1,
-                  borderRadius: 3,
-                  display: "flex",
-                  flexDirection: "column",
-                  overflowY: "auto",
-                  overflowX: "hidden",
-                  scrollBehavior: "smooth",
-                  mb: 2,
-                  boxSizing: "border-box",
-                }}
-              >
-                {chatMessages.map((chat, index) => (
-                  <ChatItem
-                    key={index}
-                    content={chat.content}
-                    role={chat.role}
-                    citation={chat.citation}
-                    chunks={chunks}
-                  />
-                ))}
-
-                {isGenerating && partialAssistantMessage && (
-                  <ChatItem
-                    content={partialAssistantMessage}
-                    role="assistant"
-                    citation={[]}
-                    chunks={chunks}
-                  />
-                )}
-
-                {isGenerating && partialAssistantMessage === "" && (
-                  <Box
-                    sx={{
-                      display: "flex",
-                      alignItems: "center",
-                      m: 1,
-                      transform: "scale(0.25)",
-                      transformOrigin: "left top",
-                    }}
-                  >
-                    <Loader />
-                  </Box>
-                )}
-
-                <div ref={messagesEndRef} />
-              </Box>
-
-              {/* Input Section */}
-              <Box
-                sx={{
-                  width: "100%",
-                  borderRadius: 2,
-                  backgroundColor: "#1d2d44",
-                  display: "flex",
-                  alignItems: "center",
-                  mb: 2,
-                }}
-              >
-                <input
-                  ref={inputRef}
-                  disabled={isGenerating}
-                  type="text"
-                  onKeyDown={handleKeyDown}
-                  style={{
-                    width: "100%",
-                    backgroundColor: "transparent",
-                    padding: "16px",
-                    border: "none",
-                    outline: "none",
-                    color: "white",
-                    fontSize: "18px",
+              {/* Chat Messages Container */}
+              {chatMessages.length === 0 && partialAssistantMessage === "" ? (
+                <Box
+                  sx={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexGrow: 1,
+                    textAlign: "center",
                   }}
-                />
-                {!isGenerating ? (
-                  <IconButton onClick={handleSubmit} sx={{ color: "white", mx: 1 }}>
-                    <IoMdSend />
-                  </IconButton>
-                ) : (
-                  <IconButton onClick={handleStop} sx={{ color: "white", mx: 1 }}>
+                >
+                  <Typography variant="h4" sx={{ mb: 3 }}>
+                    How can StudyBuddy help?
+                  </Typography>
+
+                  <Box sx={{ width: "100%", maxWidth: 600, mb: 3 }}>
                     <Box
                       sx={{
-                        width: 16,
-                        height: 16,
-                        backgroundColor: "white",
+                        width: "100%",
+                        borderRadius: 2,
+                        backgroundColor: "rgb(17,27,39)",
+                        display: "flex",
+                        alignItems: "center",
+                      }}
+                    >
+                      <input
+                        ref={inputRef}
+                        disabled={isGenerating}
+                        type="text"
+                        onKeyDown={handleKeyDown}
+                        style={{
+                          width: "100%",
+                          backgroundColor: "transparent",
+                          padding: "16px",
+                          border: "none",
+                          outline: "none",
+                          color: "white",
+                          fontSize: "18px",
+                        }}
+                      />
+                      {!isGenerating ? (
+                        <IconButton onClick={handleSubmit} sx={{ color: "white", mx: 1 }}>
+                          <IoMdSend />
+                        </IconButton>
+                      ) : (
+                        <IconButton onClick={handleStop} sx={{ color: "white", mx: 1 }}>
+                          <Box
+                            sx={{
+                              width: 16,
+                              height: 16,
+                              backgroundColor: "white",
+                            }}
+                          />
+                        </IconButton>
+                      )}
+                    </Box>
+                  </Box>
+
+                  <Box sx={{ display: "flex", gap: 2 }}>
+                    <Button variant="contained">Create Study Guide</Button>
+                    <Button variant="contained">Generate Notes</Button>
+                  </Box>
+                </Box>
+              ) : (
+                <>
+                  {/* Chat scroll area */}
+                  <Box
+                    ref={chatContainerRef}
+                    sx={{
+                      flexGrow: 1,
+                      borderRadius: 3,
+                      display: "flex",
+                      flexDirection: "column",
+                      overflowY: "auto",
+                      overflowX: "hidden",
+                      scrollBehavior: "smooth",
+                      mb: 2,
+                      boxSizing: "border-box",
+                    }}
+                  >
+                    {chatMessages.map((chat, index) => (
+                      <ChatItem
+                        key={index}
+                        content={chat.content}
+                        role={chat.role}
+                        citation={chat.citation}
+                        chunks={chunks}
+                      />
+                    ))}
+
+                    {isGenerating && partialAssistantMessage && (
+                      <ChatItem
+                        content={partialAssistantMessage}
+                        role="assistant"
+                        citation={[]}
+                        chunks={chunks}
+                      />
+                    )}
+
+                    {isGenerating && partialAssistantMessage === "" && (
+                      <Box
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          m: 1,
+                          transform: "scale(0.25)",
+                          transformOrigin: "left top",
+                        }}
+                      >
+                        <Loader />
+                      </Box>
+                    )}
+
+                    <div ref={messagesEndRef} />
+                  </Box>
+
+                  {/* Input Section */}
+                  <Box
+                    sx={{
+                      width: "100%",
+                      borderRadius: 2,
+                      backgroundColor: "#1d2d44",
+                      display: "flex",
+                      alignItems: "center",
+                      mb: 2,
+                    }}
+                  >
+                    <input
+                      ref={inputRef}
+                      disabled={isGenerating}
+                      type="text"
+                      onKeyDown={handleKeyDown}
+                      style={{
+                        width: "100%",
+                        backgroundColor: "transparent",
+                        padding: "16px",
+                        border: "none",
+                        outline: "none",
+                        color: "white",
+                        fontSize: "18px",
                       }}
                     />
-                  </IconButton>
-                )}
-              </Box>
+                    {!isGenerating ? (
+                      <IconButton onClick={handleSubmit} sx={{ color: "white", mx: 1 }}>
+                        <IoMdSend />
+                      </IconButton>
+                    ) : (
+                      <IconButton onClick={handleStop} sx={{ color: "white", mx: 1 }}>
+                        <Box
+                          sx={{
+                            width: 16,
+                            height: 16,
+                            backgroundColor: "white",
+                          }}
+                        />
+                      </IconButton>
+                    )}
+                  </Box>
+                </>
+              )}
             </>
           )}
         </Box>

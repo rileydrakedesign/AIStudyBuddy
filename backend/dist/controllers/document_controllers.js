@@ -177,22 +177,39 @@ export const getDocumentFile = async (req, res, next) => {
         if (!currentUser) {
             return res
                 .status(401)
-                .json({ message: 'User not registered or token malfunctioned' });
+                .json({ message: "User not registered or token malfunctioned" });
         }
         const documentId = req.params.id;
         const document = (await Document.findById(documentId));
         if (!document) {
-            return res.status(404).json({ message: 'Document not found' });
+            return res.status(404).json({ message: "Document not found" });
         }
+        // Ensure this doc belongs to the authenticated user
         if (document.userId.toString() !== currentUser._id.toString()) {
-            return res.status(403).json({ message: 'Unauthorized access' });
+            return res.status(403).json({ message: "Unauthorized access" });
         }
-        const url = await getObjectSignedUrl(document.s3Key);
+        // Decide if it's a PDF (or you can store MIME type in the DB).
+        // For a PDF, set the response content type to "application/pdf"
+        let responseType = undefined;
+        if (document.fileName?.toLowerCase().endsWith(".pdf")) {
+            responseType = "application/pdf";
+        }
+        // (Optionally handle other file types here if needed)
+        // Build a GetObjectCommand with an inline disposition override
+        const command = new GetObjectCommand({
+            Bucket: bucketName,
+            Key: document.s3Key,
+            ResponseContentDisposition: "inline",
+            // The KEY fix: If it's a PDF, let the browser know
+            ResponseContentType: responseType,
+        });
+        // Generate a short-lived pre-signed URL
+        const url = await getSignedUrl(s3Client, command, { expiresIn: 120 });
         return res.status(200).json({ url });
     }
     catch (error) {
         console.error(error);
-        return res.status(500).json({ message: 'Server error' });
+        return res.status(500).json({ message: "Server error" });
     }
 };
 export const deleteDocument = async (req, res, next) => {

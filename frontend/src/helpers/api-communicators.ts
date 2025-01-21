@@ -36,18 +36,26 @@ export const checkAuthStatus = async () => {
 export const sendChatRequest = async (
   message: string,
   selectedClass: string | null,
-  chatSessionId: string | null
+  chatSessionId: string | null,
+  docId?: string | null
 ) => {
-  const res = await axios.post("/chat/new", {
+  const body: any = {
     message,
     class_name: selectedClass,
     chatSessionId,
-  });
+  };
+
+  if (docId) {
+    body.docId = docId; // <-- new field
+  }
+
+  const res = await axios.post("/chat/new", body);
   if (res.status !== 200) {
     throw new Error("Unable to send chat");
   }
-  return res.data; // Should return { chatSessionId, messages }
+  return res.data; 
 };
+
 
 export const getUserChatSessions = async () => {
   const res = await axios.get("/chat/sessions");
@@ -117,3 +125,13 @@ export const getClassDocuments = async (className: string) => {
   }
   return res.data; // Returns an array of document objects
 };
+
+export const getDocumentFile = async (docId: string) => {
+  // e.g., your server might define the route as: GET /documents/:id
+  const res = await axios.get(`/documents/${docId}/file`);
+  if (res.status !== 200) {
+    throw new Error("Unable to fetch doc file");
+  }
+  return res.data; // { url: string }
+};
+
