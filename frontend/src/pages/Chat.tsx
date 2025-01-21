@@ -37,6 +37,7 @@ import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import Loader from "../components/ui/loader";
 import { ExpandLess, ExpandMore } from "@mui/icons-material";
+import Header from "../components/Header.tsx"; // import the updated header
 
 /* ------------------------------
    TYPES
@@ -103,8 +104,13 @@ const Chat = () => {
   // NEW: Map of class name to its documents
   const [classDocs, setClassDocs] = useState<{ [className: string]: DocumentItem[] }>({});
 
-  // For auto-scroll
+  // NEW: State to control sidebar open/closed
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  // For auto-scroll: container for the chat stream and marker
+  const chatContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
 
   /* ------------------------------
      FETCH CLASSES ON LOAD
@@ -176,13 +182,33 @@ const Chat = () => {
   }, [auth, navigate]);
 
   /* ------------------------------
-     AUTO-SCROLL TO BOTTOM
+     SET UP SCROLL HANDLER FOR CHAT CONTAINER
      ------------------------------ */
   useEffect(() => {
-    if (messagesEndRef.current) {
+    const container = chatContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      if (scrollHeight - scrollTop - clientHeight < 50) {
+        setIsAtBottom(true);
+      } else {
+        setIsAtBottom(false);
+      }
+    };
+
+    container.addEventListener("scroll", handleScroll);
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  /* ------------------------------
+     AUTO-SCROLL TO BOTTOM WHEN APPROPRIATE
+     ------------------------------ */
+  useEffect(() => {
+    if (isAtBottom && messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [chatMessages, partialAssistantMessage]);
+  }, [chatMessages, partialAssistantMessage, isAtBottom]);
 
   /* ------------------------------
      CLASS SELECT CHANGE
@@ -221,9 +247,7 @@ const Chat = () => {
       const classNameForRequest = selectedClass === null ? "null" : selectedClass;
       const chatData = await sendChatRequest(content, classNameForRequest, currentChatSessionId);
 
-      // Debug log chunk data
       console.log("DEBUG: chunk data from server =>", chatData.chunks);
-
       setChunks(chatData.chunks || []);
 
       const assistantMsg =
@@ -235,7 +259,6 @@ const Chat = () => {
         setChatMessages(chatData.messages);
         setIsGenerating(false);
 
-        // If it's a new session
         if (!currentChatSessionId && chatData.chatSessionId) {
           setCurrentChatSessionId(chatData.chatSessionId);
           setChatSessions((prev) => [
@@ -248,7 +271,6 @@ const Chat = () => {
             },
           ]);
         } else {
-          // Update existing session
           setChatSessions((prev) =>
             prev.map((session) =>
               session._id === chatData.chatSessionId
@@ -268,10 +290,9 @@ const Chat = () => {
         return;
       }
 
-      // Temporarily remove final assistant message for streaming
+      // Temporarily remove the final assistant message for streaming.
       const updated = [...chatData.messages];
       updated.pop();
-
       setChatMessages(updated);
 
       if (chatData.assignedClass !== undefined) {
@@ -280,13 +301,11 @@ const Chat = () => {
 
       const full = assistantMsg.content;
       let i = 0;
-
       const interval = setInterval(() => {
         i += 1;
         setPartialAssistantMessage(full.substring(0, i));
         if (i >= full.length) {
           clearInterval(interval);
-
           const finalMessages = [...updated, { ...assistantMsg, content: full }];
           setChatMessages(finalMessages);
           setIsGenerating(false);
@@ -339,7 +358,6 @@ const Chat = () => {
     }
     try {
       const data = await createChatSession(newChatName.trim());
-
       setChatSessions((prev) => [
         ...prev,
         {
@@ -347,11 +365,9 @@ const Chat = () => {
           assignedClass: null,
         },
       ]);
-
       setCurrentChatSessionId(data.chatSession._id);
       setChatMessages([]);
       setSelectedClass(null);
-
       setIsNamingChat(false);
       setNewChatName("");
     } catch (err) {
@@ -384,7 +400,6 @@ const Chat = () => {
     try {
       await deleteChatSession(chatSessionId);
       setChatSessions((prev) => prev.filter((session) => session._id !== chatSessionId));
-
       if (currentChatSessionId === chatSessionId) {
         const remaining = chatSessions.filter((s) => s._id !== chatSessionId);
         if (remaining.length > 0) {
@@ -407,14 +422,12 @@ const Chat = () => {
   /* ------------------------------
      Sidebar: Classes Section with Document Dropdown
      ------------------------------ */
-  // Toggle expansion for a given class and fetch its documents if needed.
   const handleToggleClass = async (clsName: string) => {
     if (expandedClass === clsName) {
       setExpandedClass(null);
       return;
     }
     setExpandedClass(clsName);
-    // Only fetch if we haven't already retrieved documents for this class
     if (!classDocs[clsName]) {
       try {
         const docs = await getClassDocuments(clsName);
@@ -443,327 +456,403 @@ const Chat = () => {
     }
   };
 
+  // Handler for sidebar toggle (passed to Header)
+  const toggleSidebar = () => {
+    setSidebarOpen(!sidebarOpen);
+  };
+
   /* ------------------------------
      RENDER
      ------------------------------ */
   return (
-    <Box
-      sx={{
-        display: "flex",
-        width: "100%",
-        height: "100vh",
-        gap: 3,
-        overflow: "hidden",
-      }}
-    >
-      {/* Sidebar */}
-      <Box
-        sx={{
-          display: { md: "flex", xs: "none", sm: "none" },
-          flex: 0.25,
-          flexDirection: "column",
-          left: 0,
-          bottom: 0,
-          boxShadow: "2px 0 5px rgba(0,0,0,0.8)",
-          height: "100vh",
-        }}
-      >
-        <Box
-          sx={{
-            display: "flex",
-            width: "100%",
-            height: "100%",
-            bgcolor: "#004d5612",
-            borderRadius: 0,
-            flexDirection: "column",
-            overflowY: "auto",
-            padding: 0,
-            margin: 0,
-          }}
-        >
-          {/* Chats Section */}
-          <List
-            sx={{
-              color: "white",
-              mt: "64px",
-            }}
-            subheader={
-              <ListSubheader
-                component="div"
-                id="chats-list-subheader"
-                sx={{ bgcolor: "inherit", color: "white", fontSize: "1.2em", fontWeight: "bold" }}
-              >
-                <ChatBubbleIcon sx={{ mr: 1 }} />
-                Chats
-              </ListSubheader>
-            }
-          >
-            {isNamingChat ? (
-              <Box
-                sx={{
-                  mx: "auto",
-                  my: 2,
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                }}
-              >
-                <input
-                  type="text"
-                  value={newChatName}
-                  onChange={(e) => setNewChatName(e.target.value)}
-                  placeholder="Enter chat name"
-                  style={{
-                    width: "200px",
-                    padding: "8px",
-                    borderRadius: "4px",
-                    border: "1px solid #ccc",
-                    marginBottom: "8px",
-                    color: "black",
-                  }}
-                />
-                <Box sx={{ display: "flex", gap: 1 }}>
-                  <Button
-                    onClick={handleSubmitNewChatName}
-                    sx={{
-                      color: "white",
-                      fontWeight: "700",
-                      borderRadius: 3,
-                      bgcolor: "blue",
-                      ":hover": {
-                        bgcolor: "darkblue",
-                      },
-                    }}
-                  >
-                    Create
-                  </Button>
-                  <Button
-                    onClick={handleCancelNewChat}
-                    sx={{
-                      color: "white",
-                      fontWeight: "700",
-                      borderRadius: 3,
-                      bgcolor: red[300],
-                      ":hover": {
-                        bgcolor: red.A400,
-                      },
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                </Box>
-              </Box>
-            ) : (
-              <ListItemButton onClick={handleCreateNewChatSession} sx={{ pl: 2 }}>
-                <ListItemIcon sx={{ color: "white" }}>
-                  <AddIcon />
-                </ListItemIcon>
-                <ListItemText primary="New Chat" sx={{ color: "white" }} />
-              </ListItemButton>
-            )}
+    <Box sx={{ width: "100%", height: "100vh", overflow: "hidden" }}>
+      {/* Global Header */}
+      <Header sidebarOpen={sidebarOpen} onToggleSidebar={toggleSidebar} />
 
-            {/* Reverse the chatSessions order so that the most recent appear first */}
-            {chatSessions.slice().reverse().map((session) => (
-              <ListItemButton
-                key={session._id}
-                className="chat-list-item"
-                selected={session._id === currentChatSessionId}
-                onClick={() => handleSelectChatSession(session._id)}
-                sx={{ pl: 3 }}
-              >
-                <ListItemText primary={session.sessionName} />
-                <IconButton
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDeleteChatSession(session._id);
-                  }}
-                  sx={{
-                    color: "red",
-                    opacity: 0,
-                    transition: "opacity 0.3s",
-                    ".chat-list-item:hover &": {
-                      opacity: 1,
-                    },
-                  }}
-                >
-                  <DeleteOutlineIcon />
-                </IconButton>
-              </ListItemButton>
-            ))}
-          </List>
-
-          {/* Divider */}
-          <Divider sx={{ backgroundColor: "white", my: 2 }} />
-
-          {/* Classes Section */}
-          <List
-            sx={{ color: "white" }}
-            subheader={
-              <ListSubheader
-                component="div"
-                id="classes-list-subheader"
-                sx={{
-                  bgcolor: "inherit",
-                  color: "white",
-                  fontSize: "1.2em",
-                  fontWeight: "bold",
-                }}
-              >
-                <StyleIcon sx={{ mr: 1 }} />
-                Classes
-              </ListSubheader>
-            }
-          >
-            <ListItemButton sx={{ pl: 2 }}>
-              <ListItemIcon sx={{ color: "white" }}>
-                <AddIcon />
-              </ListItemIcon>
-              <ListItemText primary="New Class" sx={{ color: "white" }} />
-            </ListItemButton>
-            {classes.map((cls) => (
-              <React.Fragment key={cls._id}>
-                <ListItemButton sx={{ pl: 2 }} onClick={() => handleToggleClass(cls.name)}>
-                  <ListItemIcon sx={{ color: "white" }}>
-                    {expandedClass === cls.name ? <ExpandLess /> : <ExpandMore />}
-                  </ListItemIcon>
-                  <ListItemText primary={cls.name} sx={{ color: "white" }} />
-                </ListItemButton>
-                <Collapse in={expandedClass === cls.name} timeout="auto" unmountOnExit>
-                  <List component="div" disablePadding sx={{ pl: 6 }}>
-                    {classDocs[cls.name] && classDocs[cls.name].length > 0 ? (
-                      classDocs[cls.name].map((doc) => (
-                        <ListItem key={doc._id} sx={{ color: "white" }}>
-                          <a
-                            //href={doc.s3Url} // Assumes your backend stores the document URL in s3Url
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              display: "inline-block",
-                              padding: "4px 8px",
-                              color: "#1976d2",
-                              textDecoration: "none",
-                              fontSize: "14px",
-                              fontWeight: 500,
-                            }}
-                          >
-                            {doc.fileName}
-                          </a>
-                        </ListItem>
-                      ))
-                    ) : classDocs[cls.name] ? (
-                      <ListItem sx={{ color: "gray" }}>
-                        <ListItemText primary="No documents found" />
-                      </ListItem>
-                    ) : (
-                      <ListItem sx={{ color: "gray" }}>
-                        <ListItemText primary="Loading documents..." />
-                      </ListItem>
-                    )}
-                  </List>
-                </Collapse>
-              </React.Fragment>
-            ))}
-          </List>
-        </Box>
-      </Box>
-
-      {/* Main Chat Section */}
+      {/* Main Content Area - flex container for sidebar + chat */}
       <Box
         sx={{
           display: "flex",
-          flex: { md: 0.75, xs: 1, sm: 1 },
-          flexDirection: "column",
-          height: "90vh",
-          mt: 10,
-          mr: 3,
+          width: "100%",
+          height: "calc(100vh - 64px)",
+          marginTop: "64px",
         }}
       >
-        {/* Header Section */}
-        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          {/* Class Selector */}
-          <TextField  
-            id="class-select"
-            select
-            label="Select Class"
-            value={selectedClass || "null"}
-            onChange={handleClassChange}
-            variant="outlined"
+        {/* Sidebar - conditionally shown */}
+        {sidebarOpen && (
+          <Box
             sx={{
-              mt: 2,
-              "& .MuiSvgIcon-root": {
-                color: "white",
-              },
+              display: "flex",
+              flex: "0 0 300px", // fixed width or whatever width you'd like
+              flexDirection: "column",
+              boxShadow: "2px 0 5px rgba(0,0,0,0.8)",
+              bgcolor: "#004d5612",
+              overflowY: "auto",
             }}
-            InputProps={{
-              sx: {
+          >
+            {/* Chats Section */}
+            <List
+              sx={{
                 color: "white",
-              },
-            }}
-            SelectProps={{
-              MenuProps: {
-                PaperProps: {
-                  sx: {
-                    bgcolor: "#424242",
-                    "& .MuiMenuItem-root": {
-                      color: "white",
-                      "&.Mui-selected": {
-                        bgcolor: "#616161",
+                mt: 2,
+              }}
+              subheader={
+                <ListSubheader
+                  component="div"
+                  id="chats-list-subheader"
+                  sx={{ bgcolor: "inherit", color: "white", fontSize: "1.2em", fontWeight: "bold" }}
+                >
+                  <ChatBubbleIcon sx={{ mr: 1 }} />
+                  Chats
+                </ListSubheader>
+              }
+            >
+              {isNamingChat ? (
+                <Box
+                  sx={{
+                    mx: "auto",
+                    my: 2,
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                  }}
+                >
+                  <input
+                    type="text"
+                    value={newChatName}
+                    onChange={(e) => setNewChatName(e.target.value)}
+                    placeholder="Enter chat name"
+                    style={{
+                      width: "200px",
+                      padding: "8px",
+                      borderRadius: "4px",
+                      border: "1px solid #ccc",
+                      marginBottom: "8px",
+                      color: "black",
+                    }}
+                  />
+                  <Box sx={{ display: "flex", gap: 1 }}>
+                    <Button
+                      onClick={handleSubmitNewChatName}
+                      sx={{
                         color: "white",
-                        "&:hover": {
+                        fontWeight: "700",
+                        borderRadius: 3,
+                        bgcolor: "blue",
+                        ":hover": { bgcolor: "darkblue" },
+                      }}
+                    >
+                      Create
+                    </Button>
+                    <Button
+                      onClick={handleCancelNewChat}
+                      sx={{
+                        color: "white",
+                        fontWeight: "700",
+                        borderRadius: 3,
+                        bgcolor: red[300],
+                        ":hover": { bgcolor: red.A400 },
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </Box>
+                </Box>
+              ) : (
+                <ListItemButton onClick={handleCreateNewChatSession} sx={{ pl: 2 }}>
+                  <ListItemIcon sx={{ color: "white" }}>
+                    <AddIcon />
+                  </ListItemIcon>
+                  <ListItemText primary="New Chat" sx={{ color: "white" }} />
+                </ListItemButton>
+              )}
+
+              {chatSessions.slice().reverse().map((session) => (
+                <ListItemButton
+                  key={session._id}
+                  className="chat-list-item"
+                  selected={session._id === currentChatSessionId}
+                  onClick={() => handleSelectChatSession(session._id)}
+                  sx={{ pl: 3 }}
+                >
+                  <ListItemText primary={session.sessionName} />
+                  <IconButton
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteChatSession(session._id);
+                    }}
+                    sx={{
+                      color: "red",
+                      opacity: 0,
+                      transition: "opacity 0.3s",
+                      ".chat-list-item:hover &": { opacity: 1 },
+                    }}
+                  >
+                    <DeleteOutlineIcon />
+                  </IconButton>
+                </ListItemButton>
+              ))}
+            </List>
+
+            {/* Divider */}
+            <Divider sx={{ backgroundColor: "white", my: 2 }} />
+
+            {/* Classes Section */}
+            <List
+              sx={{ color: "white" }}
+              subheader={
+                <ListSubheader
+                  component="div"
+                  id="classes-list-subheader"
+                  sx={{
+                    bgcolor: "inherit",
+                    color: "white",
+                    fontSize: "1.2em",
+                    fontWeight: "bold",
+                  }}
+                >
+                  <StyleIcon sx={{ mr: 1 }} />
+                  Classes
+                </ListSubheader>
+              }
+            >
+              <ListItemButton sx={{ pl: 2 }}>
+                <ListItemIcon sx={{ color: "white" }}>
+                  <AddIcon />
+                </ListItemIcon>
+                <ListItemText primary="New Class" sx={{ color: "white" }} />
+              </ListItemButton>
+              {classes.map((cls) => (
+                <React.Fragment key={cls._id}>
+                  <ListItemButton sx={{ pl: 2 }} onClick={() => handleToggleClass(cls.name)}>
+                    <ListItemIcon sx={{ color: "white" }}>
+                      {expandedClass === cls.name ? <ExpandLess /> : <ExpandMore />}
+                    </ListItemIcon>
+                    <ListItemText primary={cls.name} sx={{ color: "white" }} />
+                  </ListItemButton>
+                  <Collapse in={expandedClass === cls.name} timeout="auto" unmountOnExit>
+                    <List component="div" disablePadding sx={{ pl: 6 }}>
+                      {classDocs[cls.name] && classDocs[cls.name].length > 0 ? (
+                        classDocs[cls.name].map((doc) => (
+                          <ListItem key={doc._id} sx={{ color: "white" }}>
+                            <a
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                display: "inline-block",
+                                padding: "4px 8px",
+                                color: "#1976d2",
+                                textDecoration: "none",
+                                fontSize: "14px",
+                                fontWeight: 500,
+                              }}
+                            >
+                              {doc.fileName}
+                            </a>
+                          </ListItem>
+                        ))
+                      ) : classDocs[cls.name] ? (
+                        <ListItem sx={{ color: "gray" }}>
+                          <ListItemText primary="No documents found" />
+                        </ListItem>
+                      ) : (
+                        <ListItem sx={{ color: "gray" }}>
+                          <ListItemText primary="Loading documents..." />
+                        </ListItem>
+                      )}
+                    </List>
+                  </Collapse>
+                </React.Fragment>
+              ))}
+            </List>
+          </Box>
+        )}
+
+        {/* Main Chat Section */}
+        <Box
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            // If sidebar is closed, fill full width; if open, fill remaining space
+            flex: sidebarOpen ? "1" : "1", 
+            // If you want to conditionally size it differently, you can do:
+            // flex: sidebarOpen ? 1 : 1. Or set a margin if needed.
+            height: "100%",
+            overflow: "hidden",
+            p: 2,
+            boxSizing: "border-box",
+          }}
+        >
+          {/* Class Selector */}
+          <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
+            <TextField
+              id="class-select"
+              select
+              label="Select Class"
+              value={selectedClass || "null"}
+              onChange={handleClassChange}
+              variant="outlined"
+              sx={{
+                "& .MuiSvgIcon-root": { color: "white" },
+                mr: 2,
+              }}
+              InputProps={{ sx: { color: "white" } }}
+              SelectProps={{
+                MenuProps: {
+                  PaperProps: {
+                    sx: {
+                      bgcolor: "#424242",
+                      "& .MuiMenuItem-root": {
+                        color: "white",
+                        "&.Mui-selected": {
                           bgcolor: "#616161",
+                          color: "white",
+                          "&:hover": { bgcolor: "#616161" },
                         },
-                      },
-                      "&:hover": {
-                        bgcolor: "#757575",
+                        "&:hover": { bgcolor: "#757575" },
                       },
                     },
                   },
                 },
-              },
-            }}
-          >
-            <MenuItem value="null">
-              <em>All Classes</em>
-            </MenuItem>
-            {classes.map((cls) => (
-              <MenuItem key={cls._id} value={cls.name}>
-                {cls.name}
-              </MenuItem>
-            ))}
-          </TextField>
-        </Box>
-
-        {chatMessages.length === 0 && partialAssistantMessage === "" ? (
-          // If no messages, show an initial helpful view
-          <Box
-            sx={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              flexGrow: 1,
-              textAlign: "center",
-            }}
-          >
-            <Typography variant="h4" sx={{ mb: 3 }}>
-              How can StudyBuddy help?
-            </Typography>
-
-            {/* Input Container */}
-            <Box
-              sx={{
-                width: "100%",
-                maxWidth: 600,
-                mb: 3,
               }}
             >
+              <MenuItem value="null">
+                <em>All Classes</em>
+              </MenuItem>
+              {classes.map((cls) => (
+                <MenuItem key={cls._id} value={cls.name}>
+                  {cls.name}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Box>
+
+          {/* Chat Messages Container */}
+          {chatMessages.length === 0 && partialAssistantMessage === "" ? (
+            <Box
+              sx={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                flexGrow: 1,
+                textAlign: "center",
+              }}
+            >
+              <Typography variant="h4" sx={{ mb: 3 }}>
+                How can StudyBuddy help?
+              </Typography>
+
+              <Box sx={{ width: "100%", maxWidth: 600, mb: 3 }}>
+                <Box
+                  sx={{
+                    width: "100%",
+                    borderRadius: 2,
+                    backgroundColor: "rgb(17,27,39)",
+                    display: "flex",
+                    alignItems: "center",
+                  }}
+                >
+                  <input
+                    ref={inputRef}
+                    disabled={isGenerating}
+                    type="text"
+                    onKeyDown={handleKeyDown}
+                    style={{
+                      width: "100%",
+                      backgroundColor: "transparent",
+                      padding: "16px",
+                      border: "none",
+                      outline: "none",
+                      color: "white",
+                      fontSize: "18px",
+                    }}
+                  />
+                  {!isGenerating ? (
+                    <IconButton onClick={handleSubmit} sx={{ color: "white", mx: 1 }}>
+                      <IoMdSend />
+                    </IconButton>
+                  ) : (
+                    <IconButton onClick={handleStop} sx={{ color: "white", mx: 1 }}>
+                      <Box
+                        sx={{
+                          width: 16,
+                          height: 16,
+                          backgroundColor: "white",
+                        }}
+                      />
+                    </IconButton>
+                  )}
+                </Box>
+              </Box>
+
+              <Box sx={{ display: "flex", gap: 2 }}>
+                <Button variant="contained">Create Study Guide</Button>
+                <Button variant="contained">Generate Notes</Button>
+              </Box>
+            </Box>
+          ) : (
+            <>
+              {/* Chat scroll area */}
+              <Box
+                ref={chatContainerRef}
+                sx={{
+                  flexGrow: 1,
+                  borderRadius: 3,
+                  display: "flex",
+                  flexDirection: "column",
+                  overflowY: "auto",
+                  overflowX: "hidden",
+                  scrollBehavior: "smooth",
+                  mb: 2,
+                  boxSizing: "border-box",
+                }}
+              >
+                {chatMessages.map((chat, index) => (
+                  <ChatItem
+                    key={index}
+                    content={chat.content}
+                    role={chat.role}
+                    citation={chat.citation}
+                    chunks={chunks}
+                  />
+                ))}
+
+                {isGenerating && partialAssistantMessage && (
+                  <ChatItem
+                    content={partialAssistantMessage}
+                    role="assistant"
+                    citation={[]}
+                    chunks={chunks}
+                  />
+                )}
+
+                {isGenerating && partialAssistantMessage === "" && (
+                  <Box
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      m: 1,
+                      transform: "scale(0.25)",
+                      transformOrigin: "left top",
+                    }}
+                  >
+                    <Loader />
+                  </Box>
+                )}
+
+                <div ref={messagesEndRef} />
+              </Box>
+
+              {/* Input Section */}
               <Box
                 sx={{
                   width: "100%",
                   borderRadius: 2,
-                  backgroundColor: "rgb(17,27,39)",
+                  backgroundColor: "#1d2d44",
                   display: "flex",
                   alignItems: "center",
+                  mb: 2,
                 }}
               >
                 <input
@@ -797,111 +886,9 @@ const Chat = () => {
                   </IconButton>
                 )}
               </Box>
-            </Box>
-
-            <Box sx={{ display: "flex", gap: 2 }}>
-              <Button variant="contained">Create Study Guide</Button>
-              <Button variant="contained">Generate Notes</Button>
-            </Box>
-          </Box>
-        ) : (
-          // Normal chat view
-          <>
-            <Box
-              sx={{
-                width: "100%",
-                flexGrow: 1,
-                borderRadius: 3,
-                mx: "auto",
-                display: "flex",
-                flexDirection: "column",
-                overflowY: "auto",
-                scrollBehavior: "smooth",
-                mb: 2,
-              }}
-            >
-              {chatMessages.map((chat, index) => (
-                <ChatItem
-                  key={index}
-                  content={chat.content}
-                  role={chat.role}
-                  citation={chat.citation}
-                  chunks={chunks}
-                />
-              ))}
-
-              {/* If we are streaming partial text, show partial */}
-              {isGenerating && partialAssistantMessage && (
-                <ChatItem
-                  content={partialAssistantMessage}
-                  role="assistant"
-                  citation={[]}
-                  chunks={chunks}
-                />
-              )}
-
-              {/* Loader if no partial text yet */}
-              {isGenerating && partialAssistantMessage === "" && (
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    m: 1,
-                    transform: "scale(0.25)",
-                    transformOrigin: "left top",
-                  }}
-                >
-                  <Loader />
-                </Box>
-              )}
-
-              <div ref={messagesEndRef} />
-            </Box>
-
-            {/* Input Section */}
-            <Box
-              sx={{
-                width: "100%",
-                borderRadius: 2,
-                backgroundColor: "#1d2d44",
-                display: "flex",
-                alignItems: "center",
-                mb: 2,
-              }}
-            >
-              <input
-                ref={inputRef}
-                disabled={isGenerating}
-                type="text"
-                onKeyDown={handleKeyDown}
-                style={{
-                  width: "100%",
-                  backgroundColor: "transparent",
-                  padding: "16px",
-                  border: "none",
-                  outline: "none",
-                  color: "white",
-                  fontSize: "18px",
-                }}
-              />
-              {!isGenerating ? (
-                <IconButton onClick={handleSubmit} sx={{ color: "white", mx: 1 }}>
-                  <IoMdSend />
-                </IconButton>
-              ) : (
-                <IconButton onClick={handleStop} sx={{ color: "white", mx: 1 }}>
-                  <Box
-                    sx={{
-                      width: 16,
-                      height: 16,
-                      backgroundColor: "white",
-                    }}
-                  />
-                </IconButton>
-              )}
-            </Box>
-          </>
-        )}
+            </>
+          )}
+        </Box>
       </Box>
     </Box>
   );
