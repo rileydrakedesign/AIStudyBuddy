@@ -10,40 +10,34 @@ import { coldarkDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import CloseIcon from "@mui/icons-material/Close";
 
 /* ------------------------------
-   HELPER: robust extraction of code blocks
+   HELPER: code blocks
    ------------------------------ */
-
-/**
- * Use regex to find code blocks delimited by triple backticks.
- * This function returns an array of objects, where each object represents either a code block or a text block.
- * The shape:
- *   - { type: 'code', value: string, language?: string } for code blocks
- *   - { type: 'text', value: string } for non-code text
- */
-function extractBlocks(message: string): { type: "code" | "text"; value: string; language?: string }[] {
+function extractBlocks(message: string): {
+  type: "code" | "text";
+  value: string;
+  language?: string;
+}[] {
   const blocks: { type: "code" | "text"; value: string; language?: string }[] = [];
   const regex = /```(\w+)?\n([\s\S]*?)```/gm;
   let lastIndex = 0;
   let match;
 
   while ((match = regex.exec(message)) !== null) {
-    // Push text that appears before the code block match
+    // Text before the code block
     if (match.index > lastIndex) {
       blocks.push({
         type: "text",
         value: message.slice(lastIndex, match.index),
       });
     }
-    // match[1] is the optional language (if provided)
-    // match[2] is the code content.
     blocks.push({
       type: "code",
       value: match[2],
-      language: match[1] || "javascript", // default language is javascript
+      language: match[1] || "javascript",
     });
     lastIndex = regex.lastIndex;
   }
-  // Push any remaining text after the last code block
+  // Any trailing text after the last code block
   if (lastIndex < message.length) {
     blocks.push({
       type: "text",
@@ -57,18 +51,19 @@ function extractBlocks(message: string): { type: "code" | "text"; value: string;
    TYPES
    ------------------------------ */
 type Citation = { href: string | null; text: string };
-
 type ChunkData = {
   chunkNumber: number;
   text: string;
+  pageNumber?: number;
 };
 
-type ChatItemProps = {
+interface ChatItemProps {
   content: string;
   role: "user" | "assistant";
   citation?: Citation[];
   chunks?: ChunkData[];
-};
+  onCitationClick?: (chunkNumber: number) => void; // for bracket clicks
+}
 
 /**
  * A small tooltip-like popup for chunk text.
@@ -105,31 +100,25 @@ const CitationPopup: React.FC<{
         }}
       >
         <strong>Referenced Text</strong>
-        <IconButton
-          size="small"
-          onClick={onClose}
-          sx={{ color: "black", ml: 1 }}
-        >
+        <IconButton size="small" onClick={onClose} sx={{ color: "black", ml: 1 }}>
           <CloseIcon />
         </IconButton>
       </Box>
-      <Box
-        sx={{
-          fontSize: "14px",
-          lineHeight: 1.4,
-          whiteSpace: "pre-wrap",
-        }}
-      >
+      <Box sx={{ fontSize: "14px", lineHeight: 1.4, whiteSpace: "pre-wrap" }}>
         {chunkText}
       </Box>
     </Box>
   );
 };
 
-const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation, chunks }) => {
+const ChatItem: React.FC<ChatItemProps> = ({
+  content,
+  role,
+  citation,
+  chunks,
+  onCitationClick,
+}) => {
   const auth = useAuth();
-
-  // State for popup
   const [popupData, setPopupData] = useState<{
     open: boolean;
     chunkText: string;
@@ -137,12 +126,12 @@ const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation, chunks }) 
     y: number;
   } | null>(null);
 
-  // Extract blocks (code vs text) using the regex-based function
+  // Break the message into code blocks vs text
   const messageBlocks = extractBlocks(content);
 
   /**
-   * Convert bracket references "[1]" etc. into clickable <span>.
-   * When clicked, show the chunk text in a floating popup near the cursor.
+   * parseBrackets: detect "[1]" in text, make them clickable.
+   * On click -> open a popup with chunk text, call onCitationClick to jump PDF page
    */
   const parseBrackets = (text: string): React.ReactNode[] => {
     const bracketRegex = /\[(\d+)\]/g;
@@ -156,16 +145,16 @@ const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation, chunks }) 
       if (index > lastIndex) {
         parts.push(text.slice(lastIndex, index));
       }
+
       parts.push(
         <span
           key={`bracket-${index}`}
           style={{ color: "blue", cursor: "pointer" }}
           onClick={(e) => {
             e.stopPropagation();
-            const chunk = chunks?.find(
-              (c) => c.chunkNumber === Number(bracketNumber)
-            );
+            const chunk = chunks?.find((c) => c.chunkNumber === Number(bracketNumber));
             if (chunk) {
+              // 1) Show chunk text popup
               const popupWidth = 300;
               const popupHeight = 300;
               let xPos = e.clientX + 10;
@@ -183,10 +172,13 @@ const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation, chunks }) 
                 x: xPos,
                 y: yPos,
               });
+
+              // 2) Jump to chunk page in the PDF
+              if (onCitationClick) {
+                onCitationClick(Number(bracketNumber));
+              }
             } else {
-              console.error(
-                `No chunk found for bracket [${bracketNumber}] in parseBrackets.`
-              );
+              console.error(`No chunk found for bracket [${bracketNumber}].`);
             }
           }}
         >
@@ -227,11 +219,10 @@ const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation, chunks }) 
           : `${auth?.user?.name[0]}${auth?.user?.name.split(" ")[1][0]}`}
       </Avatar>
 
-      {/* Content */}
+      {/* Message Body */}
       <Box sx={{ flex: 1, maxWidth: "100%" }}>
         {messageBlocks.map((block, idx) => {
           if (block.type === "code") {
-            // Render code block with syntax highlighter.
             return (
               <SyntaxHighlighter
                 key={idx}
@@ -261,7 +252,7 @@ const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation, chunks }) 
               </SyntaxHighlighter>
             );
           } else {
-            // For text blocks, parse bracket references and render Markdown.
+            // parse bracket references in plain text
             const bracketedNodes = parseBrackets(block.value.trim());
             return (
               <Box
@@ -281,7 +272,6 @@ const ChatItem: React.FC<ChatItemProps> = ({ content, role, citation, chunks }) 
                         remarkPlugins={[remarkGfm, remarkMath]}
                         rehypePlugins={[rehypeKatex]}
                         components={{
-                          // Allow proper new line breaks by rendering <br />
                           p: ({ node, ...props }) => <p {...props} />,
                         }}
                       >
