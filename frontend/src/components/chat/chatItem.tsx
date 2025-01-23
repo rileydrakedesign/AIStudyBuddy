@@ -104,7 +104,7 @@ const CitationPopup: React.FC<{
           <CloseIcon />
         </IconButton>
       </Box>
-      <Box sx={{ fontSize: "14px", lineHeight: 1.4, whiteSpace: "pre-wrap" }}>
+      <Box sx={{ fontSize: "16px", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
         {chunkText}
       </Box>
     </Box>
@@ -126,12 +126,12 @@ const ChatItem: React.FC<ChatItemProps> = ({
     y: number;
   } | null>(null);
 
-  // Break the message into code blocks vs text
+  // Break the message into code blocks vs. text
   const messageBlocks = extractBlocks(content);
 
   /**
-   * parseBrackets: detect "[1]" in text, make them clickable.
-   * On click -> open a popup with chunk text, call onCitationClick to jump PDF page
+   * parseBrackets: Detect "[1]" in text and make them clickable.
+   * On click -> open a popup with chunk text and call onCitationClick to jump to the PDF page.
    */
   const parseBrackets = (text: string): React.ReactNode[] => {
     const bracketRegex = /\[(\d+)\]/g;
@@ -197,21 +197,23 @@ const ChatItem: React.FC<ChatItemProps> = ({
     <Box
       sx={{
         display: "flex",
-        p: 2,
+        p: 1, // Reduced padding for a compact layout
+        m: 1, // Small margin between items
         bgcolor: role === "assistant" ? "#004d5612" : "#1d2d44",
-        gap: 2,
+        gap: 1,
         borderRadius: 2,
-        my: 1,
-        width: "100%",
+        width: "calc(100% - 16px)", // Account for external margins
         boxSizing: "border-box",
       }}
     >
       {/* Avatar */}
       <Avatar
         sx={{
-          ml: 0,
           bgcolor: role === "assistant" ? undefined : "black",
           color: role === "assistant" ? undefined : "white",
+          width: 32,
+          height: 32,
+          fontSize: "14px",
         }}
       >
         {role === "assistant"
@@ -220,7 +222,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
       </Avatar>
 
       {/* Message Body */}
-      <Box sx={{ flex: 1, maxWidth: "100%" }}>
+      <Box sx={{ flex: 1, maxWidth: "100%", fontSize: "16px", lineHeight: 1.6 }}>
         {messageBlocks.map((block, idx) => {
           if (block.type === "code") {
             return (
@@ -232,6 +234,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
                   width: "100%",
                   boxSizing: "border-box",
                   overflowX: "auto",
+                  fontSize: "15px",
                 }}
                 wrapLongLines={true}
                 codeTagProps={{
@@ -252,15 +255,15 @@ const ChatItem: React.FC<ChatItemProps> = ({
               </SyntaxHighlighter>
             );
           } else {
-            // parse bracket references in plain text
+            // Parse bracket references in plain text
             const bracketedNodes = parseBrackets(block.value.trim());
             return (
               <Box
                 key={idx}
                 sx={{
-                  fontSize: "18px",
-                  lineHeight: 2,
-                  mb: 2,
+                  fontSize: "16px",
+                  lineHeight: 1.6,
+                  mb: 1,
                   color: "white",
                 }}
               >
@@ -272,7 +275,9 @@ const ChatItem: React.FC<ChatItemProps> = ({
                         remarkPlugins={[remarkGfm, remarkMath]}
                         rehypePlugins={[rehypeKatex]}
                         components={{
-                          p: ({ node, ...props }) => <p {...props} />,
+                          p: ({ node, ...props }) => (
+                            <p style={{ margin: 0, fontSize: "16px", lineHeight: 1.6 }} {...props} />
+                          ),
                         }}
                       >
                         {node}
@@ -288,7 +293,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
 
         {/* Citations if role=assistant */}
         {role === "assistant" && citation && citation.length > 0 && (
-          <Box sx={{ mt: 2, display: "flex", gap: 1, flexWrap: "wrap" }}>
+          <Box sx={{ mt: 1, display: "flex", gap: 1, flexWrap: "wrap" }}>
             {citation.map((cit, idx) =>
               cit.href ? (
                 <a
@@ -298,7 +303,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
                   rel="noopener noreferrer"
                   style={{
                     display: "inline-block",
-                    padding: "4px 8px",
+                    padding: "2px 6px",
                     border: "1px solid #1976d2",
                     borderRadius: "12px",
                     color: "#1976d2",
@@ -315,7 +320,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
                   key={idx}
                   style={{
                     display: "inline-block",
-                    padding: "4px 8px",
+                    padding: "2px 6px",
                     border: "1px solid #ccc",
                     borderRadius: "12px",
                     color: "#333",
