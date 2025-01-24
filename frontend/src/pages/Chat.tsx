@@ -155,11 +155,17 @@ const Chat = () => {
     if (auth?.isLoggedIn && auth.user) {
       toast.loading("Loading Chat Sessions", { id: "loadchatsessions" });
       getUserChatSessions()
-        .then((data) => {
-          setChatSessions(data.chatSessions);
+        .then((data: { chatSessions: ChatSession[] }) => { // Added type annotation here
+          // SORTING CHAT SESSIONS BY MOST RECENTLY EDITED
+          const sortedSessions = data.chatSessions.sort((a: ChatSession, b: ChatSession) => {
+            // Assuming that a higher number of messages indicates more recent activity
+            return b.messages.length - a.messages.length;
+          });
 
-          if (data.chatSessions.length > 0) {
-            const first = data.chatSessions[0];
+          setChatSessions(sortedSessions);
+
+          if (sortedSessions.length > 0) {
+            const first = sortedSessions[0];
             setCurrentChatSessionId(first._id);
             setChatMessages(first.messages);
             setSelectedClass(first.assignedClass || null);
@@ -260,25 +266,27 @@ const Chat = () => {
         if (!currentChatSessionId && chatData.chatSessionId) {
           setCurrentChatSessionId(chatData.chatSessionId);
           setChatSessions((prev) => [
-            ...prev,
             {
               _id: chatData.chatSessionId,
               sessionName: "New Chat",
               messages: chatData.messages,
               assignedClass: chatData.assignedClass || null,
             },
+            ...prev, // Add to the top
           ]);
         } else {
           setChatSessions((prev) =>
-            prev.map((session) =>
-              session._id === chatData.chatSessionId
-                ? {
-                    ...session,
-                    messages: chatData.messages,
-                    assignedClass: chatData.assignedClass || null,
-                  }
-                : session
-            )
+            prev
+              .map((session) =>
+                session._id === chatData.chatSessionId
+                  ? {
+                      ...session,
+                      messages: chatData.messages,
+                      assignedClass: chatData.assignedClass || null,
+                    }
+                  : session
+              )
+              .sort((a: ChatSession, b: ChatSession) => b.messages.length - a.messages.length) // Re-sort after update
           );
         }
 
@@ -311,25 +319,27 @@ const Chat = () => {
           if (!currentChatSessionId && chatData.chatSessionId) {
             setCurrentChatSessionId(chatData.chatSessionId);
             setChatSessions((prev) => [
-              ...prev,
               {
                 _id: chatData.chatSessionId,
                 sessionName: "New Chat",
                 messages: finalMessages,
                 assignedClass: chatData.assignedClass || null,
               },
+              ...prev, // Add to the top
             ]);
           } else {
             setChatSessions((prev) =>
-              prev.map((session) =>
-                session._id === chatData.chatSessionId
-                  ? {
-                      ...session,
-                      messages: finalMessages,
-                      assignedClass: chatData.assignedClass || null,
-                    }
-                  : session
-              )
+              prev
+                .map((session) =>
+                  session._id === chatData.chatSessionId
+                    ? {
+                        ...session,
+                        messages: finalMessages,
+                        assignedClass: chatData.assignedClass || null,
+                      }
+                    : session
+                )
+                .sort((a: ChatSession, b: ChatSession) => b.messages.length - a.messages.length) // Re-sort after update
             );
           }
         }
@@ -357,11 +367,11 @@ const Chat = () => {
     try {
       const data = await createChatSession(newChatName.trim());
       setChatSessions((prev) => [
-        ...prev,
         {
           ...data.chatSession,
           assignedClass: null,
         },
+        ...prev, // Add new chat to the top
       ]);
       setCurrentChatSessionId(data.chatSession._id);
       setChatMessages([]);
@@ -574,7 +584,7 @@ const Chat = () => {
                 </ListItemButton>
               )}
 
-              {chatSessions.slice().reverse().map((session) => (
+              {chatSessions.map((session) => (
                 <ListItemButton
                   key={session._id}
                   className="chat-list-item"

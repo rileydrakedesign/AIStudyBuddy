@@ -214,6 +214,28 @@ const UploadDocument: React.FC = () => {
               }}
             />
           )}
+          ListboxProps={{
+            // Apply styles directly to the listbox using ListboxProps
+            sx: {
+              backgroundColor: "white", // Set dropdown background to white
+              "& .MuiAutocomplete-option": {
+                color: "black", // Set dropdown option text color to black
+              },
+              "& .MuiAutocomplete-option[data-focus='true']": {
+                backgroundColor: "#f0f0f0", // Optional: change background on hover/focus
+              },
+            },
+          }}
+          componentsProps={{
+            clearIndicator: {
+              sx: {
+                color: "white", // Set clear (X) icon color to white
+                "&:hover": {
+                  color: "#cccccc", // Optional: change color on hover
+                },
+              },
+            },
+          }}
         />
 
         <Button

@@ -275,8 +275,12 @@ const ChatItem: React.FC<ChatItemProps> = ({
                         remarkPlugins={[remarkGfm, remarkMath]}
                         rehypePlugins={[rehypeKatex]}
                         components={{
-                          p: ({ node, ...props }) => (
-                            <p style={{ margin: 0, fontSize: "16px", lineHeight: 1.6 }} {...props} />
+                          // Changed 'p' to 'span' to render inline elements
+                          span: ({ node, ...props }) => (
+                            <span
+                              style={{ fontSize: "16px", lineHeight: 1.6, whiteSpace: "pre-wrap" }}
+                              {...props}
+                            />
                           ),
                         }}
                       >
