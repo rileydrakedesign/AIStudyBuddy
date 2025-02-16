@@ -37,7 +37,7 @@ import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import Loader from "../components/ui/loader";
 import { ExpandLess, ExpandMore } from "@mui/icons-material";
-import Header from "../components/Header.tsx"; // import the updated header
+import Header from "../components/Header.tsx";
 import DocumentChat from "../components/chat/DocumentChat.tsx";
 
 /* ------------------------------
@@ -93,11 +93,14 @@ const Chat = () => {
   const [isNamingChat, setIsNamingChat] = useState(false);
   const [newChatName, setNewChatName] = useState("");
 
-  // Streaming state
+  // Streaming / loading state
   const [isGenerating, setIsGenerating] = useState(false);
-  const [partialAssistantMessage, setPartialAssistantMessage] = useState<string>("");
 
-  // Chunk state for referencing
+  // Typewriter partial
+  const [partialAssistantMessage, setPartialAssistantMessage] = useState("");
+  const typeIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Chunks for bracket references
   const [chunks, setChunks] = useState<Chunk[]>([]);
 
   // Sidebar
@@ -110,7 +113,7 @@ const Chat = () => {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
 
-  // NEW: track whether we’re in doc-based chat mode
+  // Document-based chat
   const [activeDocId, setActiveDocId] = useState<string | null>(null);
 
   /* ------------------------------
@@ -155,12 +158,11 @@ const Chat = () => {
     if (auth?.isLoggedIn && auth.user) {
       toast.loading("Loading Chat Sessions", { id: "loadchatsessions" });
       getUserChatSessions()
-        .then((data: { chatSessions: ChatSession[] }) => { // Added type annotation here
-          // SORTING CHAT SESSIONS BY MOST RECENTLY EDITED
-          const sortedSessions = data.chatSessions.sort((a: ChatSession, b: ChatSession) => {
-            // Assuming that a higher number of messages indicates more recent activity
-            return b.messages.length - a.messages.length;
-          });
+        .then((data: { chatSessions: ChatSession[] }) => {
+          // Sort by most recent activity
+          const sortedSessions = data.chatSessions.sort(
+            (a, b) => b.messages.length - a.messages.length
+          );
 
           setChatSessions(sortedSessions);
 
@@ -189,7 +191,7 @@ const Chat = () => {
   }, [auth, navigate]);
 
   /* ------------------------------
-     SET UP SCROLL HANDLER
+     SCROLLING
      ------------------------------ */
   useEffect(() => {
     const container = chatContainerRef.current;
@@ -215,6 +217,79 @@ const Chat = () => {
   }, [chatMessages, partialAssistantMessage, isAtBottom]);
 
   /* ------------------------------
+     CLEANUP ON UNMOUNT
+     ------------------------------ */
+  useEffect(() => {
+    return () => {
+      if (typeIntervalRef.current) {
+        clearInterval(typeIntervalRef.current);
+      }
+    };
+  }, []);
+
+  /* ------------------------------
+     VISIBILITY CHANGE
+     If the user leaves the page mid-type, finalize the message.
+     ------------------------------ */
+  useEffect(() => {
+    const finalizeTypewriter = () => {
+      if (typeIntervalRef.current) {
+        clearInterval(typeIntervalRef.current);
+        typeIntervalRef.current = null;
+      }
+      // The last assistant message is in chatSessions
+      let finalMsg: Message | null = null;
+      const currentIndex = chatSessions.findIndex((s) => s._id === currentChatSessionId);
+      if (currentIndex !== -1) {
+        const allMsgs = chatSessions[currentIndex].messages;
+        if (allMsgs.length > 0) {
+          finalMsg = allMsgs[allMsgs.length - 1];
+        }
+      }
+      if (finalMsg && finalMsg.role === "assistant") {
+        setChatMessages((prev) => [...prev, finalMsg as Message]);
+      }
+      setPartialAssistantMessage("");
+      setIsGenerating(false);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden && isGenerating && partialAssistantMessage) {
+        finalizeTypewriter();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [chatSessions, currentChatSessionId, isGenerating, partialAssistantMessage]);
+
+  /* ------------------------------
+     HELPER: finalize typewriter
+     ------------------------------ */
+  const finalizeTypewriter = () => {
+    if (typeIntervalRef.current) {
+      clearInterval(typeIntervalRef.current);
+      typeIntervalRef.current = null;
+    }
+
+    let finalMsg: Message | null = null;
+    const currentIndex = chatSessions.findIndex((s) => s._id === currentChatSessionId);
+    if (currentIndex !== -1) {
+      const allMsgs = chatSessions[currentIndex].messages;
+      if (allMsgs.length > 0) {
+        finalMsg = allMsgs[allMsgs.length - 1];
+      }
+    }
+    if (finalMsg && finalMsg.role === "assistant") {
+      setChatMessages((prev) => [...prev, finalMsg as Message]);
+    }
+    setPartialAssistantMessage("");
+    setIsGenerating(false);
+  };
+
+  /* ------------------------------
      CLASS SELECT CHANGE
      ------------------------------ */
   const handleClassChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -223,7 +298,7 @@ const Chat = () => {
   };
 
   const handleStop = () => {
-    setIsGenerating(false);
+    finalizeTypewriter();
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -241,6 +316,7 @@ const Chat = () => {
     const content = inputRef.current.value.trim();
     inputRef.current.value = "";
 
+    // 1) Immediately add the user message
     const newMessage: Message = { role: "user", content };
     setChatMessages((prev) => [...prev, newMessage]);
 
@@ -249,101 +325,82 @@ const Chat = () => {
 
     try {
       const classNameForRequest = selectedClass === null ? "null" : selectedClass;
-      const chatData = await sendChatRequest(content, classNameForRequest, currentChatSessionId);
+      const chatData = await sendChatRequest(
+        content,
+        classNameForRequest,
+        currentChatSessionId
+      );
 
-      console.log("DEBUG: chunk data from server =>", chatData.chunks);
       setChunks(chatData.chunks || []);
 
-      const assistantMsg =
-        chatData.messages.length > 0
-          ? chatData.messages[chatData.messages.length - 1]
-          : null;
+      // Update or create the chat session
+      if (!currentChatSessionId && chatData.chatSessionId) {
+        setCurrentChatSessionId(chatData.chatSessionId);
+        setChatSessions((prev) => [
+          {
+            _id: chatData.chatSessionId,
+            sessionName: "New Chat",
+            messages: chatData.messages,
+            assignedClass: chatData.assignedClass || null,
+          },
+          ...prev,
+        ]);
+      } else {
+        setChatSessions((prev) =>
+          prev
+            .map((session) =>
+              session._id === chatData.chatSessionId
+                ? {
+                    ...session,
+                    messages: chatData.messages,
+                    assignedClass: chatData.assignedClass || null,
+                  }
+                : session
+            )
+            .sort((a, b) => b.messages.length - a.messages.length)
+        );
+      }
 
-      if (!assistantMsg || assistantMsg.role !== "assistant") {
-        setChatMessages(chatData.messages);
+      // The final assistant message
+      const allMessages = chatData.messages;
+      const finalAssistantMsg =
+        allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
+
+      if (!finalAssistantMsg || finalAssistantMsg.role !== "assistant") {
+        setChatMessages(allMessages);
         setIsGenerating(false);
-
-        if (!currentChatSessionId && chatData.chatSessionId) {
-          setCurrentChatSessionId(chatData.chatSessionId);
-          setChatSessions((prev) => [
-            {
-              _id: chatData.chatSessionId,
-              sessionName: "New Chat",
-              messages: chatData.messages,
-              assignedClass: chatData.assignedClass || null,
-            },
-            ...prev, // Add to the top
-          ]);
-        } else {
-          setChatSessions((prev) =>
-            prev
-              .map((session) =>
-                session._id === chatData.chatSessionId
-                  ? {
-                      ...session,
-                      messages: chatData.messages,
-                      assignedClass: chatData.assignedClass || null,
-                    }
-                  : session
-              )
-              .sort((a: ChatSession, b: ChatSession) => b.messages.length - a.messages.length) // Re-sort after update
-          );
-        }
-
-        if (chatData.assignedClass !== undefined) {
-          setSelectedClass(chatData.assignedClass || null);
-        }
         return;
       }
 
-      // Temporarily remove final assistant message for streaming
-      const updated = [...chatData.messages];
-      updated.pop();
-      setChatMessages(updated);
+      // Remove the final assistant msg for the typewriter
+      const updatedWithoutLast = allMessages.slice(0, allMessages.length - 1);
+      setChatMessages(updatedWithoutLast);
+
+      const fullText = finalAssistantMsg.content;
+      let i = 0;
+
+      if (typeIntervalRef.current) {
+        clearInterval(typeIntervalRef.current);
+      }
+
+      typeIntervalRef.current = setInterval(() => {
+        i += 1;
+        setPartialAssistantMessage(fullText.substring(0, i));
+
+        if (i >= fullText.length) {
+          if (typeIntervalRef.current) {
+            clearInterval(typeIntervalRef.current);
+            typeIntervalRef.current = null;
+          }
+          setChatMessages([...updatedWithoutLast, finalAssistantMsg]);
+          setPartialAssistantMessage("");
+          setIsGenerating(false);
+        }
+      }, 30);
 
       if (chatData.assignedClass !== undefined) {
         setSelectedClass(chatData.assignedClass || null);
       }
-
-      const full = assistantMsg.content;
-      let i = 0;
-      const interval = setInterval(() => {
-        i += 1;
-        setPartialAssistantMessage(full.substring(0, i));
-        if (i >= full.length) {
-          clearInterval(interval);
-          const finalMessages = [...updated, { ...assistantMsg, content: full }];
-          setChatMessages(finalMessages);
-          setIsGenerating(false);
-
-          if (!currentChatSessionId && chatData.chatSessionId) {
-            setCurrentChatSessionId(chatData.chatSessionId);
-            setChatSessions((prev) => [
-              {
-                _id: chatData.chatSessionId,
-                sessionName: "New Chat",
-                messages: finalMessages,
-                assignedClass: chatData.assignedClass || null,
-              },
-              ...prev, // Add to the top
-            ]);
-          } else {
-            setChatSessions((prev) =>
-              prev
-                .map((session) =>
-                  session._id === chatData.chatSessionId
-                    ? {
-                        ...session,
-                        messages: finalMessages,
-                        assignedClass: chatData.assignedClass || null,
-                      }
-                    : session
-                )
-                .sort((a: ChatSession, b: ChatSession) => b.messages.length - a.messages.length) // Re-sort after update
-            );
-          }
-        }
-      }, 10);
     } catch (error) {
       console.error("Error in handleSubmit:", error);
       toast.error("Failed to send message");
@@ -371,7 +428,7 @@ const Chat = () => {
           ...data.chatSession,
           assignedClass: null,
         },
-        ...prev, // Add new chat to the top
+        ...prev,
       ]);
       setCurrentChatSessionId(data.chatSession._id);
       setChatMessages([]);
@@ -393,6 +450,9 @@ const Chat = () => {
      SELECT A CHAT SESSION
      ------------------------------ */
   const handleSelectChatSession = (chatSessionId: string) => {
+    // finalizing any typewriter if running
+    finalizeTypewriter();
+
     const session = chatSessions.find((s) => s._id === chatSessionId);
     if (session) {
       setCurrentChatSessionId(chatSessionId);
@@ -449,6 +509,7 @@ const Chat = () => {
 
   // If the user wants to open a doc-based chat
   const handleOpenDocumentChat = (docId: string) => {
+    finalizeTypewriter();
     setActiveDocId(docId);
   };
 
@@ -589,6 +650,8 @@ const Chat = () => {
                   key={session._id}
                   className="chat-list-item"
                   selected={session._id === currentChatSessionId}
+                  // Disallow changing sessions if isGenerating is true
+                  disabled={isGenerating}
                   onClick={() => handleSelectChatSession(session._id)}
                   sx={{ pl: 3 }}
                 >
@@ -691,12 +754,9 @@ const Chat = () => {
         >
           {/* If we’re in document chat mode, show the DocumentChat component */}
           {activeDocId ? (
-            <DocumentChat
-              docId={activeDocId}
-              onClose={() => setActiveDocId(null)}
-            />
+            <DocumentChat docId={activeDocId} onClose={() => setActiveDocId(null)} />
           ) : (
-            // Otherwise, show the normal (class-based) chat UI
+            // Normal chat UI
             <>
               {/* Class Selector */}
               <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
@@ -833,6 +893,7 @@ const Chat = () => {
                       />
                     ))}
 
+                    {/* partial typed response */}
                     {isGenerating && partialAssistantMessage && (
                       <ChatItem
                         content={partialAssistantMessage}
@@ -842,7 +903,8 @@ const Chat = () => {
                       />
                     )}
 
-                    {isGenerating && partialAssistantMessage === "" && (
+                    {/* loader if there's a gap before typing starts */}
+                    {isGenerating && !partialAssistantMessage && (
                       <Box
                         sx={{
                           display: "flex",
