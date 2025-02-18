@@ -4,7 +4,8 @@ import {
   chatCompletionValidator, 
   validate, 
   chatSessionValidator, 
-  chatSessionIdValidator 
+  chatSessionIdValidator,
+  handleChatCompletionValidation
 } from "../utils/validators.js";
 import {
   createNewChatSession,
@@ -22,6 +23,7 @@ chatRoutes.post(
   "/new", 
   verifyToken,
   validate(chatCompletionValidator),
+  //handleChatCompletionValidation,
   generateChatCompletion
 );
 

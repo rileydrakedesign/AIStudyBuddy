@@ -37,7 +37,8 @@ export const sendChatRequest = async (
   message: string,
   selectedClass: string | null,
   chatSessionId: string | null,
-  docId?: string | null
+  docId?: string | null,
+  ephemeral?: boolean
 ) => {
   const body: any = {
     message,
@@ -46,16 +47,19 @@ export const sendChatRequest = async (
   };
 
   if (docId) {
-    body.docId = docId; // <-- new field
+    body.docId = docId;
+  }
+
+  if (ephemeral) {
+    body.ephemeral = true;
   }
 
   const res = await axios.post("/chat/new", body);
   if (res.status !== 200) {
     throw new Error("Unable to send chat");
   }
-  return res.data; 
+  return res.data;
 };
-
 
 export const getUserChatSessions = async () => {
   const res = await axios.get("/chat/sessions");

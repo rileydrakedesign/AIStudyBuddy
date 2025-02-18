@@ -5,7 +5,9 @@ import { createNewChatSession, getUserChatSessions, generateChatCompletion, dele
 // Protected API
 const chatRoutes = Router();
 // Generate chat completion (send a message in a chat session)
-chatRoutes.post("/new", verifyToken, validate(chatCompletionValidator), generateChatCompletion);
+chatRoutes.post("/new", verifyToken, validate(chatCompletionValidator), 
+//handleChatCompletionValidation,
+generateChatCompletion);
 // Create a new chat session
 chatRoutes.post("/new-session", verifyToken, validate(chatSessionValidator), createNewChatSession);
 // Get all chat sessions for the user

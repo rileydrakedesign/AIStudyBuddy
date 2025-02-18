@@ -34,14 +34,28 @@ export const chatCompletionValidator = [
   body("message")
     .notEmpty()
     .withMessage("Message is required"),
+
   body("class_name")
     .optional()
     .isString()
     .withMessage("Class name must be a string"),
+
   body("chatSessionId")
     .optional()
     .isString()
     .withMessage("Invalid chat session ID"),
+
+  // NEW: optional docId must be a string if provided
+  body("docId")
+    .optional()
+    .isString()
+    .withMessage("docId must be a string"),
+
+  // NEW: optional ephemeral must be boolean if provided
+  body("ephemeral")
+    .optional()
+    .isBoolean()
+    .withMessage("ephemeral must be a boolean"),
 ];
 
 export const chatSessionValidator = [
@@ -77,3 +91,22 @@ export const downloadValidator = [
     .isString()
     .withMessage("s3_key must be a string"),
 ];
+
+export const handleChatCompletionValidation = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  // Log the raw incoming body
+  console.log("Incoming /chat/new request body =>", req.body);
+
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    // If there's a validation error, log it out
+    console.log("Validation errors =>", errors.array());
+    return res.status(422).json({ errors: errors.array() });
+  }
+
+  // No errors; proceed to the next middleware/controller
+  next();
+};

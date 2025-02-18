@@ -35,9 +35,11 @@ export const getUserChatSessions = async (req, res, next) => {
         }
         const sourceHeader = req.headers["x-source"];
         const isExtension = sourceHeader === "chrome_extension";
+        // Filter out ephemeral sessions
         const query = {
             userId: currentUser._id,
             source: isExtension ? "chrome_extension" : "main_app",
+            ephemeral: false, // <--- Hide ephemeral
         };
         const chatSessions = await ChatSession.find(query);
         return res.status(200).json({ chatSessions });
@@ -48,9 +50,8 @@ export const getUserChatSessions = async (req, res, next) => {
     }
 };
 export const generateChatCompletion = async (req, res, next) => {
-    // Add a new optional docId parameter
-    const { message, class_name, docId, chatSessionId } = req.body;
-    // We parse them as either valid strings or set them to null if missing:
+    const { message, class_name, docId, chatSessionId, ephemeral } = req.body;
+    // Convert "null" or missing fields
     const classNameForPython = class_name && class_name !== "null" ? class_name : null;
     const docIdForPython = docId && docId !== "null" ? docId : null;
     try {
@@ -64,39 +65,47 @@ export const generateChatCompletion = async (req, res, next) => {
         const sourceHeader = req.headers["x-source"];
         const source = sourceHeader === "chrome_extension" ? "chrome_extension" : "main_app";
         let chatSession;
-        if (chatSessionId) {
-            // Attempt to find with string _id
+        // 1) If we have a chatSessionId, find or create that session
+        if (chatSessionId && chatSessionId !== "null") {
             chatSession = await ChatSession.findOne({
                 _id: chatSessionId,
                 userId,
             });
             if (!chatSession) {
-                // If not found, create a new doc with that string ID
+                // If not found, create
                 chatSession = new ChatSession({
                     _id: chatSessionId,
                     userId,
-                    sessionName: source === "chrome_extension" ? "Extension Chat" : "New Chat",
+                    sessionName: docIdForPython
+                        ? "Document Chat"
+                        : source === "chrome_extension"
+                            ? "Extension Chat"
+                            : "New Chat",
                     messages: [],
                     source,
+                    ephemeral: ephemeral === true, // mark ephemeral if requested
                 });
                 await chatSession.save();
             }
             else {
-                // If found, check source match
+                // If found, check mismatch
                 if (chatSession.source !== source) {
-                    return res
-                        .status(400)
-                        .json({ message: "Chat session source mismatch" });
+                    return res.status(400).json({ message: "Chat session source mismatch" });
                 }
             }
         }
         else {
-            // No chatSessionId => always create a new session
+            // 2) No chatSessionId => create a new session
             chatSession = new ChatSession({
                 userId,
-                sessionName: source === "chrome_extension" ? "Extension Chat" : "New Chat",
+                sessionName: docIdForPython
+                    ? "Document Chat"
+                    : source === "chrome_extension"
+                        ? "Extension Chat"
+                        : "New Chat",
                 messages: [],
                 source,
+                ephemeral: ephemeral === true || !!docIdForPython,
             });
             await chatSession.save();
         }
@@ -104,7 +113,7 @@ export const generateChatCompletion = async (req, res, next) => {
         if (classNameForPython) {
             chatSession.assignedClass = classNameForPython;
         }
-        // === New addition: If a docId is provided, store it ===
+        // If docId is provided, store it
         if (docIdForPython) {
             chatSession.assignedDocument = docIdForPython;
         }
@@ -124,6 +133,7 @@ export const generateChatCompletion = async (req, res, next) => {
         console.log(`Source: ${source}`);
         console.log(`Assigned Class: ${chatSession.assignedClass || "none"}`);
         console.log(`Assigned Document: ${chatSession.assignedDocument || "none"}`);
+        console.log(`Ephemeral: ${chatSession.ephemeral}`);
         const pythonPath = process.env.PYTHON_PATH;
         const scriptPath = "/Users/rileydrake/Desktop/AIStudyBuddy/backend/python_scripts/semantic_search.py";
         const options = {
@@ -132,15 +142,11 @@ export const generateChatCompletion = async (req, res, next) => {
                 MONGO_CONNECTION_STRING: process.env.MONGO_CONNECTION_STRING,
             },
         };
-        /*
-          Update execFile call to pass `docIdForPython` as an additional argument.
-          The ordering here matters; make sure you align with how semantic_search.py is expecting them.
-        */
         execFile(pythonPath, [
             scriptPath,
             userId.toString(),
             chatSession.assignedClass || "null",
-            chatSession.assignedDocument || "null", // pass docId to Python
+            chatSession.assignedDocument || "null",
             message,
             JSON.stringify(chats),
             source,
@@ -172,14 +178,12 @@ export const generateChatCompletion = async (req, res, next) => {
                 citation,
             });
             await chatSession.save();
-            // Return chunks as well so the frontend can handle them
             return res.status(200).json({
                 chatSessionId: chatSession._id,
                 messages: chatSession.messages,
                 assignedClass: chatSession.assignedClass,
-                // We can also return assignedDocument if you need it on the frontend:
                 assignedDocument: chatSession.assignedDocument,
-                chunks: chunks,
+                chunks,
             });
         });
     }
