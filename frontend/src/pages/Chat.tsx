@@ -716,8 +716,17 @@ const Chat = () => {
                         classDocs[cls.name].map((doc) => (
                           <ListItem key={doc._id} sx={{ color: "white" }}>
                             <Button
+                              // Disabling but still visible
+                              disabled={isGenerating}
                               onClick={() => handleOpenDocumentChat(doc._id)}
-                              sx={{ color: "#1976d2", textTransform: "none" }}
+                              sx={{
+                                color: "#1976d2",
+                                textTransform: "none",
+                                // Force visible text color even if disabled:
+                                "&.Mui-disabled": {
+                                  color: "rgba(25,118,210, 0.5)", // dimmed
+                                },
+                              }}
                             >
                               {doc.fileName}
                             </Button>
