@@ -139,3 +139,22 @@ export const getDocumentFile = async (docId: string) => {
   return res.data; // { url: string }
 };
 
+export const deleteClass = async (classId: string) => {
+  // Suppose your backend route is DELETE /classes/:classId
+  const res = await axios.delete(`/user/classes/${classId}`);
+  if (res.status !== 200) {
+    throw new Error("Unable to delete class");
+  }
+  return res.data; // e.g. { message: "Class deleted" }
+};
+
+export const deleteDocument = async (docId: string) => {
+  // Suppose your backend route is DELETE /documents/:docId
+  const res = await axios.delete(`/documents/delete/${docId}`);
+  if (res.status !== 200) {
+    throw new Error("Unable to delete document");
+  }
+  return res.data; // e.g. { message: "Document deleted" }
+};
+
+

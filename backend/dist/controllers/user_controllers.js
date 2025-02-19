@@ -2,6 +2,7 @@ import user from "../models/user.js";
 import { hash, compare } from "bcrypt";
 import { createToken } from "../utils/token_manager.js";
 import { COOKIE_NAME } from "../utils/constants.js";
+import mongoose from "mongoose";
 export const getAllUsers = async (req, res, next) => {
     try {
         //get all users
@@ -122,6 +123,27 @@ export const getUserClasses = async (req, res) => {
     catch (error) {
         console.error(error);
         return res.status(500).json({ message: "Failed to fetch user classes" });
+    }
+};
+export const deleteUserClass = async (req, res) => {
+    try {
+        const currentUser = await user.findById(res.locals.jwtData.id);
+        if (!currentUser) {
+            return res.status(401).send("User not registered or token malfunctioned");
+        }
+        const { classId } = req.params;
+        // Convert the string from the URL to an ObjectId
+        const objectId = new mongoose.Types.ObjectId(classId);
+        // Now .pull({ _id: ... }) will match the subdocument
+        currentUser.classes.pull({ _id: objectId });
+        await currentUser.save();
+        return res.status(200).json({ message: "Class deleted" });
+    }
+    catch (error) {
+        console.error("Error deleting class:", error);
+        return res
+            .status(500)
+            .json({ message: "ERROR", cause: error.message });
     }
 };
 export const userLogout = async (req, res, next) => {

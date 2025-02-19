@@ -29,6 +29,8 @@ import {
   sendChatRequest,
   getUserClasses,
   getClassDocuments,
+  deleteClass,
+  deleteDocument, // <-- NEW imports
 } from "../helpers/api-communicators";
 import toast from "react-hot-toast";
 import ChatBubbleIcon from "@mui/icons-material/ChatBubble";
@@ -450,7 +452,7 @@ const Chat = () => {
      SELECT A CHAT SESSION
      ------------------------------ */
   const handleSelectChatSession = (chatSessionId: string) => {
-    // finalizing any typewriter if running
+    // finalize any typewriter if running
     finalizeTypewriter();
 
     const session = chatSessions.find((s) => s._id === chatSessionId);
@@ -484,6 +486,58 @@ const Chat = () => {
     } catch (error) {
       console.error("Error deleting chat session:", error);
       toast.error("Failed to delete chat session");
+    }
+  };
+
+  /* ------------------------------
+     DELETE A CLASS
+     ------------------------------ */
+  const handleDeleteClass = async (classId: string) => {
+    try {
+      await deleteClass(classId);
+      // Remove from local state
+      setClasses((prev) => prev.filter((c) => c._id !== classId));
+
+      // Also remove from classDocs if loaded
+      setClassDocs((prev) => {
+        const updated = { ...prev };
+        // If we have the class key, remove it
+        for (const clsName in updated) {
+          // find the class that matches classId
+          // but note we only have className keys in 'updated', so we might
+          // do a separate approach if needed
+        }
+        // Alternatively, re-fetch classes if simpler
+        return updated;
+      });
+
+      toast.success("Class deleted");
+    } catch (error) {
+      console.error("Error deleting class:", error);
+      toast.error("Failed to delete class");
+    }
+  };
+
+  /* ------------------------------
+     DELETE A DOCUMENT
+     ------------------------------ */
+  const handleDeleteDocument = async (docId: string, className: string) => {
+    try {
+      await deleteDocument(docId);
+
+      // Remove from local state
+      setClassDocs((prev) => {
+        const updated = { ...prev };
+        if (updated[className]) {
+          updated[className] = updated[className].filter((doc) => doc._id !== docId);
+        }
+        return updated;
+      });
+
+      toast.success("Document deleted");
+    } catch (error) {
+      console.error("Error deleting document:", error);
+      toast.error("Failed to delete document");
     }
   };
 
@@ -650,7 +704,6 @@ const Chat = () => {
                   key={session._id}
                   className="chat-list-item"
                   selected={session._id === currentChatSessionId}
-                  // Disallow changing sessions if isGenerating is true
                   disabled={isGenerating}
                   onClick={() => handleSelectChatSession(session._id)}
                   sx={{ pl: 3 }}
@@ -704,32 +757,68 @@ const Chat = () => {
 
               {classes.map((cls) => (
                 <React.Fragment key={cls._id}>
-                  <ListItemButton sx={{ pl: 2 }} onClick={() => handleToggleClass(cls.name)}>
+                  <ListItemButton sx={{ pl: 2 }} className="class-list-item" onClick={() => handleToggleClass(cls.name)}>
                     <ListItemIcon sx={{ color: "white" }}>
                       {expandedClass === cls.name ? <ExpandLess /> : <ExpandMore />}
                     </ListItemIcon>
                     <ListItemText primary={cls.name} sx={{ color: "white" }} />
+
+                    {/* Trash icon for class deletion */}
+                    <IconButton
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteClass(cls._id);
+                      }}
+                      sx={{
+                        color: "red",
+                        opacity: 0,
+                        transition: "opacity 0.3s",
+                        ".class-list-item:hover &": { opacity: 1 },
+                      }}
+                    >
+                      <DeleteOutlineIcon />
+                    </IconButton>
                   </ListItemButton>
+
                   <Collapse in={expandedClass === cls.name} timeout="auto" unmountOnExit>
                     <List component="div" disablePadding sx={{ pl: 6 }}>
                       {classDocs[cls.name] && classDocs[cls.name].length > 0 ? (
                         classDocs[cls.name].map((doc) => (
-                          <ListItem key={doc._id} sx={{ color: "white" }}>
+                          <ListItem
+                            key={doc._id}
+                            sx={{ color: "white" }}
+                            className="doc-list-item"
+                          >
                             <Button
-                              // Disabling but still visible
                               disabled={isGenerating}
                               onClick={() => handleOpenDocumentChat(doc._id)}
                               sx={{
                                 color: "#1976d2",
                                 textTransform: "none",
-                                // Force visible text color even if disabled:
                                 "&.Mui-disabled": {
-                                  color: "rgba(25,118,210, 0.5)", // dimmed
+                                  color: "rgba(25,118,210, 0.5)",
                                 },
                               }}
                             >
                               {doc.fileName}
                             </Button>
+
+                            {/* Trash icon for document deletion */}
+                            <IconButton
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteDocument(doc._id, doc.className);
+                              }}
+                              sx={{
+                                color: "red",
+                                ml: 1,
+                                opacity: 0,
+                                transition: "opacity 0.3s",
+                                ".doc-list-item:hover &": { opacity: 1 },
+                              }}
+                            >
+                              <DeleteOutlineIcon />
+                            </IconButton>
                           </ListItem>
                         ))
                       ) : classDocs[cls.name] ? (

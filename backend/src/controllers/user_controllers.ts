@@ -3,6 +3,7 @@ import user from "../models/user.js";
 import { hash, compare } from "bcrypt"
 import { createToken } from "../utils/token_manager.js";
 import { COOKIE_NAME } from "../utils/constants.js";
+import mongoose from "mongoose";
 
 export const getAllUsers = async (
     req: Request,
@@ -152,6 +153,33 @@ export const getAllUsers = async (
     }
   };
 
+
+  export const deleteUserClass = async (req: Request, res: Response) => {
+    try {
+      const currentUser = await user.findById(res.locals.jwtData.id);
+      if (!currentUser) {
+        return res.status(401).send("User not registered or token malfunctioned");
+      }
+  
+      const { classId } = req.params;
+  
+      // Convert the string from the URL to an ObjectId
+      const objectId = new mongoose.Types.ObjectId(classId);
+  
+      // Now .pull({ _id: ... }) will match the subdocument
+      currentUser.classes.pull({ _id: objectId });
+  
+      await currentUser.save();
+  
+      return res.status(200).json({ message: "Class deleted" });
+    } catch (error) {
+      console.error("Error deleting class:", error);
+      return res
+        .status(500)
+        .json({ message: "ERROR", cause: (error as Error).message });
+    }
+  };
+  
   export const userLogout = async (
     req: Request,
     res: Response,
@@ -184,3 +212,5 @@ export const getAllUsers = async (
       return res.status(200).json({ message: "ERROR", cause: error.message });
     }
   };
+
+  
