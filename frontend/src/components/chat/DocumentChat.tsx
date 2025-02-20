@@ -325,6 +325,7 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
         >
           {messages.map((msg, index) => (
             <ChatItem
+              isDocumentChat={true}
               key={index}
               content={msg.content}
               role={msg.role}
@@ -336,6 +337,7 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
 
           {isGenerating && partialAssistantMessage && (
             <ChatItem
+              isDocumentChat={true}
               content={partialAssistantMessage}
               role="assistant"
               citation={[]}
@@ -344,7 +346,13 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
           )}
 
           {isGenerating && partialAssistantMessage === "" && (
-            <Box sx={{ display: "flex", alignItems: "center", m: 1 }}>
+            <Box sx={{
+              display: "flex",
+              alignItems: "center",
+              m: 1,
+              transform: "scale(0.25)",          // Force half size
+              transformOrigin: "left top",
+            }}>
               <Loader />
             </Box>
           )}

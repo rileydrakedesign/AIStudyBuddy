@@ -8,6 +8,9 @@ import rehypeKatex from "rehype-katex";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { coldarkDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import CloseIcon from "@mui/icons-material/Close";
+// If you have a Loader component:
+import Loader from "../ui/loader";
+
 
 /* ------------------------------
    HELPER: code blocks
@@ -62,8 +65,14 @@ interface ChatItemProps {
   role: "user" | "assistant";
   citation?: Citation[];
   chunks?: ChunkData[];
-  onCitationClick?: (chunkNumber: number) => void; // for bracket clicks
+  onCitationClick?: (chunkNumber: number) => void;
+  /**
+   * If true, indicates this ChatItem is being rendered in the Document Chat page.
+   * We can use this to scale down the loader for doc chat only.
+   */
+  isDocumentChat?: boolean;
 }
+
 
 /**
  * A small tooltip-like popup for chunk text.
@@ -117,6 +126,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
   citation,
   chunks,
   onCitationClick,
+  isDocumentChat = false, // default to false if not provided
 }) => {
   const auth = useAuth();
   const [popupData, setPopupData] = useState<{
@@ -193,16 +203,39 @@ const ChatItem: React.FC<ChatItemProps> = ({
     return parts;
   };
 
+  /**
+   * Example scenario: if role=assistant and content is empty => show a loader
+   * That might not be how your code is structured, but here's how you'd scale:
+   */
+  if (role === "assistant" && content.trim() === "") {
+    // Scale the loader differently if isDocumentChat is true
+    const scaleValue = isDocumentChat ? 0.5 : 1.0;
+
+    return (
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          transform: `scale(${scaleValue})`,
+          transformOrigin: "left top",
+          m: 1,
+        }}
+      >
+        <Loader />
+      </Box>
+    );
+  }
+
   return (
     <Box
       sx={{
         display: "flex",
-        p: 1, // Reduced padding for a compact layout
-        m: 1, // Small margin between items
+        p: 1,
+        m: 1,
         bgcolor: role === "assistant" ? "#004d5612" : "#1d2d44",
         gap: 1,
         borderRadius: 2,
-        width: "calc(100% - 16px)", // Account for external margins
+        width: "calc(100% - 16px)",
         boxSizing: "border-box",
       }}
     >
@@ -275,7 +308,6 @@ const ChatItem: React.FC<ChatItemProps> = ({
                         remarkPlugins={[remarkGfm, remarkMath]}
                         rehypePlugins={[rehypeKatex]}
                         components={{
-                          // Changed 'p' to 'span' to render inline elements
                           span: ({ node, ...props }) => (
                             <span
                               style={{ fontSize: "16px", lineHeight: 1.6, whiteSpace: "pre-wrap" }}

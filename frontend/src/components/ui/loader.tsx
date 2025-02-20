@@ -8,7 +8,6 @@ const Loader: React.FC = () => {
       {/* Inline CSS exactly as in your snippet */}
       <style>
         {`
-          /* From Uiverse.io by Nawsome */
           .loader {
             --background: linear-gradient(135deg, #23C4F8, #275EFE);
             --shadow: rgba(39, 94, 254, 0.28);
@@ -220,7 +219,6 @@ const Loader: React.FC = () => {
             </li>
           </ul>
         </div>
-        <span>Loading</span>
       </div>
     </>
   );
