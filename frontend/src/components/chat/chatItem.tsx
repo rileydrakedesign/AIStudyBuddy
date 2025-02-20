@@ -8,51 +8,27 @@ import rehypeKatex from "rehype-katex";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { coldarkDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import CloseIcon from "@mui/icons-material/Close";
-// If you have a Loader component:
 import Loader from "../ui/loader";
 
-
-/* ------------------------------
-   HELPER: code blocks
-   ------------------------------ */
-function extractBlocks(message: string): {
-  type: "code" | "text";
-  value: string;
-  language?: string;
-}[] {
+/* Code-block extraction unchanged */
+function extractBlocks(message: string) {
   const blocks: { type: "code" | "text"; value: string; language?: string }[] = [];
   const regex = /```(\w+)?\n([\s\S]*?)```/gm;
   let lastIndex = 0;
   let match;
-
   while ((match = regex.exec(message)) !== null) {
-    // Text before the code block
     if (match.index > lastIndex) {
-      blocks.push({
-        type: "text",
-        value: message.slice(lastIndex, match.index),
-      });
+      blocks.push({ type: "text", value: message.slice(lastIndex, match.index) });
     }
-    blocks.push({
-      type: "code",
-      value: match[2],
-      language: match[1] || "javascript",
-    });
+    blocks.push({ type: "code", value: match[2], language: match[1] || "javascript" });
     lastIndex = regex.lastIndex;
   }
-  // Any trailing text after the last code block
   if (lastIndex < message.length) {
-    blocks.push({
-      type: "text",
-      value: message.slice(lastIndex),
-    });
+    blocks.push({ type: "text", value: message.slice(lastIndex) });
   }
   return blocks;
 }
 
-/* ------------------------------
-   TYPES
-   ------------------------------ */
 type Citation = { href: string | null; text: string };
 type ChunkData = {
   chunkNumber: number;
@@ -66,17 +42,9 @@ interface ChatItemProps {
   citation?: Citation[];
   chunks?: ChunkData[];
   onCitationClick?: (chunkNumber: number) => void;
-  /**
-   * If true, indicates this ChatItem is being rendered in the Document Chat page.
-   * We can use this to scale down the loader for doc chat only.
-   */
   isDocumentChat?: boolean;
 }
 
-
-/**
- * A small tooltip-like popup for chunk text.
- */
 const CitationPopup: React.FC<{
   chunkText: string;
   x: number;
@@ -100,14 +68,7 @@ const CitationPopup: React.FC<{
         zIndex: 9999,
       }}
     >
-      <Box
-        sx={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          mb: 1,
-        }}
-      >
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
         <strong>Referenced Text</strong>
         <IconButton size="small" onClick={onClose} sx={{ color: "black", ml: 1 }}>
           <CloseIcon />
@@ -126,7 +87,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
   citation,
   chunks,
   onCitationClick,
-  isDocumentChat = false, // default to false if not provided
+  isDocumentChat = false,
 }) => {
   const auth = useAuth();
   const [popupData, setPopupData] = useState<{
@@ -136,81 +97,90 @@ const ChatItem: React.FC<ChatItemProps> = ({
     y: number;
   } | null>(null);
 
-  // Break the message into code blocks vs. text
   const messageBlocks = extractBlocks(content);
 
-  /**
-   * parseBrackets: Detect "[1]" in text and make them clickable.
-   * On click -> open a popup with chunk text and call onCitationClick to jump to the PDF page.
-   */
-  const parseBrackets = (text: string): React.ReactNode[] => {
-    const bracketRegex = /\[(\d+)\]/g;
-    const parts: React.ReactNode[] = [];
-    let lastIndex = 0;
-    let match: RegExpExecArray | null;
+  // For bracket references, we do a custom parse that forcibly merges lines if needed
+  function splitBrackets(str: string): React.ReactNode[] {
+    // We'll manually break text on bracket references with capturing group
+    // e.g. "some text[3] next" => ["some text", "[3]", " next"]
+    // Then we can handle each piece separately
+    const bracketRegex = /(\[\d+\])/g;
+    const segments = str.split(bracketRegex);
 
-    while ((match = bracketRegex.exec(text)) !== null) {
-      const index = match.index;
-      const bracketNumber = match[1];
-      if (index > lastIndex) {
-        parts.push(text.slice(lastIndex, index));
+    const result: React.ReactNode[] = [];
+
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      if (bracketRegex.test(seg)) {
+        // It's a bracket reference like "[3]"
+        const bracketNumber = seg.replace(/\D/g, ""); // get digits
+        result.push(
+          <span
+            key={`br-${i}`}
+            style={{ marginLeft: "4px", color: "blue", cursor: "pointer" }}
+            onClick={(e) => {
+              e.stopPropagation();
+              const chunk = chunks?.find((c) => c.chunkNumber === Number(bracketNumber));
+              if (chunk) {
+                const popupWidth = 300;
+                const popupHeight = 300;
+                let xPos = e.clientX + 10;
+                let yPos = e.clientY + window.scrollY + 10;
+                if (xPos + popupWidth > window.innerWidth) {
+                  xPos = window.innerWidth - popupWidth - 10;
+                }
+                const fullHeight = window.innerHeight + window.scrollY;
+                if (yPos + popupHeight > fullHeight) {
+                  yPos = fullHeight - popupHeight - 10;
+                }
+                setPopupData({
+                  open: true,
+                  chunkText: chunk.text,
+                  x: xPos,
+                  y: yPos,
+                });
+                if (onCitationClick) {
+                  onCitationClick(Number(bracketNumber));
+                }
+              }
+            }}
+          >
+            {seg}
+          </span>
+        );
+      } else {
+        // Normal text segment, run it through ReactMarkdown
+        // Possibly remove forced newline if we see only "[digits]"
+        result.push(
+          <ReactMarkdown
+            key={`txt-${i}`}
+            remarkPlugins={[remarkGfm, remarkMath]}
+            rehypePlugins={[rehypeKatex]}
+            components={{
+              // Force <p> => inline <span>
+              p: ({ node, ...props }) => (
+                <span
+                  style={{
+                    fontSize: "16px",
+                    lineHeight: 1.6,
+                    whiteSpace: "pre-wrap",
+                  }}
+                  {...props}
+                />
+              ),
+            }}
+          >
+            {seg}
+          </ReactMarkdown>
+        );
       }
-
-      parts.push(
-        <span
-          key={`bracket-${index}`}
-          style={{ color: "blue", cursor: "pointer" }}
-          onClick={(e) => {
-            e.stopPropagation();
-            const chunk = chunks?.find((c) => c.chunkNumber === Number(bracketNumber));
-            if (chunk) {
-              // 1) Show chunk text popup
-              const popupWidth = 300;
-              const popupHeight = 300;
-              let xPos = e.clientX + 10;
-              let yPos = e.clientY + window.scrollY + 10;
-              if (xPos + popupWidth > window.innerWidth) {
-                xPos = window.innerWidth - popupWidth - 10;
-              }
-              const fullHeight = window.innerHeight + window.scrollY;
-              if (yPos + popupHeight > fullHeight) {
-                yPos = fullHeight - popupHeight - 10;
-              }
-              setPopupData({
-                open: true,
-                chunkText: chunk.text,
-                x: xPos,
-                y: yPos,
-              });
-
-              // 2) Jump to chunk page in the PDF
-              if (onCitationClick) {
-                onCitationClick(Number(bracketNumber));
-              }
-            } else {
-              console.error(`No chunk found for bracket [${bracketNumber}].`);
-            }
-          }}
-        >
-          [{bracketNumber}]
-        </span>
-      );
-      lastIndex = bracketRegex.lastIndex;
     }
-    if (lastIndex < text.length) {
-      parts.push(text.slice(lastIndex));
-    }
-    return parts;
-  };
 
-  /**
-   * Example scenario: if role=assistant and content is empty => show a loader
-   * That might not be how your code is structured, but here's how you'd scale:
-   */
+    return result;
+  }
+
   if (role === "assistant" && content.trim() === "") {
-    // Scale the loader differently if isDocumentChat is true
-    const scaleValue = isDocumentChat ? 0.5 : 1.0;
-
+    const scaleValue = isDocumentChat ? 0.5 : 1;
     return (
       <Box
         sx={{
@@ -239,7 +209,6 @@ const ChatItem: React.FC<ChatItemProps> = ({
         boxSizing: "border-box",
       }}
     >
-      {/* Avatar */}
       <Avatar
         sx={{
           bgcolor: role === "assistant" ? undefined : "black",
@@ -288,46 +257,17 @@ const ChatItem: React.FC<ChatItemProps> = ({
               </SyntaxHighlighter>
             );
           } else {
-            // Parse bracket references in plain text
-            const bracketedNodes = parseBrackets(block.value.trim());
+            // Use splitBrackets to handle any bracket references inline
+            const children = splitBrackets(block.value);
             return (
-              <Box
-                key={idx}
-                sx={{
-                  fontSize: "16px",
-                  lineHeight: 1.6,
-                  mb: 1,
-                  color: "white",
-                }}
-              >
-                {bracketedNodes.map((node, i) => {
-                  if (typeof node === "string") {
-                    return (
-                      <ReactMarkdown
-                        key={`txt-${i}`}
-                        remarkPlugins={[remarkGfm, remarkMath]}
-                        rehypePlugins={[rehypeKatex]}
-                        components={{
-                          span: ({ node, ...props }) => (
-                            <span
-                              style={{ fontSize: "16px", lineHeight: 1.6, whiteSpace: "pre-wrap" }}
-                              {...props}
-                            />
-                          ),
-                        }}
-                      >
-                        {node}
-                      </ReactMarkdown>
-                    );
-                  }
-                  return node;
-                })}
+              <Box key={idx} sx={{ mb: 1, color: "white" }}>
+                {children}
               </Box>
             );
           }
         })}
 
-        {/* Citations if role=assistant */}
+        {/* citations if any */}
         {role === "assistant" && citation && citation.length > 0 && (
           <Box sx={{ mt: 1, display: "flex", gap: 1, flexWrap: "wrap" }}>
             {citation.map((cit, idx) =>
@@ -373,7 +313,6 @@ const ChatItem: React.FC<ChatItemProps> = ({
         )}
       </Box>
 
-      {/* Popup for chunk text */}
       {popupData && popupData.open && (
         <CitationPopup
           chunkText={popupData.chunkText}

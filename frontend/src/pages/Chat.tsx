@@ -30,7 +30,7 @@ import {
   getUserClasses,
   getClassDocuments,
   deleteClass,
-  deleteDocument, // <-- NEW imports
+  deleteDocument,
 } from "../helpers/api-communicators";
 import toast from "react-hot-toast";
 import ChatBubbleIcon from "@mui/icons-material/ChatBubble";
@@ -452,7 +452,6 @@ const Chat = () => {
      SELECT A CHAT SESSION
      ------------------------------ */
   const handleSelectChatSession = (chatSessionId: string) => {
-    // finalize any typewriter if running
     finalizeTypewriter();
 
     const session = chatSessions.find((s) => s._id === chatSessionId);
@@ -524,8 +523,6 @@ const Chat = () => {
   const handleDeleteDocument = async (docId: string, className: string) => {
     try {
       await deleteDocument(docId);
-
-      // Remove from local state
       setClassDocs((prev) => {
         const updated = { ...prev };
         if (updated[className]) {
@@ -561,7 +558,6 @@ const Chat = () => {
     }
   };
 
-  // If the user wants to open a doc-based chat
   const handleOpenDocumentChat = (docId: string) => {
     finalizeTypewriter();
     setActiveDocId(docId);
@@ -584,16 +580,13 @@ const Chat = () => {
     }
   };
 
-  // Handler for sidebar toggle (passed to Header)
+  // Handler for sidebar toggle
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);
   };
 
-  /* ------------------------------
-     RENDER
-     ------------------------------ */
   if (!auth?.isLoggedIn) {
-    return null; // or <Navigate to="/login" replace />
+    return null; 
   }
 
   return (
@@ -601,7 +594,6 @@ const Chat = () => {
       {/* Global Header */}
       <Header sidebarOpen={sidebarOpen} onToggleSidebar={toggleSidebar} />
 
-      {/* Main Content - flex container for sidebar + chat area */}
       <Box
         sx={{
           display: "flex",
@@ -691,7 +683,11 @@ const Chat = () => {
                   </Box>
                 </Box>
               ) : (
-                <ListItemButton onClick={handleCreateNewChatSession} sx={{ pl: 2 }}>
+                <ListItemButton
+                  onClick={handleCreateNewChatSession}
+                  disabled={isGenerating}
+                  sx={{ pl: 2 }}
+                >
                   <ListItemIcon sx={{ color: "white" }}>
                     <AddIcon />
                   </ListItemIcon>
@@ -748,7 +744,7 @@ const Chat = () => {
                 </ListSubheader>
               }
             >
-              <ListItemButton sx={{ pl: 2 }}>
+              <ListItemButton sx={{ pl: 2 }} disabled={isGenerating}>
                 <ListItemIcon sx={{ color: "white" }}>
                   <AddIcon />
                 </ListItemIcon>
@@ -757,13 +753,16 @@ const Chat = () => {
 
               {classes.map((cls) => (
                 <React.Fragment key={cls._id}>
-                  <ListItemButton sx={{ pl: 2 }} className="class-list-item" onClick={() => handleToggleClass(cls.name)}>
+                  <ListItemButton
+                    sx={{ pl: 2 }}
+                    className="class-list-item"
+                    onClick={() => handleToggleClass(cls.name)}
+                  >
                     <ListItemIcon sx={{ color: "white" }}>
                       {expandedClass === cls.name ? <ExpandLess /> : <ExpandMore />}
                     </ListItemIcon>
                     <ListItemText primary={cls.name} sx={{ color: "white" }} />
 
-                    {/* Trash icon for class deletion */}
                     <IconButton
                       onClick={(e) => {
                         e.stopPropagation();
@@ -784,11 +783,7 @@ const Chat = () => {
                     <List component="div" disablePadding sx={{ pl: 6 }}>
                       {classDocs[cls.name] && classDocs[cls.name].length > 0 ? (
                         classDocs[cls.name].map((doc) => (
-                          <ListItem
-                            key={doc._id}
-                            sx={{ color: "white" }}
-                            className="doc-list-item"
-                          >
+                          <ListItem key={doc._id} sx={{ color: "white" }} className="doc-list-item">
                             <Button
                               disabled={isGenerating}
                               onClick={() => handleOpenDocumentChat(doc._id)}
@@ -803,7 +798,6 @@ const Chat = () => {
                               {doc.fileName}
                             </Button>
 
-                            {/* Trash icon for document deletion */}
                             <IconButton
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -850,11 +844,9 @@ const Chat = () => {
             boxSizing: "border-box",
           }}
         >
-          {/* If we’re in document chat mode, show the DocumentChat component */}
           {activeDocId ? (
             <DocumentChat docId={activeDocId} onClose={() => setActiveDocId(null)} />
           ) : (
-            // Normal chat UI
             <>
               {/* Class Selector */}
               <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
@@ -947,13 +939,7 @@ const Chat = () => {
                         </IconButton>
                       ) : (
                         <IconButton onClick={handleStop} sx={{ color: "white", mx: 1 }}>
-                          <Box
-                            sx={{
-                              width: 16,
-                              height: 16,
-                              backgroundColor: "white",
-                            }}
-                          />
+                          <Box sx={{ width: 16, height: 16, backgroundColor: "white" }} />
                         </IconButton>
                       )}
                     </Box>
@@ -991,7 +977,6 @@ const Chat = () => {
                       />
                     ))}
 
-                    {/* partial typed response */}
                     {isGenerating && partialAssistantMessage && (
                       <ChatItem
                         content={partialAssistantMessage}
@@ -1001,7 +986,6 @@ const Chat = () => {
                       />
                     )}
 
-                    {/* loader if there's a gap before typing starts */}
                     {isGenerating && !partialAssistantMessage && (
                       <Box
                         sx={{
