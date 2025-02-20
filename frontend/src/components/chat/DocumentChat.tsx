@@ -6,13 +6,11 @@ import ChatItem from "../chat/chatItem";
 import toast from "react-hot-toast";
 import { getDocumentFile, sendChatRequest } from "../../helpers/api-communicators";
 
-// PDF viewer
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/esm/Page/AnnotationLayer.css";
 import "react-pdf/dist/esm/Page/TextLayer.css";
 pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.js";
 
-// Types
 type Message = {
   role: "user" | "assistant";
   content: string;
@@ -26,31 +24,39 @@ type Chunk = {
 };
 
 interface DocumentChatProps {
-  docId: string; // Which document we’re chatting with
-  onClose: () => void; // Callback to exit doc-chat mode
+  docId: string;
+  onClose: () => void;
 }
 
 const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
-  // If we haven't started a conversation yet, docSessionId is null
-  // After the first message, the server returns an ephemeral session ID
   const [docSessionId, setDocSessionId] = useState<string | null>(null);
-
   const [docUrl, setDocUrl] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [chunks, setChunks] = useState<Chunk[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [partialAssistantMessage, setPartialAssistantMessage] = useState("");
 
+  // PDF
   const [numPages, setNumPages] = useState<number | null>(null);
+
+  // NEW: how many pages to show at once
+  const [visiblePagesCount, setVisiblePagesCount] = useState(3);
+
   const [highlightedPage, setHighlightedPage] = useState<number | null>(null);
   const [highlightedText, setHighlightedText] = useState<string | null>(null);
 
+  // Refs for chat scrolling
   const inputRef = useRef<HTMLInputElement | null>(null);
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
 
-  // 1) Fetch the doc’s S3 URL
+  // PDF container ref for lazy loading
+  const pdfContainerRef = useRef<HTMLDivElement | null>(null);
+
+  /* ------------------------------
+     1) Fetch S3 URL for doc
+     ------------------------------ */
   useEffect(() => {
     getDocumentFile(docId)
       .then((res) => {
@@ -64,7 +70,9 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
       });
   }, [docId]);
 
-  // 2) Chat scrolling logic
+  /* ------------------------------
+     2) Chat scrolling
+     ------------------------------ */
   useEffect(() => {
     const container = chatContainerRef.current;
     if (!container) return;
@@ -84,14 +92,40 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
     }
   }, [messages, partialAssistantMessage, isAtBottom]);
 
-  // 3) Send a message
+  /* ------------------------------
+     PDF infinite scroll
+     ------------------------------ */
+  useEffect(() => {
+    const pdfEl = pdfContainerRef.current;
+    if (!pdfEl) return;
+
+    const handlePDFScroll = () => {
+      if (!numPages) return;
+      const { scrollTop, scrollHeight, clientHeight } = pdfEl;
+      // If user is near bottom and we have more pages to load
+      if (scrollHeight - scrollTop - clientHeight < 300) {
+        // load next chunk
+        setVisiblePagesCount((prev) => {
+          // e.g. load 3 more pages at a time
+          const nextVal = prev + 3;
+          return nextVal > numPages ? numPages : nextVal;
+        });
+      }
+    };
+
+    pdfEl.addEventListener("scroll", handlePDFScroll);
+    return () => pdfEl.removeEventListener("scroll", handlePDFScroll);
+  }, [numPages]);
+
+  /* ------------------------------
+     3) Send a message
+     ------------------------------ */
   const handleSend = async () => {
     if (!inputRef.current || !inputRef.current.value.trim()) return;
-
     const userText = inputRef.current.value.trim();
     inputRef.current.value = "";
 
-    // Immediately add the user message locally
+    // Immediately add user message
     const newMessage: Message = { role: "user", content: userText };
     setMessages((prev) => [...prev, newMessage]);
 
@@ -99,41 +133,34 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
     setPartialAssistantMessage("");
 
     try {
-      // If docSessionId is null, the server will create a new ephemeral doc session
-      // If docSessionId is not null, the server re-uses it (persisting the chat).
-
-      // Instead of passing docSessionId, do this:
       const sessionIdForRequest = docSessionId === null ? "null" : docSessionId;
-
       const chatData = await sendChatRequest(
         userText,
-        "null",         // class_name
-        sessionIdForRequest,   // pass the current ephemeral session ID, or null
-        docId,          // doc-based
-        true            // ephemeral
+        "null",
+        sessionIdForRequest,
+        docId,
+        true
       );
 
-      // If the server created a new ephemeral session, store its ID
+      // If no docSessionId yet, store the newly created ephemeral ID
       if (!docSessionId && chatData.chatSessionId) {
         setDocSessionId(chatData.chatSessionId);
       }
 
       setChunks(chatData.chunks || []);
 
-      // The final assistant message in the returned array
       const assistantMsg =
         chatData.messages.length > 0
           ? chatData.messages[chatData.messages.length - 1]
           : null;
 
       if (!assistantMsg || assistantMsg.role !== "assistant") {
-        // If no assistant message, just store entire array
         setMessages(chatData.messages);
         setIsGenerating(false);
         return;
       }
 
-      // Temporarily remove final assistant message for typewriter effect
+      // "Stream" the final message
       const updated = [...chatData.messages];
       updated.pop();
 
@@ -171,7 +198,9 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
     setPartialAssistantMessage("");
   };
 
-  // 4) Citation click => highlight PDF text
+  /* ------------------------------
+     4) Citation click => highlight text + jump to page
+     ------------------------------ */
   const handleCitationClick = (chunkNumber: number) => {
     const chunk = chunks.find((c) => c.chunkNumber === chunkNumber);
     if (!chunk) {
@@ -186,40 +215,61 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
     setHighlightedPage(chunk.pageNumber);
     setHighlightedText(chunk.text);
 
-    const targetId = `pdf-page-${chunk.pageNumber}`;
-    const el = document.getElementById(targetId);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth" });
+    // If the citation page is beyond what we currently have rendered, expand
+    if (numPages && chunk.pageNumber > visiblePagesCount) {
+      setVisiblePagesCount((prev) => {
+        const needed = chunk.pageNumber || 1;
+        return needed > numPages ? numPages : needed;
+      });
     }
+
+    // After we ensure it's rendered, let's scroll to it
+    const targetId = `pdf-page-${chunk.pageNumber}`;
+    setTimeout(() => {
+      const el = document.getElementById(targetId);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth" });
+      }
+    }, 200);
   };
 
-  // 5) React-PDF callbacks
+  /* ------------------------------
+     5) React-PDF callbacks
+     ------------------------------ */
   const onDocumentLoadSuccess = (pdf: any) => {
     setNumPages(pdf.numPages);
   };
 
-  const customTextRenderer = (pageIndex: number) => (textItem: { str: string }): string => {
-    const { str } = textItem;
-    if (highlightedPage === pageIndex && highlightedText) {
-      const parts = str.split(highlightedText);
-      if (parts.length > 1) {
-        return parts.join(
-          `<mark style="background-color: yellow;">${highlightedText}</mark>`
-        );
+  /**
+   * Renders text, optionally highlighting the chunk.
+   */
+  const customTextRenderer =
+    (pageIndex: number) => (textItem: { str: string }): string => {
+      const { str } = textItem;
+      if (highlightedPage === pageIndex && highlightedText) {
+        const parts = str.split(highlightedText);
+        if (parts.length > 1) {
+          return parts.join(
+            `<mark style="background-color: yellow;">${highlightedText}</mark>`
+          );
+        }
       }
-    }
-    return str;
-  };
+      return str;
+    };
 
   return (
     <Box sx={{ display: "flex", height: "100%", overflow: "hidden" }}>
       {/* Left side: PDF viewer */}
-      <Box sx={{ flex: 1, borderRight: "1px solid #ccc", overflowY: "auto" }}>
+      <Box
+        sx={{ flex: 1, borderRight: "1px solid #ccc", overflowY: "auto" }}
+        ref={pdfContainerRef} // for infinite scroll
+      >
         {docUrl ? (
           <div style={{ width: "100%", height: "100%", padding: "1rem" }}>
             <Document file={docUrl} onLoadSuccess={onDocumentLoadSuccess}>
               {numPages &&
-                Array.from({ length: numPages }, (_, i) => {
+                // We'll only render up to visiblePagesCount
+                Array.from({ length: visiblePagesCount }, (_, i) => {
                   const pageNumber = i + 1;
                   return (
                     <div
@@ -235,6 +285,11 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
                     </div>
                   );
                 })}
+              {numPages && visiblePagesCount < numPages && (
+                <Typography variant="body2" sx={{ color: "white" }}>
+                  Scroll down to load more pages...
+                </Typography>
+              )}
             </Document>
           </div>
         ) : (
@@ -263,7 +318,7 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
           </button>
         </Box>
 
-        {/* Messages */}
+        {/* Chat messages */}
         <Box
           ref={chatContainerRef}
           sx={{ flexGrow: 1, overflowY: "auto", p: 2, backgroundColor: "#2E2E2E" }}
@@ -297,7 +352,7 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
           <div ref={messagesEndRef} />
         </Box>
 
-        {/* Input section */}
+        {/* Input bar */}
         <Box
           sx={{
             p: 2,
