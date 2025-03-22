@@ -5,19 +5,30 @@ import Loader from "../ui/loader";
 import ChatItem from "../chat/chatItem";
 import toast from "react-hot-toast";
 import { getDocumentFile, sendChatRequest } from "../../helpers/api-communicators";
-
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/esm/Page/AnnotationLayer.css";
 import "react-pdf/dist/esm/Page/TextLayer.css";
+
 pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.js";
+
+/* ------------------------------
+   TYPES
+   ------------------------------ */
+type ChunkReference = {
+  chunkId: string;
+  displayNumber: number;
+  pageNumber?: number;
+};
 
 type Message = {
   role: "user" | "assistant";
   content: string;
   citation?: { href: string | null; text: string }[];
+  // Each message stores its own stable chunk references.
+  chunkReferences?: ChunkReference[];
 };
 
-type Chunk = {
+type EphemeralChunk = {
   chunkNumber: number;
   text: string;
   pageNumber?: number;
@@ -31,31 +42,50 @@ interface DocumentChatProps {
 const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
   const [docSessionId, setDocSessionId] = useState<string | null>(null);
   const [docUrl, setDocUrl] = useState<string | null>(null);
+
+  // All messages for this document chat
   const [messages, setMessages] = useState<Message[]>([]);
-  const [chunks, setChunks] = useState<Chunk[]>([]);
+  // Ephemeral chunks for the newest answer (if needed)
+  const [ephemeralChunks, setEphemeralChunks] = useState<EphemeralChunk[]>([]);
+
   const [isGenerating, setIsGenerating] = useState(false);
   const [partialAssistantMessage, setPartialAssistantMessage] = useState("");
 
-  // PDF
+  // PDF / paging
   const [numPages, setNumPages] = useState<number | null>(null);
-
-  // NEW: how many pages to show at once
   const [visiblePagesCount, setVisiblePagesCount] = useState(3);
 
+  // For highlighting in PDF
   const [highlightedPage, setHighlightedPage] = useState<number | null>(null);
   const [highlightedText, setHighlightedText] = useState<string | null>(null);
 
-  // Refs for chat scrolling
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  // Refs for chat & PDF scrolling
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const pdfContainerRef = useRef<HTMLDivElement | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
 
-  // PDF container ref for lazy loading
-  const pdfContainerRef = useRef<HTMLDivElement | null>(null);
+  /* ------------------------------
+     AUTO-RESIZE & CURSOR HANDLERS FOR TEXTAREA
+     ------------------------------ */
+  const handleInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
+    const target = e.currentTarget;
+    target.style.height = "auto";
+    const maxHeight = 150; // maximum height in pixels
+    target.style.height = Math.min(target.scrollHeight, maxHeight) + "px";
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    setTimeout(() => {
+      const target = e.currentTarget;
+      const length = target.value.length;
+      target.setSelectionRange(length, length);
+    }, 0);
+  };
 
   /* ------------------------------
-     1) Fetch S3 URL for doc
+     1) Fetch Document URL from S3
      ------------------------------ */
   useEffect(() => {
     getDocumentFile(docId)
@@ -71,7 +101,7 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
   }, [docId]);
 
   /* ------------------------------
-     2) Chat scrolling
+     2) Chat Scrolling
      ------------------------------ */
   useEffect(() => {
     const container = chatContainerRef.current;
@@ -93,7 +123,7 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
   }, [messages, partialAssistantMessage, isAtBottom]);
 
   /* ------------------------------
-     PDF infinite scroll
+     3) PDF Infinite Scroll
      ------------------------------ */
   useEffect(() => {
     const pdfEl = pdfContainerRef.current;
@@ -102,11 +132,8 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
     const handlePDFScroll = () => {
       if (!numPages) return;
       const { scrollTop, scrollHeight, clientHeight } = pdfEl;
-      // If user is near bottom and we have more pages to load
       if (scrollHeight - scrollTop - clientHeight < 300) {
-        // load next chunk
         setVisiblePagesCount((prev) => {
-          // e.g. load 3 more pages at a time
           const nextVal = prev + 3;
           return nextVal > numPages ? numPages : nextVal;
         });
@@ -118,22 +145,19 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
   }, [numPages]);
 
   /* ------------------------------
-     3) Send a message
+     4) Send a Message
      ------------------------------ */
   const handleSend = async () => {
     if (!inputRef.current || !inputRef.current.value.trim()) return;
     const userText = inputRef.current.value.trim();
     inputRef.current.value = "";
-
-    // Immediately add user message
     const newMessage: Message = { role: "user", content: userText };
     setMessages((prev) => [...prev, newMessage]);
-
     setIsGenerating(true);
     setPartialAssistantMessage("");
 
     try {
-      const sessionIdForRequest = docSessionId === null ? "null" : docSessionId;
+      const sessionIdForRequest = docSessionId ?? "null";
       const chatData = await sendChatRequest(
         userText,
         "null",
@@ -141,31 +165,21 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
         docId,
         true
       );
-
-      // If no docSessionId yet, store the newly created ephemeral ID
       if (!docSessionId && chatData.chatSessionId) {
         setDocSessionId(chatData.chatSessionId);
       }
-
-      setChunks(chatData.chunks || []);
-
-      const assistantMsg =
-        chatData.messages.length > 0
-          ? chatData.messages[chatData.messages.length - 1]
-          : null;
-
+      // Store ephemeral chunks for the newest answer if needed
+      setEphemeralChunks(chatData.chunks || []);
+      const allMsgs = chatData.messages;
+      const assistantMsg = allMsgs.length > 0 ? allMsgs[allMsgs.length - 1] : null;
       if (!assistantMsg || assistantMsg.role !== "assistant") {
-        setMessages(chatData.messages);
+        setMessages(allMsgs);
         setIsGenerating(false);
         return;
       }
-
-      // "Stream" the final message
-      const updated = [...chatData.messages];
-      updated.pop();
-
-      setMessages(updated);
-
+      const updatedMessages = [...allMsgs];
+      updatedMessages.pop(); // remove final assistant message for typewriter effect
+      setMessages(updatedMessages);
       const fullText = assistantMsg.content;
       let i = 0;
       const interval = setInterval(() => {
@@ -173,7 +187,7 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
         setPartialAssistantMessage(fullText.substring(0, i));
         if (i >= fullText.length) {
           clearInterval(interval);
-          const final = [...updated, { ...assistantMsg, content: fullText }];
+          const final = [...updatedMessages, { ...assistantMsg, content: fullText }];
           setMessages(final);
           setPartialAssistantMessage("");
           setIsGenerating(false);
@@ -186,7 +200,7 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
     }
   };
 
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !isGenerating) {
       event.preventDefault();
       handleSend();
@@ -199,32 +213,18 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
   };
 
   /* ------------------------------
-     4) Citation click => highlight text + jump to page
+     5) Citation Click => Highlight Text + Jump to PDF Page
      ------------------------------ */
-  const handleCitationClick = (chunkNumber: number) => {
-    const chunk = chunks.find((c) => c.chunkNumber === chunkNumber);
-    if (!chunk) {
-      toast.error(`No chunk found for bracket reference [${chunkNumber}]`);
-      return;
-    }
-    if (!chunk.pageNumber) {
-      toast.error(`No page number found for chunk [${chunkNumber}]`);
-      return;
-    }
-
-    setHighlightedPage(chunk.pageNumber);
-    setHighlightedText(chunk.text);
-
-    // If the citation page is beyond what we currently have rendered, expand
-    if (numPages && chunk.pageNumber > visiblePagesCount) {
+  // Instead of a global citation click handler, we now bind an inline handler per message in the ChatItem mapping.
+  // The jumpToPdfPage function is used globally.
+  const jumpToPdfPage = (pageNumber: number) => {
+    if (numPages && pageNumber > visiblePagesCount) {
       setVisiblePagesCount((prev) => {
-        const needed = chunk.pageNumber || 1;
+        const needed = pageNumber || 1;
         return needed > numPages ? numPages : needed;
       });
     }
-
-    // After we ensure it's rendered, let's scroll to it
-    const targetId = `pdf-page-${chunk.pageNumber}`;
+    const targetId = `pdf-page-${pageNumber}`;
     setTimeout(() => {
       const el = document.getElementById(targetId);
       if (el) {
@@ -234,15 +234,12 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
   };
 
   /* ------------------------------
-     5) React-PDF callbacks
+     6) React-PDF Callbacks
      ------------------------------ */
   const onDocumentLoadSuccess = (pdf: any) => {
     setNumPages(pdf.numPages);
   };
 
-  /**
-   * Renders text, optionally highlighting the chunk.
-   */
   const customTextRenderer =
     (pageIndex: number) => (textItem: { str: string }): string => {
       const { str } = textItem;
@@ -262,13 +259,12 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
       {/* Left side: PDF viewer */}
       <Box
         sx={{ flex: 1, borderRight: "1px solid #ccc", overflowY: "auto" }}
-        ref={pdfContainerRef} // for infinite scroll
+        ref={pdfContainerRef}
       >
         {docUrl ? (
           <div style={{ width: "100%", height: "100%", padding: "1rem" }}>
             <Document file={docUrl} onLoadSuccess={onDocumentLoadSuccess}>
               {numPages &&
-                // We'll only render up to visiblePagesCount
                 Array.from({ length: visiblePagesCount }, (_, i) => {
                   const pageNumber = i + 1;
                   return (
@@ -330,8 +326,20 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
               content={msg.content}
               role={msg.role}
               citation={msg.citation}
-              chunks={chunks}
-              onCitationClick={handleCitationClick}
+              // Bind an inline onCitationClick that uses only this message's chunkReferences.
+              chunkReferences={msg.chunkReferences}
+              onCitationClick={(chunkNumber: number) => {
+                const ref = msg.chunkReferences?.find(
+                  (r) => r.displayNumber === chunkNumber
+                );
+                if (ref && ref.pageNumber) {
+                  setHighlightedPage(ref.pageNumber);
+                  setHighlightedText("..."); // Optionally, you can fetch the text here
+                  jumpToPdfPage(ref.pageNumber);
+                } else {
+                  toast.error(`No chunk found for bracket reference [${chunkNumber}] in this message`);
+                }
+              }}
             />
           ))}
 
@@ -341,18 +349,20 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
               content={partialAssistantMessage}
               role="assistant"
               citation={[]}
-              chunks={chunks}
+              onCitationClick={() => {}}
             />
           )}
 
           {isGenerating && partialAssistantMessage === "" && (
-            <Box sx={{
-              display: "flex",
-              alignItems: "center",
-              m: 1,
-              transform: "scale(0.25)",          // Force half size
-              transformOrigin: "left top",
-            }}>
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                m: 1,
+                transform: "scale(0.25)",
+                transformOrigin: "left top",
+              }}
+            >
               <Loader />
             </Box>
           )}
@@ -369,11 +379,12 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
             backgroundColor: "#1d2d44",
           }}
         >
-          <input
+          <textarea
             ref={inputRef}
-            type="text"
             disabled={isGenerating}
             onKeyDown={handleKeyDown}
+            onInput={handleInput}
+            onPaste={handlePaste}
             style={{
               flex: 1,
               backgroundColor: "transparent",
@@ -381,6 +392,9 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
               outline: "none",
               color: "white",
               fontSize: "16px",
+              resize: "none",
+              overflowY: "auto",
+              maxHeight: "150px",
             }}
           />
           {!isGenerating ? (

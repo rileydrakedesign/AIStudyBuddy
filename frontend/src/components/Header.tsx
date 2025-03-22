@@ -68,15 +68,6 @@ const Header: React.FC<HeaderProps> = ({ sidebarOpen, onToggleSidebar }) => {
                 hoverTextColor="#00B5D8"
                 icon={<NewspaperIcon sx={{ color: "#00B5D8" }} />}
               />
-              <NavigationLink
-                bg={isActive("/") ? "#2D3748" : "#51538f"}
-                to="/"
-                text="Logout"
-                textColor={isActive("/") ? "#F6AD55" : "#D1D5DB"}
-                onClick={auth.logout}
-                hoverTextColor="#F6AD55"
-                icon={<StarIcon sx={{ color: "#F6AD55" }} />}
-              />
             </>
           ) : (
             <>

@@ -7,6 +7,13 @@ export const citationSchema = new mongoose.Schema({
   text: { type: String, required: false },
 });
 
+// Chunk reference schema (NEW)
+const chunkReferenceSchema = new mongoose.Schema({
+  chunkId: { type: String, required: false },
+  displayNumber: { type: Number, required: false },
+  pageNumber: { type: Number, required: false },
+});
+
 const messageSchema = new mongoose.Schema({
   id: {
     type: String,
@@ -24,6 +31,12 @@ const messageSchema = new mongoose.Schema({
   citation: {
     type: [citationSchema],
     required: false,
+  },
+  // NEW FIELD to store chunk references without storing full text
+  chunkReferences: {
+    type: [chunkReferenceSchema],
+    required: false,
+    default: [],
   },
 });
 
@@ -60,7 +73,6 @@ const chatSessionSchema = new mongoose.Schema(
       enum: ["main_app", "chrome_extension"],
       default: "main_app",
     },
-    // NEW FIELD to hide from normal listings
     ephemeral: {
       type: Boolean,
       default: false,

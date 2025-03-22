@@ -71,7 +71,9 @@ def perform_semantic_search(query_vector, filters=None):
             }
         },
         {
+            # MINIMAL CHANGE: Project _id so that it's included in the final results
             "$project": {
+                "_id": 1,
                 "text": 1,
                 "file_name": 1,
                 "title": 1,
@@ -106,7 +108,7 @@ def get_file_citation(search_results):
         aws_secret_access_key=os.getenv('AWS_SECRET'),
         region_name=os.getenv('AWS_REGION')  # Replace with your AWS region
     )
-    bucket_name = os.getenv('AWS_S3_BUCKET_NAME') # Replace with your S3 bucket name
+    bucket_name = os.getenv('AWS_S3_BUCKET_NAME')  # Replace with your S3 bucket name
 
     for result in search_results:
         s3_key = result.get('file_name')  # We assume 'file_name' is unique
@@ -240,7 +242,7 @@ def main():
 
     # Clean up chat history to avoid curly brace parse issues
     chat_history_cleaned = [
-        {"role": chat["role"], "content": escape_curly_braces(chat["content"])} 
+        {"role": chat["role"], "content": escape_curly_braces(chat["content"])}
         for chat in chat_history
     ]
 
@@ -331,11 +333,11 @@ def main():
     citation = get_file_citation(similarity_results)
     response = construct_chain(prompt_template, user_query, chat_history_cleaned)
 
-    # 10) Build an ordered list of chunks
-    #     - We now add "pageNumber" so the frontend can do #page=pageNumber in the iframe
+    # 10) Build an ordered list of chunks (including _id)
     chunk_array = []
     for idx, doc in enumerate(filtered_results):
         chunk_array.append({
+            "_id": str(doc["_id"]),           # MINIMAL ADDITION: add string version of the ObjectId
             "chunkNumber": idx + 1,
             "text": doc["text"],
             "pageNumber": doc.get("page_number")

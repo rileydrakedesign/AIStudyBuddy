@@ -39,7 +39,7 @@ export const getUserChatSessions = async (req, res, next) => {
         const query = {
             userId: currentUser._id,
             source: isExtension ? "chrome_extension" : "main_app",
-            ephemeral: false, // <--- Hide ephemeral
+            ephemeral: false, // hide ephemeral
         };
         const chatSessions = await ChatSession.find(query);
         return res.status(200).json({ chatSessions });
@@ -72,7 +72,7 @@ export const generateChatCompletion = async (req, res, next) => {
                 userId,
             });
             if (!chatSession) {
-                // If not found, create
+                // If not found, create a new one
                 chatSession = new ChatSession({
                     _id: chatSessionId,
                     userId,
@@ -88,7 +88,7 @@ export const generateChatCompletion = async (req, res, next) => {
                 await chatSession.save();
             }
             else {
-                // If found, check mismatch
+                // If found, ensure there's no mismatch
                 if (chatSession.source !== source) {
                     return res.status(400).json({ message: "Chat session source mismatch" });
                 }
@@ -122,6 +122,7 @@ export const generateChatCompletion = async (req, res, next) => {
             content: message,
             role: "user",
             citation: null,
+            chunkReferences: [], // user messages won't typically have chunk refs
         });
         // Prepare data for Python
         const chats = chatSession.messages.map(({ role, content, citation }) => ({
@@ -171,11 +172,18 @@ export const generateChatCompletion = async (req, res, next) => {
             const aiResponse = resultMessage.message;
             const citation = resultMessage.citation;
             const chunks = resultMessage.chunks || [];
-            // Append assistant's response
+            // Build chunk references from the Python's 'chunks' array
+            const chunkReferences = chunks.map((c) => ({
+                chunkId: c._id, // or c["_id"], depending on how it's returned
+                displayNumber: c.chunkNumber,
+                pageNumber: c.pageNumber ?? null,
+            }));
+            // Append assistant's response with chunk references
             chatSession.messages.push({
                 content: aiResponse,
                 role: "assistant",
                 citation,
+                chunkReferences, // store them in the DB
             });
             await chatSession.save();
             return res.status(200).json({
@@ -183,6 +191,7 @@ export const generateChatCompletion = async (req, res, next) => {
                 messages: chatSession.messages,
                 assignedClass: chatSession.assignedClass,
                 assignedDocument: chatSession.assignedDocument,
+                // return chunks for immediate usage if you want
                 chunks,
             });
         });

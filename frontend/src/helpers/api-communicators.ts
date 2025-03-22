@@ -1,6 +1,5 @@
 import axios from "axios";
 
-
 export const loginUser = async (email: string, password: string) => {
   const res = await axios.post("/user/login", { email, password });
   if (res.status !== 200) {
@@ -31,7 +30,6 @@ export const checkAuthStatus = async () => {
   const data = await res.data;
   return data;
 };
-
 
 export const sendChatRequest = async (
   message: string,
@@ -121,7 +119,6 @@ export const getUserClasses = async () => {
 };
 
 export const getClassDocuments = async (className: string) => {
-  // Trim any extra spaces and encode the class name to handle spaces
   const cleanedClassName = encodeURIComponent(className.trim());
   const res = await axios.get(`/documents/get/${cleanedClassName}`);
   if (res.status !== 200) {
@@ -131,7 +128,6 @@ export const getClassDocuments = async (className: string) => {
 };
 
 export const getDocumentFile = async (docId: string) => {
-  // e.g., your server might define the route as: GET /documents/:id
   const res = await axios.get(`/documents/${docId}/file`);
   if (res.status !== 200) {
     throw new Error("Unable to fetch doc file");
@@ -140,7 +136,6 @@ export const getDocumentFile = async (docId: string) => {
 };
 
 export const deleteClass = async (classId: string) => {
-  // Suppose your backend route is DELETE /classes/:classId
   const res = await axios.delete(`/user/classes/${classId}`);
   if (res.status !== 200) {
     throw new Error("Unable to delete class");
@@ -149,7 +144,6 @@ export const deleteClass = async (classId: string) => {
 };
 
 export const deleteDocument = async (docId: string) => {
-  // Suppose your backend route is DELETE /documents/:docId
   const res = await axios.delete(`/documents/delete/${docId}`);
   if (res.status !== 200) {
     throw new Error("Unable to delete document");
@@ -158,3 +152,13 @@ export const deleteDocument = async (docId: string) => {
 };
 
 
+/**
+ * Fetches text for a specific chunk via GET /chat/chunk/:chunkId
+ */
+export const getChunkText = async (chunkId: string) => {
+  const res = await axios.get(`/chat/chunk/${chunkId}`);
+  if (res.status !== 200) {
+    throw new Error("Unable to fetch chunk text");
+  }
+  return res.data; // e.g. { text, pageNumber, fileName, docId, classId, ... }
+};

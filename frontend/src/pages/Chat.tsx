@@ -45,10 +45,20 @@ import DocumentChat from "../components/chat/DocumentChat.tsx";
 /* ------------------------------
    TYPES
    ------------------------------ */
+
+// New chunk reference type
+type ChunkReference = {
+  chunkId: string;
+  displayNumber: number;
+  pageNumber?: number;
+};
+
 type Message = {
   role: "user" | "assistant";
   content: string;
   citation?: { href: string | null; text: string }[];
+  // NEW: store chunk references if provided by the backend
+  chunkReferences?: ChunkReference[];
 };
 
 type ChatSession = {
@@ -79,7 +89,8 @@ type DocumentItem = {
    ------------------------------ */
 const Chat = () => {
   const navigate = useNavigate();
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  // Updated ref type from HTMLInputElement to HTMLTextAreaElement
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const auth = useAuth();
 
   // Chat session state
@@ -102,7 +113,7 @@ const Chat = () => {
   const [partialAssistantMessage, setPartialAssistantMessage] = useState("");
   const typeIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Chunks for bracket references
+  // Chunks for bracket references (ephemeral)
   const [chunks, setChunks] = useState<Chunk[]>([]);
 
   // Sidebar
@@ -117,6 +128,24 @@ const Chat = () => {
 
   // Document-based chat
   const [activeDocId, setActiveDocId] = useState<string | null>(null);
+
+  /* ------------------------------
+     AUTO-RESIZE & CURSOR HANDLERS FOR TEXTAREA
+     ------------------------------ */
+  const handleInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
+    const target = e.currentTarget;
+    target.style.height = "auto";
+    const maxHeight = 150; // maximum height in pixels
+    target.style.height = Math.min(target.scrollHeight, maxHeight) + "px";
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    setTimeout(() => {
+      const target = e.currentTarget;
+      const length = target.value.length;
+      target.setSelectionRange(length, length);
+    }, 0);
+  };
 
   /* ------------------------------
      FETCH CLASSES ON LOAD
@@ -303,7 +332,7 @@ const Chat = () => {
     finalizeTypewriter();
   };
 
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !isGenerating) {
       event.preventDefault();
       handleSubmit();
@@ -333,6 +362,7 @@ const Chat = () => {
         currentChatSessionId
       );
 
+      // STILL storing ephemeral chunks for the newest answer
       setChunks(chatData.chunks || []);
 
       // Update or create the chat session
@@ -503,8 +533,7 @@ const Chat = () => {
         // If we have the class key, remove it
         for (const clsName in updated) {
           // find the class that matches classId
-          // but note we only have className keys in 'updated', so we might
-          // do a separate approach if needed
+          // but note we only have className keys in 'updated'
         }
         // Alternatively, re-fetch classes if simpler
         return updated;
@@ -905,7 +934,7 @@ const Chat = () => {
                   }}
                 >
                   <Typography variant="h4" sx={{ mb: 3 }}>
-                    How can StudyBuddy help?
+                    How can Class Chat help?
                   </Typography>
 
                   <Box sx={{ width: "100%", maxWidth: 600, mb: 3 }}>
@@ -918,11 +947,12 @@ const Chat = () => {
                         alignItems: "center",
                       }}
                     >
-                      <input
+                      <textarea
                         ref={inputRef}
                         disabled={isGenerating}
-                        type="text"
                         onKeyDown={handleKeyDown}
+                        onInput={handleInput}
+                        onPaste={handlePaste}
                         style={{
                           width: "100%",
                           backgroundColor: "transparent",
@@ -931,6 +961,9 @@ const Chat = () => {
                           outline: "none",
                           color: "white",
                           fontSize: "18px",
+                          resize: "none",
+                          overflowY: "auto",
+                          maxHeight: "150px",
                         }}
                       />
                       {!isGenerating ? (
@@ -973,7 +1006,8 @@ const Chat = () => {
                         content={chat.content}
                         role={chat.role}
                         citation={chat.citation}
-                        chunks={chunks}
+                        // NEW: pass chunkReferences so bracket clicks work
+                        chunkReferences={chat.chunkReferences}
                       />
                     ))}
 
@@ -982,7 +1016,6 @@ const Chat = () => {
                         content={partialAssistantMessage}
                         role="assistant"
                         citation={[]}
-                        chunks={chunks}
                       />
                     )}
 
@@ -1014,11 +1047,12 @@ const Chat = () => {
                       mb: 2,
                     }}
                   >
-                    <input
+                    <textarea
                       ref={inputRef}
                       disabled={isGenerating}
-                      type="text"
                       onKeyDown={handleKeyDown}
+                      onInput={handleInput}
+                      onPaste={handlePaste}
                       style={{
                         width: "100%",
                         backgroundColor: "transparent",
@@ -1027,6 +1061,9 @@ const Chat = () => {
                         outline: "none",
                         color: "white",
                         fontSize: "18px",
+                        resize: "none",
+                        overflowY: "auto",
+                        maxHeight: "150px",
                       }}
                     />
                     {!isGenerating ? (

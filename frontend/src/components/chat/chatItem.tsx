@@ -9,6 +9,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { coldarkDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import CloseIcon from "@mui/icons-material/Close";
 import Loader from "../ui/loader";
+import { getChunkText } from "../../helpers/api-communicators"; // for on-demand chunk fetch
 
 /* Code-block extraction unchanged */
 function extractBlocks(message: string) {
@@ -29,18 +30,34 @@ function extractBlocks(message: string) {
   return blocks;
 }
 
-type Citation = { href: string | null; text: string };
+/* For doc-based or stable references */
+type ChunkReference = {
+  chunkId: string;
+  displayNumber: number;
+  pageNumber?: number;
+};
+
+/* For ephemeral chunk usage */
 type ChunkData = {
   chunkNumber: number;
   text: string;
   pageNumber?: number;
 };
 
+/* Citation type */
+type Citation = { href: string | null; text: string };
+
+/* 
+   Updated ChatItemProps to accept BOTH:
+   - `chunkReferences?: ChunkReference[];` for stable ID usage
+   - `chunks?: ChunkData[];` for ephemeral usage (document chat)
+*/
 interface ChatItemProps {
   content: string;
   role: "user" | "assistant";
   citation?: Citation[];
-  chunks?: ChunkData[];
+  chunkReferences?: ChunkReference[]; 
+  chunks?: ChunkData[]; // <-- Restored so doc chat code can pass chunks
   onCitationClick?: (chunkNumber: number) => void;
   isDocumentChat?: boolean;
 }
@@ -85,6 +102,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
   content,
   role,
   citation,
+  chunkReferences,
   chunks,
   onCitationClick,
   isDocumentChat = false,
@@ -101,9 +119,6 @@ const ChatItem: React.FC<ChatItemProps> = ({
 
   // For bracket references, we do a custom parse that forcibly merges lines if needed
   function splitBrackets(str: string): React.ReactNode[] {
-    // We'll manually break text on bracket references with capturing group
-    // e.g. "some text[3] next" => ["some text", "[3]", " next"]
-    // Then we can handle each piece separately
     const bracketRegex = /(\[\d+\])/g;
     const segments = str.split(bracketRegex);
 
@@ -118,29 +133,36 @@ const ChatItem: React.FC<ChatItemProps> = ({
           <span
             key={`br-${i}`}
             style={{ marginLeft: "4px", color: "blue", cursor: "pointer" }}
-            onClick={(e) => {
+            onClick={async (e) => {
               e.stopPropagation();
-              const chunk = chunks?.find((c) => c.chunkNumber === Number(bracketNumber));
-              if (chunk) {
-                const popupWidth = 300;
-                const popupHeight = 300;
-                let xPos = e.clientX + 10;
-                let yPos = e.clientY + window.scrollY + 10;
-                if (xPos + popupWidth > window.innerWidth) {
-                  xPos = window.innerWidth - popupWidth - 10;
+              const numericBr = Number(bracketNumber);
+
+              // If chunkReferences exist, try them first for stable ID approach
+              if (chunkReferences && chunkReferences.length > 0) {
+                const ref = chunkReferences.find((c) => c.displayNumber === numericBr);
+                if (ref) {
+                  try {
+                    const data = await getChunkText(ref.chunkId);
+                    openPopup(e.clientX, e.clientY, data.text ?? "No text found");
+                    if (onCitationClick) {
+                      onCitationClick(numericBr);
+                    }
+                    return; // done
+                  } catch (err) {
+                    console.error("Failed to fetch chunk text:", err);
+                  }
                 }
-                const fullHeight = window.innerHeight + window.scrollY;
-                if (yPos + popupHeight > fullHeight) {
-                  yPos = fullHeight - popupHeight - 10;
-                }
-                setPopupData({
-                  open: true,
-                  chunkText: chunk.text,
-                  x: xPos,
-                  y: yPos,
-                });
-                if (onCitationClick) {
-                  onCitationClick(Number(bracketNumber));
+              }
+
+              // Fallback ephemeral approach: if we have "chunks"
+              if (chunks && chunks.length > 0) {
+                const ephemeralChunk = chunks.find((c) => c.chunkNumber === numericBr);
+                if (ephemeralChunk) {
+                  openPopup(e.clientX, e.clientY, ephemeralChunk.text);
+                  if (onCitationClick) {
+                    onCitationClick(numericBr);
+                  }
+                  return;
                 }
               }
             }}
@@ -150,7 +172,6 @@ const ChatItem: React.FC<ChatItemProps> = ({
         );
       } else {
         // Normal text segment, run it through ReactMarkdown
-        // Possibly remove forced newline if we see only "[digits]"
         result.push(
           <ReactMarkdown
             key={`txt-${i}`}
@@ -177,6 +198,26 @@ const ChatItem: React.FC<ChatItemProps> = ({
     }
 
     return result;
+  }
+
+  function openPopup(clientX: number, clientY: number, chunkText: string) {
+    const popupWidth = 300;
+    const popupHeight = 300;
+    let xPos = clientX + 10;
+    let yPos = clientY + window.scrollY + 10;
+    if (xPos + popupWidth > window.innerWidth) {
+      xPos = window.innerWidth - popupWidth - 10;
+    }
+    const fullHeight = window.innerHeight + window.scrollY;
+    if (yPos + popupHeight > fullHeight) {
+      yPos = fullHeight - popupHeight - 10;
+    }
+    setPopupData({
+      open: true,
+      chunkText,
+      x: xPos,
+      y: yPos,
+    });
   }
 
   if (role === "assistant" && content.trim() === "") {
@@ -225,7 +266,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
 
       {/* Message Body */}
       <Box sx={{ flex: 1, maxWidth: "100%", fontSize: "16px", lineHeight: 1.6 }}>
-        {messageBlocks.map((block, idx) => {
+        {extractBlocks(content).map((block, idx) => {
           if (block.type === "code") {
             return (
               <SyntaxHighlighter
@@ -257,7 +298,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
               </SyntaxHighlighter>
             );
           } else {
-            // Use splitBrackets to handle any bracket references inline
+            // For bracket references
             const children = splitBrackets(block.value);
             return (
               <Box key={idx} sx={{ mb: 1, color: "white" }}>
