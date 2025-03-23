@@ -1,5 +1,5 @@
 import React from "react";
-import { AppBar, Toolbar, IconButton, Box } from "@mui/material";
+import { AppBar, Toolbar, Box } from "@mui/material";
 import { useAuth } from "../context/authContext";
 import NavigationLink from "./shared/NavigationLink";
 import Logo from "./shared/Logo";
@@ -8,15 +8,13 @@ import StickyNote2Icon from "@mui/icons-material/StickyNote2";
 import StarIcon from "@mui/icons-material/Star";
 import { useLocation } from "react-router-dom";
 import ChatBubble from "@mui/icons-material/ChatBubble";
-import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
-import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 
 interface HeaderProps {
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ sidebarOpen, onToggleSidebar }) => {
+const Header: React.FC<HeaderProps> = () => {
   const auth = useAuth();
   const location = useLocation();
 
@@ -36,15 +34,8 @@ const Header: React.FC<HeaderProps> = ({ sidebarOpen, onToggleSidebar }) => {
       }}
     >
       <Toolbar sx={{ display: "flex", justifyContent: "space-between" }}>
-        {/* Left side: Arrow button + Logo */}
+        {/* Left side: Logo only */}
         <Box sx={{ display: "flex", alignItems: "center" }}>
-          <IconButton
-            onClick={onToggleSidebar}
-            sx={{ color: "white", mr: 2 }}
-            size="small"
-          >
-            {sidebarOpen ? <ChevronLeftIcon /> : <ChevronRightIcon />}
-          </IconButton>
           <Logo />
         </Box>
 

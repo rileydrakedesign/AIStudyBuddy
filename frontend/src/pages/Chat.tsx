@@ -39,6 +39,8 @@ import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import Loader from "../components/ui/loader";
 import { ExpandLess, ExpandMore } from "@mui/icons-material";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import Header from "../components/Header.tsx";
 import DocumentChat from "../components/chat/DocumentChat.tsx";
 
@@ -625,9 +627,11 @@ const Chat = () => {
       {/* Global Header */}
       <Header sidebarOpen={sidebarOpen} onToggleSidebar={toggleSidebar} />
 
+      {/* Main container: added position relative for absolute positioning */}
       <Box
         sx={{
           display: "flex",
+          position: "relative",
           width: "100%",
           height: "calc(100vh - 64px)",
           marginTop: "64px",
@@ -655,10 +659,23 @@ const Chat = () => {
                 <ListSubheader
                   component="div"
                   id="chats-list-subheader"
-                  sx={{ bgcolor: "inherit", color: "white", fontSize: "1.2em", fontWeight: "bold" }}
+                  sx={{
+                    bgcolor: "inherit",
+                    color: "white",
+                    fontSize: "1.2em",
+                    fontWeight: "bold",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
                 >
-                  <ChatBubbleIcon sx={{ mr: 1 }} />
-                  Chats
+                  <Box sx={{ display: "flex", alignItems: "center" }}>
+                    <ChatBubbleIcon sx={{ mr: 1 }} />
+                    Chats
+                  </Box>
+                  <IconButton onClick={toggleSidebar} sx={{ color: "white" }} size="small">
+                    {sidebarOpen ? <ChevronLeftIcon /> : <ChevronRightIcon />}
+                  </IconButton>
                 </ListSubheader>
               }
             >
@@ -860,6 +877,29 @@ const Chat = () => {
                 </React.Fragment>
               ))}
             </List>
+          </Box>
+        )}
+
+        {/* Hover toggle area when sidebar is closed */}
+        {!sidebarOpen && (
+          <Box
+            onClick={toggleSidebar}
+            sx={{
+              position: "absolute",
+              left: 0,
+              top: "64px",
+              bottom: 0,
+              width: "30px",
+              backgroundColor: "transparent",
+              "&:hover": { backgroundColor: "#004d5612" },
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              zIndex: 1200,
+            }}
+          >
+            <ChevronRightIcon sx={{ color: "white" }} />
           </Box>
         )}
 
