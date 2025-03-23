@@ -955,6 +955,7 @@ const Chat = () => {
                         onKeyDown={handleKeyDown}
                         onInput={handleInput}
                         onPaste={handlePaste}
+                        rows={1}
                         style={{
                           width: "100%",
                           backgroundColor: "transparent",
