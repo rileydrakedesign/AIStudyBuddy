@@ -357,43 +357,38 @@ const Chat = () => {
     setPartialAssistantMessage("");
 
     try {
+      // If there is no current chat session, automatically create one named "New Chat"
+      let chatSessionId = currentChatSessionId;
+      if (!chatSessionId) {
+        const data = await createChatSession("New Chat");
+        chatSessionId = data.chatSession._id;
+        setCurrentChatSessionId(chatSessionId);
+        setChatSessions((prev) => [
+          { ...data.chatSession, assignedClass: null },
+          ...prev,
+        ]);
+      }
+
       const classNameForRequest = selectedClass === null ? "null" : selectedClass;
-      const chatData = await sendChatRequest(
-        content,
-        classNameForRequest,
-        currentChatSessionId
-      );
+      const chatData = await sendChatRequest(content, classNameForRequest, chatSessionId);
 
       // STILL storing ephemeral chunks for the newest answer
       setChunks(chatData.chunks || []);
 
-      // Update or create the chat session
-      if (!currentChatSessionId && chatData.chatSessionId) {
-        setCurrentChatSessionId(chatData.chatSessionId);
-        setChatSessions((prev) => [
-          {
-            _id: chatData.chatSessionId,
-            sessionName: "New Chat",
-            messages: chatData.messages,
-            assignedClass: chatData.assignedClass || null,
-          },
-          ...prev,
-        ]);
-      } else {
-        setChatSessions((prev) =>
-          prev
-            .map((session) =>
-              session._id === chatData.chatSessionId
-                ? {
-                    ...session,
-                    messages: chatData.messages,
-                    assignedClass: chatData.assignedClass || null,
-                  }
-                : session
-            )
-            .sort((a, b) => b.messages.length - a.messages.length)
-        );
-      }
+      // Update the chat session (either new or existing)
+      setChatSessions((prev) =>
+        prev
+          .map((session) =>
+            session._id === chatData.chatSessionId
+              ? {
+                  ...session,
+                  messages: chatData.messages,
+                  assignedClass: chatData.assignedClass || null,
+                }
+              : session
+          )
+          .sort((a, b) => b.messages.length - a.messages.length)
+      );
 
       // The final assistant message
       const allMessages = chatData.messages;
@@ -406,7 +401,7 @@ const Chat = () => {
         return;
       }
 
-      // Remove the final assistant msg for the typewriter
+      // Remove the final assistant msg for the typewriter effect
       const updatedWithoutLast = allMessages.slice(0, allMessages.length - 1);
       setChatMessages(updatedWithoutLast);
 
@@ -534,12 +529,9 @@ const Chat = () => {
       // Also remove from classDocs if loaded
       setClassDocs((prev) => {
         const updated = { ...prev };
-        // If we have the class key, remove it
         for (const clsName in updated) {
-          // find the class that matches classId
-          // but note we only have className keys in 'updated'
+          // Optionally remove the matching class key here
         }
-        // Alternatively, re-fetch classes if simpler
         return updated;
       });
 
