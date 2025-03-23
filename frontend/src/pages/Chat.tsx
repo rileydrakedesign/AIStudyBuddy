@@ -483,7 +483,9 @@ const Chat = () => {
      ------------------------------ */
   const handleSelectChatSession = (chatSessionId: string) => {
     finalizeTypewriter();
-
+    // Clear any open citation popups before switching
+    window.dispatchEvent(new CustomEvent("clearCitationPopups"));
+    
     const session = chatSessions.find((s) => s._id === chatSessionId);
     if (session) {
       setCurrentChatSessionId(chatSessionId);
@@ -998,6 +1000,8 @@ const Chat = () => {
                       scrollBehavior: "smooth",
                       mb: 2,
                       boxSizing: "border-box",
+                      position: "relative",
+                      zIndex: 2,
                     }}
                   >
                     {chatMessages.map((chat, index) => (
