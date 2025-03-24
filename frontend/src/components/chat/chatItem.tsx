@@ -163,7 +163,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
               const targetRect = e.currentTarget.getBoundingClientRect();
               // Compute initial viewport coordinates.
               let xPos = targetRect.left + 10;
-              let yPos = targetRect.bottom + 10; // Removed window.scrollY
+              let yPos = targetRect.bottom + 10;
               // Try stable reference first.
               if (chunkReferences && chunkReferences.length > 0) {
                 const ref = chunkReferences.find((c) => c.displayNumber === numericBr);
@@ -224,7 +224,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
     const popupWidth = 300;
     const popupHeight = 300;
     let xPos = x + 10;
-    let yPos = y + 10; // Removed window.scrollY here
+    let yPos = y + 10;
     if (xPos + popupWidth > window.innerWidth) {
       xPos = window.innerWidth - popupWidth - 10;
     }
@@ -321,8 +321,8 @@ const ChatItem: React.FC<ChatItemProps> = ({
           }
         })}
 
-        {/* Render any citation links */}
-        {role === "assistant" && citation && citation.length > 0 && (
+        {/* Render any citation links only if NOT in document chat */}
+        {role === "assistant" && !isDocumentChat && citation && citation.length > 0 && (
           <Box sx={{ mt: 1, display: "flex", gap: 1, flexWrap: "wrap" }}>
             {citation.map((cit, idx) =>
               cit.href ? (
