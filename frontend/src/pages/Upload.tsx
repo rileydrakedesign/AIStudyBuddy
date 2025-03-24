@@ -1,5 +1,3 @@
-// src/components/UploadDocument.tsx
-
 import React, { useState, useEffect } from "react";
 import {
   Box,
@@ -95,9 +93,14 @@ const UploadDocument: React.FC = () => {
       // Reset the form
       setFiles([]);
       setClassName(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      toast.error("Failed to upload document(s)", { id: "uploadDoc" });
+      // Check if the error status is 409 to display the duplicate error message
+      if (error.response && error.response.status === 409) {
+        toast.error(error.response.data.message || "Document already exists in class", { id: "uploadDoc" });
+      } else {
+        toast.error("Failed to upload document(s)", { id: "uploadDoc" });
+      }
     }
   };
 

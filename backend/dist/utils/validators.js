@@ -1,4 +1,9 @@
 import { body, param, query, validationResult } from "express-validator";
+import Document from "../models/documents.js";
+import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import dotenv from "dotenv";
+dotenv.config();
+// Existing validators
 export const validate = (validations) => {
     return async (req, res, next) => {
         for (let validation of validations) {
@@ -88,5 +93,55 @@ export const handleChatCompletionValidation = (req, res, next) => {
     }
     // No errors; proceed to the next middleware/controller
     next();
+};
+/**
+ * NEW: duplicateDocumentValidator
+ *
+ * This middleware checks each uploaded file (in req.files) to ensure that a document with the same
+ * fileName does not already exist in the database for the current user. If a duplicate is detected,
+ * it iterates over all files in the request and deletes them from S3 before returning a 409 error.
+ */
+export const duplicateDocumentValidator = async (req, res, next) => {
+    try {
+        // If no files were uploaded, proceed to next middleware
+        if (!req.files || !Array.isArray(req.files) || req.files.length === 0) {
+            return next();
+        }
+        const userId = res.locals.jwtData.id;
+        // Check each file for duplicates by fileName for the current user
+        for (const file of req.files) {
+            const existingDoc = await Document.findOne({ userId, fileName: file.originalname });
+            if (existingDoc) {
+                // Create an S3 client to remove the uploaded files
+                const s3 = new S3Client({
+                    region: process.env.AWS_REGION,
+                    credentials: {
+                        accessKeyId: process.env.AWS_ACCESS_KEY,
+                        secretAccessKey: process.env.AWS_SECRET,
+                    },
+                });
+                // Remove all files uploaded in this request from S3
+                for (const f of req.files) {
+                    if (f.key) {
+                        try {
+                            await s3.send(new DeleteObjectCommand({
+                                Bucket: process.env.AWS_S3_BUCKET_NAME,
+                                Key: f.key,
+                            }));
+                        }
+                        catch (deleteError) {
+                            console.error("Error deleting duplicate file from S3", f.key, deleteError);
+                        }
+                    }
+                }
+                return res.status(409).json({ message: "Document already exists in class" });
+            }
+        }
+        next();
+    }
+    catch (error) {
+        console.error("Error in duplicateDocumentValidator:", error);
+        return res.status(500).json({ message: "Server error in duplicate document check" });
+    }
 };
 //# sourceMappingURL=validators.js.map

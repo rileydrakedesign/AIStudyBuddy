@@ -5,7 +5,7 @@ import multer from "multer";
 import dotenv from "dotenv";
 // Utility imports
 import { verifyToken } from "../utils/token_manager.js";
-import { documentUploadValidator, validate } from "../utils/validators.js";
+import { documentUploadValidator, duplicateDocumentValidator, validate } from "../utils/validators.js";
 // Controller imports
 import { uploadDocument, getUserDocuments, getDocumentFile, deleteDocument, getDocumentsByClass, } from "../controllers/document_controllers.js";
 dotenv.config();
@@ -52,7 +52,8 @@ const documentRoutes = Router();
  * POST /documents/upload
  * Upload a new document (up to 10 files at once)
  ***************************************************************************/
-documentRoutes.post("/upload", validate(documentUploadValidator), verifyToken, upload.array("files", 10), uploadDocument);
+documentRoutes.post("/upload", validate(documentUploadValidator), verifyToken, upload.array("files", 10), duplicateDocumentValidator, // NEW: check for duplicate files after upload
+uploadDocument);
 /***************************************************************************
  * GET /documents/all-documents
  * Retrieve all documents for the authenticated user

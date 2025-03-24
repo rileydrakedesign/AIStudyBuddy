@@ -1,4 +1,3 @@
-
 import { Router } from "express";
 import { S3Client } from "@aws-sdk/client-s3";
 import multerS3 from "multer-s3";
@@ -7,7 +6,7 @@ import dotenv from "dotenv";
 
 // Utility imports
 import { verifyToken } from "../utils/token_manager.js";
-import { documentUploadValidator, validate } from "../utils/validators.js";
+import { documentUploadValidator, duplicateDocumentValidator, validate } from "../utils/validators.js";
 
 // Controller imports
 import {
@@ -73,6 +72,7 @@ documentRoutes.post(
   validate(documentUploadValidator),
   verifyToken,
   upload.array("files", 10),
+  duplicateDocumentValidator, // NEW: check for duplicate files after upload
   uploadDocument
 );
 
