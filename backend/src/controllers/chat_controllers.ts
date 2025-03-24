@@ -1,12 +1,13 @@
 import { NextFunction, Request, Response } from "express";
 import User from "../models/user.js";
 import ChatSession from "../models/chatSession.js";
+import Document from "../models/documents.js"; // Import Document model for citation text update
 import { execFile } from "child_process";
 
 export const createNewChatSession = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
+  req,
+  res,
+  next
 ) => {
   try {
     const currentUser = await User.findById(res.locals.jwtData.id);
@@ -16,8 +17,7 @@ export const createNewChatSession = async (
 
     // Determine source
     const sourceHeader = req.headers["x-source"];
-    const source =
-      sourceHeader === "chrome_extension" ? "chrome_extension" : "main_app";
+    const source = sourceHeader === "chrome_extension" ? "chrome_extension" : "main_app";
 
     // Now extension can create new sessions as well
     const chatSession = await ChatSession.create({
@@ -33,14 +33,14 @@ export const createNewChatSession = async (
       .json({ message: "Chat session created", chatSession });
   } catch (error) {
     console.log(error);
-    return res.status(500).json({ message: "ERROR", cause: (error as Error).message });
+    return res.status(500).json({ message: "ERROR", cause: error.message });
   }
 };
 
 export const getUserChatSessions = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
+  req,
+  res,
+  next
 ) => {
   try {
     const currentUser = await User.findById(res.locals.jwtData.id);
@@ -63,14 +63,14 @@ export const getUserChatSessions = async (
     return res.status(200).json({ chatSessions });
   } catch (error) {
     console.log(error);
-    return res.status(500).json({ message: "ERROR", cause: (error as Error).message });
+    return res.status(500).json({ message: "ERROR", cause: error.message });
   }
 };
 
 export const generateChatCompletion = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
+  req,
+  res,
+  next
 ) => {
   const { message, class_name, docId, chatSessionId, ephemeral } = req.body;
 
@@ -88,8 +88,7 @@ export const generateChatCompletion = async (
 
     const userId = currentUser._id;
     const sourceHeader = req.headers["x-source"];
-    const source =
-      sourceHeader === "chrome_extension" ? "chrome_extension" : "main_app";
+    const source = sourceHeader === "chrome_extension" ? "chrome_extension" : "main_app";
 
     let chatSession;
 
@@ -211,17 +210,34 @@ export const generateChatCompletion = async (
         }
 
         const aiResponse = resultMessage.message;
-        const citation = resultMessage.citation;
+        let citation = resultMessage.citation;
         const chunks = resultMessage.chunks || [];
 
         // Build chunk references from the Python's 'chunks' array
-        const chunkReferences = chunks.map((c: any) => ({
+        const chunkReferences = chunks.map((c) => ({
           chunkId: c._id,             // or c["_id"], depending on how it's returned
           displayNumber: c.chunkNumber,
           pageNumber: c.pageNumber ?? null,
         }));
 
-        // Append assistant's response with chunk references
+        // NEW: If chatSession has an assignedDocument, update citation text using fileName from MongoDB.
+        // Since the assignedDocument is stored as the document's custom docId, we first try finding by that field.
+        if (chatSession.assignedDocument && citation && Array.isArray(citation)) {
+          try {
+            let doc = await Document.findOne({ docId: chatSession.assignedDocument });
+            if (!doc) {
+              // Fallback: if assignedDocument is a Mongo _id, try findById.
+              doc = await Document.findById(chatSession.assignedDocument);
+            }
+            if (doc) {
+              citation = citation.map((cit) => ({ ...cit, text: doc.fileName }));
+            }
+          } catch (docError) {
+            console.error("Error fetching document for citation update:", docError);
+          }
+        }
+
+        // Append assistant's response with updated citation and chunk references
         chatSession.messages.push({
           content: aiResponse,
           role: "assistant",
@@ -236,7 +252,6 @@ export const generateChatCompletion = async (
           messages: chatSession.messages,
           assignedClass: chatSession.assignedClass,
           assignedDocument: chatSession.assignedDocument,
-          // return chunks for immediate usage if you want
           chunks,
         });
       }
@@ -248,9 +263,9 @@ export const generateChatCompletion = async (
 };
 
 export const deleteChatSession = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
+  req,
+  res,
+  next
 ) => {
   try {
     const { chatSessionId } = req.params;
@@ -273,14 +288,14 @@ export const deleteChatSession = async (
     return res.status(200).json({ message: "Chat session deleted" });
   } catch (error) {
     console.log(error);
-    return res.status(500).json({ message: "ERROR", cause: (error as Error).message });
+    return res.status(500).json({ message: "ERROR", cause: error.message });
   }
 };
 
 export const deleteAllChatSessions = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
+  req,
+  res,
+  next
 ) => {
   try {
     const currentUser = await User.findById(res.locals.jwtData.id);
@@ -295,6 +310,6 @@ export const deleteAllChatSessions = async (
     return res.status(200).json({ message: "All chat sessions deleted" });
   } catch (error) {
     console.log(error);
-    return res.status(500).json({ message: "ERROR", cause: (error as Error).message });
+    return res.status(500).json({ message: "ERROR", cause: error.message });
   }
 };

@@ -65,6 +65,16 @@ interface PopupData {
   y: number;
 }
 
+/**
+ * Helper to derive a display-friendly text.
+ * If the provided citation text matches an S3 key pattern (digits + underscore + fileName),
+ * then it returns just the fileName portion.
+ */
+const getDisplayText = (text: string): string => {
+  const match = /^\d+_(.+)$/.exec(text);
+  return match ? match[1] : text;
+};
+
 const CitationPopup: React.FC<{
   chunkText: string;
   x: number;
@@ -324,8 +334,10 @@ const ChatItem: React.FC<ChatItemProps> = ({
         {/* Render any citation links only if NOT in document chat */}
         {role === "assistant" && !isDocumentChat && citation && citation.length > 0 && (
           <Box sx={{ mt: 1, display: "flex", gap: 1, flexWrap: "wrap" }}>
-            {citation.map((cit, idx) =>
-              cit.href ? (
+            {citation.map((cit, idx) => {
+              // Use the helper to display fileName if the text appears to be an S3 key.
+              const displayText = getDisplayText(cit.text);
+              return cit.href ? (
                 <a
                   key={idx}
                   href={cit.href}
@@ -343,7 +355,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
                     fontWeight: 500,
                   }}
                 >
-                  {cit.text}
+                  {displayText}
                 </a>
               ) : (
                 <span
@@ -359,10 +371,10 @@ const ChatItem: React.FC<ChatItemProps> = ({
                     fontWeight: 500,
                   }}
                 >
-                  {cit.text}
+                  {displayText}
                 </span>
-              )
-            )}
+              );
+            })}
           </Box>
         )}
       </Box>

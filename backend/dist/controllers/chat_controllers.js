@@ -1,5 +1,6 @@
 import User from "../models/user.js";
 import ChatSession from "../models/chatSession.js";
+import Document from "../models/documents.js"; // Import Document model for citation text update
 import { execFile } from "child_process";
 export const createNewChatSession = async (req, res, next) => {
     try {
@@ -170,7 +171,7 @@ export const generateChatCompletion = async (req, res, next) => {
                     .json({ message: "Invalid response from backend" });
             }
             const aiResponse = resultMessage.message;
-            const citation = resultMessage.citation;
+            let citation = resultMessage.citation;
             const chunks = resultMessage.chunks || [];
             // Build chunk references from the Python's 'chunks' array
             const chunkReferences = chunks.map((c) => ({
@@ -178,7 +179,24 @@ export const generateChatCompletion = async (req, res, next) => {
                 displayNumber: c.chunkNumber,
                 pageNumber: c.pageNumber ?? null,
             }));
-            // Append assistant's response with chunk references
+            // NEW: If chatSession has an assignedDocument, update citation text using fileName from MongoDB.
+            // Since the assignedDocument is stored as the document's custom docId, we first try finding by that field.
+            if (chatSession.assignedDocument && citation && Array.isArray(citation)) {
+                try {
+                    let doc = await Document.findOne({ docId: chatSession.assignedDocument });
+                    if (!doc) {
+                        // Fallback: if assignedDocument is a Mongo _id, try findById.
+                        doc = await Document.findById(chatSession.assignedDocument);
+                    }
+                    if (doc) {
+                        citation = citation.map((cit) => ({ ...cit, text: doc.fileName }));
+                    }
+                }
+                catch (docError) {
+                    console.error("Error fetching document for citation update:", docError);
+                }
+            }
+            // Append assistant's response with updated citation and chunk references
             chatSession.messages.push({
                 content: aiResponse,
                 role: "assistant",
@@ -191,7 +209,6 @@ export const generateChatCompletion = async (req, res, next) => {
                 messages: chatSession.messages,
                 assignedClass: chatSession.assignedClass,
                 assignedDocument: chatSession.assignedDocument,
-                // return chunks for immediate usage if you want
                 chunks,
             });
         });
