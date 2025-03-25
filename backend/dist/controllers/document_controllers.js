@@ -1,12 +1,12 @@
-import Document from '../models/documents.js';
-import User from '../models/user.js';
-import { execFile } from 'child_process';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand, } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import multer from 'multer';
-import dotenv from 'dotenv';
+import Document from "../models/documents.js";
+import User from "../models/user.js";
+import { execFile } from "child_process";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
+import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand, } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import multer from "multer";
+import dotenv from "dotenv";
 dotenv.config();
 const bucketName = process.env.AWS_S3_BUCKET_NAME;
 const region = process.env.AWS_REGION;
@@ -31,7 +31,7 @@ async function uploadFileToS3(fileBuffer, fileName, mimetype) {
         Body: fileBuffer,
         Key: fileName,
         ContentType: mimetype,
-        ContentDisposition: 'inline',
+        ContentDisposition: "inline",
     };
     await s3Client.send(new PutObjectCommand(uploadParams));
 }
@@ -55,23 +55,27 @@ async function getObjectSignedUrl(key) {
     return url;
 }
 // Export the Multer upload middleware
-export const uploadMiddleware = upload.array('files', 5);
+export const uploadMiddleware = upload.array("files", 5);
+/**
+ * Uploads a document, stores it in MongoDB, and calls the Python script
+ * `load_data.py` with the actual Mongo `_id` via --doc_id argument.
+ */
 export const uploadDocument = async (req, res, next) => {
     try {
         const currentUser = await User.findById(res.locals.jwtData.id);
         if (!currentUser) {
             return res
                 .status(401)
-                .json({ message: 'User not registered or token malfunctioned' });
+                .json({ message: "User not registered or token malfunctioned" });
         }
         const userId = currentUser._id.toString();
         const files = req.files;
-        const className = req.body.className || 'General';
+        const className = req.body.className || "General";
         if (!files || files.length === 0) {
-            return res.status(400).json({ message: 'No file uploaded' });
+            return res.status(400).json({ message: "No file uploaded" });
         }
         // Ensure the class is added if it doesn't exist
-        const classExists = currentUser.classes.some(cls => cls.name === className);
+        const classExists = currentUser.classes.some((cls) => cls.name === className);
         if (!classExists) {
             currentUser.classes.push({ name: className });
             await currentUser.save();
@@ -81,21 +85,22 @@ export const uploadDocument = async (req, res, next) => {
         let completedCount = 0;
         for (const file of files) {
             if (!file) {
-                console.log('A file was missing, skipping...');
+                console.log("A file was missing, skipping...");
                 completedCount++;
                 continue;
             }
-            console.log('File details:', {
+            console.log("File details:", {
                 originalname: file.originalname,
                 mimetype: file.mimetype,
             });
             const s3Key = file.key;
             const s3Url = file.location;
             if (!s3Key || !s3Url) {
-                console.warn('file.key or file.location missing, using fallback keys/URLs.');
+                console.warn("file.key or file.location missing, using fallback keys/URLs.");
             }
-            console.log('S3 key from multer-s3:', s3Key);
-            console.log('S3 URL:', s3Url);
+            console.log("S3 key from multer-s3:", s3Key);
+            console.log("S3 URL:", s3Url);
+            // Create a new Document record in MongoDB
             const newDocument = new Document({
                 userId: userId,
                 fileName: file.originalname,
@@ -105,10 +110,10 @@ export const uploadDocument = async (req, res, next) => {
                 className: className,
             });
             await newDocument.save();
-            console.log('stored file meta in mongodb');
-            const pythonPath = process.env.PYTHON_PATH || 'python';
-            const scriptPath = '/Users/rileydrake/Desktop/AIStudyBuddy/backend/python_scripts/load_data.py';
-            console.log('Executing Python script:', { pythonPath, scriptPath });
+            console.log("Stored file meta in mongodb:", newDocument._id);
+            const pythonPath = process.env.PYTHON_PATH || "python";
+            const scriptPath = "/Users/rileydrake/Desktop/AIStudyBuddy/backend/python_scripts/load_data.py";
+            console.log("Executing Python script:", { pythonPath, scriptPath });
             const options = {
                 env: {
                     ...process.env,
@@ -120,16 +125,17 @@ export const uploadDocument = async (req, res, next) => {
                     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
                 },
             };
+            // Pass the actual Mongo _id into the script
             execFile(pythonPath, [
                 scriptPath,
-                '--user_id',
+                "--user_id",
                 userId,
-                '--class_name',
+                "--class_name",
                 className,
-                '--s3_key',
-                s3Key || '',
-                '--doc_id',
-                newDocument._id.toString(),
+                "--s3_key",
+                s3Key || "",
+                "--doc_id",
+                newDocument._id.toString(), // The critical step
             ], options, async (error, stdout, stderr) => {
                 if (error) {
                     console.error(`Exec error: ${error}`);
@@ -142,35 +148,41 @@ export const uploadDocument = async (req, res, next) => {
                 completedCount++;
                 if (completedCount === files.length) {
                     return res.status(200).json({
-                        message: 'All files uploaded and processed successfully',
+                        message: "All files uploaded and processed successfully",
                         documents: uploadedDocs,
                     });
                 }
             });
         }
-        // No final return here; we return after last file in exec callback
+        // No final return here; we respond after the last file is processed
     }
     catch (error) {
         console.error(error);
-        return res.status(500).json({ message: 'Server error' });
+        return res.status(500).json({ message: "Server error" });
     }
 };
+/**
+ * Returns all documents for the current user.
+ */
 export const getUserDocuments = async (req, res, next) => {
     try {
         const currentUser = await User.findById(res.locals.jwtData.id);
         if (!currentUser) {
             return res
                 .status(401)
-                .json({ message: 'User not registered or token malfunctioned' });
+                .json({ message: "User not registered or token malfunctioned" });
         }
         const documents = await Document.find({ userId: currentUser._id });
-        return res.status(200).json({ message: 'OK', documents });
+        return res.status(200).json({ message: "OK", documents });
     }
     catch (error) {
         console.error(error);
-        return res.status(500).json({ message: 'Server error' });
+        return res.status(500).json({ message: "Server error" });
     }
 };
+/**
+ * Retrieves a pre-signed URL for the given document ID (PDF or otherwise).
+ */
 export const getDocumentFile = async (req, res, next) => {
     try {
         const currentUser = await User.findById(res.locals.jwtData.id);
@@ -188,19 +200,15 @@ export const getDocumentFile = async (req, res, next) => {
         if (document.userId.toString() !== currentUser._id.toString()) {
             return res.status(403).json({ message: "Unauthorized access" });
         }
-        // Decide if it's a PDF (or you can store MIME type in the DB).
-        // For a PDF, set the response content type to "application/pdf"
         let responseType = undefined;
         if (document.fileName?.toLowerCase().endsWith(".pdf")) {
             responseType = "application/pdf";
         }
-        // (Optionally handle other file types here if needed)
-        // Build a GetObjectCommand with an inline disposition override
+        // Build a GetObjectCommand with inline disposition override
         const command = new GetObjectCommand({
             Bucket: bucketName,
             Key: document.s3Key,
             ResponseContentDisposition: "inline",
-            // The KEY fix: If it's a PDF, let the browser know
             ResponseContentType: responseType,
         });
         // Generate a short-lived pre-signed URL
@@ -212,38 +220,39 @@ export const getDocumentFile = async (req, res, next) => {
         return res.status(500).json({ message: "Server error" });
     }
 };
+/**
+ * Deletes a document (both from S3 and from Mongo).
+ */
 export const deleteDocument = async (req, res, next) => {
     try {
         const currentUser = await User.findById(res.locals.jwtData.id);
         if (!currentUser) {
             return res
                 .status(401)
-                .json({ message: 'User not registered or token malfunctioned' });
+                .json({ message: "User not registered or token malfunctioned" });
         }
         const documentId = req.params.id;
         const document = (await Document.findById(documentId));
         if (!document) {
-            return res.status(404).json({ message: 'Document not found' });
+            return res.status(404).json({ message: "Document not found" });
         }
         if (document.userId.toString() !== currentUser._id.toString()) {
-            return res.status(403).json({ message: 'Unauthorized access' });
+            return res.status(403).json({ message: "Unauthorized access" });
         }
         // Delete from S3
         await deleteFileFromS3(document.s3Key);
         // Delete from DB
         await Document.deleteOne({ _id: documentId });
-        return res.status(200).json({ message: 'Document deleted successfully' });
+        return res.status(200).json({ message: "Document deleted successfully" });
     }
     catch (error) {
-        console.error('Error deleting file from S3:', error);
-        return res.status(500).json({ message: 'Error deleting file from S3' });
+        console.error("Error deleting file from S3:", error);
+        return res.status(500).json({ message: "Error deleting file from S3" });
     }
 };
 /**
- * NEW: getDocumentsByClass
- *
- * Expects a route like: GET /class/:className/documents
- * Returns all documents for the current user that match the given className.
+ * Fetches all documents by class for the current user.
+ * Example route: GET /api/v1/class/:className/documents
  */
 export const getDocumentsByClass = async (req, res, next) => {
     try {
@@ -251,14 +260,12 @@ export const getDocumentsByClass = async (req, res, next) => {
         if (!currentUser) {
             return res
                 .status(401)
-                .json({ message: 'User not registered or token malfunctioned' });
+                .json({ message: "User not registered or token malfunctioned" });
         }
-        // We'll read the className from URL params
         const { className } = req.params;
         if (!className) {
             return res.status(400).json({ message: "Missing 'className' in URL" });
         }
-        // Fetch all docs for this user that match className
         const docs = await Document.find({
             userId: currentUser._id,
             className: decodeURIComponent(className).trim(),
@@ -266,10 +273,10 @@ export const getDocumentsByClass = async (req, res, next) => {
         return res.status(200).json(docs);
     }
     catch (error) {
-        console.error('Error fetching documents by class:', error);
+        console.error("Error fetching documents by class:", error);
         return res
             .status(500)
-            .json({ message: 'Failed to fetch documents', error: String(error) });
+            .json({ message: "Failed to fetch documents", error: String(error) });
     }
 };
 //# sourceMappingURL=document_controllers.js.map

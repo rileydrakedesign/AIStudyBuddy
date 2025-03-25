@@ -79,6 +79,7 @@ def perform_semantic_search(query_vector, filters=None):
                 "title": 1,
                 "author": 1,
                 "page_number": 1,
+                "doc_id": 1,
                 "is_summary": 1,
                 "score": {"$meta": "vectorSearchScore"}
             }
@@ -113,16 +114,17 @@ def get_file_citation(search_results):
     for result in search_results:
         s3_key = result.get('file_name')  # We assume 'file_name' is unique
         file_title = result.get('file_name')
+        doc_id = result.get('doc_id')
 
         if s3_key and s3_key not in seen_files:
             seen_files.add(s3_key)
             encoded_s3_key = quote(s3_key, safe='')
             download_url = f"{backend_url}/download?s3_key={encoded_s3_key}"
-            citations.append({"href": download_url, "text": file_title})
+            citations.append({"href": download_url, "text": file_title, "docId": doc_id})
         elif not s3_key:
             if file_title not in seen_files:
                 seen_files.add(file_title)
-                citations.append({"href": None, "text": file_title})
+                citations.append({"href": None, "text": file_title, "docId": doc_id})
 
     return citations
 
@@ -340,7 +342,8 @@ def main():
             "_id": str(doc["_id"]),           # MINIMAL ADDITION: add string version of the ObjectId
             "chunkNumber": idx + 1,
             "text": doc["text"],
-            "pageNumber": doc.get("page_number")
+            "pageNumber": doc.get("page_number"),
+            "docId": doc.get("doc_id")
         })
 
     print(f"context: {chunk_array}", file=sys.stderr)

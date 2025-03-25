@@ -1043,8 +1043,8 @@ const Chat = () => {
                         content={chat.content}
                         role={chat.role}
                         citation={chat.citation}
-                        // NEW: pass chunkReferences so bracket clicks work
                         chunkReferences={chat.chunkReferences}
+                        onDocumentChat={handleOpenDocumentChat}
                       />
                     ))}
 

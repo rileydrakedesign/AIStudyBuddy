@@ -174,13 +174,14 @@ export const generateChatCompletion = async (req, res, next) => {
             let citation = resultMessage.citation;
             const chunks = resultMessage.chunks || [];
             // Build chunk references from the Python's 'chunks' array
+            // ADDED docId TO STORE NEW doc_id ATTRIBUTE
             const chunkReferences = chunks.map((c) => ({
                 chunkId: c._id, // or c["_id"], depending on how it's returned
                 displayNumber: c.chunkNumber,
                 pageNumber: c.pageNumber ?? null,
+                docId: c.docId ?? null // <-- ADDED TO INCLUDE docId
             }));
-            // NEW: If chatSession has an assignedDocument, update citation text using fileName from MongoDB.
-            // Since the assignedDocument is stored as the document's custom docId, we first try finding by that field.
+            // If chatSession has an assignedDocument, update citation text using fileName from MongoDB.
             if (chatSession.assignedDocument && citation && Array.isArray(citation)) {
                 try {
                     let doc = await Document.findOne({ docId: chatSession.assignedDocument });

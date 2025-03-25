@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 export const citationSchema = new mongoose.Schema({
   href: { type: String, required: false },
   text: { type: String, required: false },
+  docId: { type: String, required: false },
 });
 
 // Chunk reference schema (NEW)

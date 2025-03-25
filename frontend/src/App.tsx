@@ -7,7 +7,7 @@ import Chat from "./pages/Chat";
 import NotFound from "./pages/NotFound";
 import UploadDocument from "./pages/Upload";
 import { useAuth } from "./context/authContext";
-//import Footer from "./components/footer/Footer";
+
 function App() {
   const auth = useAuth();
 
@@ -20,9 +20,9 @@ function App() {
         <Route path="/signup" element={<Signup />} />
         {auth?.isLoggedIn && auth.user && (
           <>
-          <Route path="/chat" element={<Chat />} />
-          <Route path="/upload" element={<UploadDocument />} /> {/* New Route */}
-        </>
+            <Route path="/chat" element={<Chat />} />
+            <Route path="/upload" element={<UploadDocument />} />
+          </>
         )}
         <Route path="*" element={<NotFound />} />
       </Routes>
