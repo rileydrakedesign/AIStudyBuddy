@@ -115,9 +115,10 @@ export const handleChatCompletionValidation = (
 /**
  * NEW: duplicateDocumentValidator
  * 
- * This middleware checks each uploaded file (in req.files) to ensure that a document with the same
- * fileName does not already exist in the database for the current user. If a duplicate is detected,
- * it iterates over all files in the request and deletes them from S3 before returning a 409 error.
+ * This middleware checks each uploaded file (in req.files) to ensure that a document
+ * with the same fileName does not already exist under the same class for the current user.
+ * If a duplicate is detected, it iterates over all files in the request and deletes them
+ * from S3 before returning a 409 error.
  */
 export const duplicateDocumentValidator = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -127,10 +128,17 @@ export const duplicateDocumentValidator = async (req: Request, res: Response, ne
     }
 
     const userId = res.locals.jwtData.id;
+    // Use the same default ("General") that is applied later in uploadDocument if not provided
+    const className = req.body.className || "General";
 
-    // Check each file for duplicates by fileName for the current user
+    // Check each file for duplicates by fileName for the current user and specified class
     for (const file of req.files) {
-      const existingDoc = await Document.findOne({ userId, fileName: file.originalname });
+      const existingDoc = await Document.findOne({
+        userId,
+        fileName: file.originalname,
+        className
+      });
+
       if (existingDoc) {
         // Create an S3 client to remove the uploaded files
         const s3 = new S3Client({
