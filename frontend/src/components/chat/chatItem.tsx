@@ -57,7 +57,7 @@ type ChunkData = {
 export type Citation = {
   href: string | null;
   text: string;
-  docId?: string | any; // If docId can come in as something else, keep it flexible
+  docId?: string | any;
 };
 
 interface ChatItemProps {
@@ -208,86 +208,8 @@ const CitationOptionsPopup: React.FC<CitationOptionsPopupProps> = ({
 };
 
 /**
- * Splits the given string by bracket references [1], [2], etc.
- * and returns an array of valid React nodes (ReactNode).
+ * ChatItem component
  */
-function splitBrackets(
-  str: string,
-  chunkReferences: ChatItemProps["chunkReferences"],
-  chunks: ChatItemProps["chunks"],
-  onCitationClick?: (n: number) => void
-): React.ReactNode[] {
-  const bracketRegex = /(\[\d+\])/g;
-  const segments = str.split(bracketRegex);
-  const result: React.ReactNode[] = [];
-
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i];
-    if (bracketRegex.test(seg)) {
-      // seg is something like "[2]"
-      const bracketNumber = seg.replace(/\D/g, "");
-      const numericBr = Number(bracketNumber);
-      result.push(
-        <span
-          key={`br-${i}`}
-          style={{ marginLeft: "4px", color: "blue", cursor: "pointer" }}
-          onClick={async (e) => {
-            e.stopPropagation();
-            const targetRect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-            let xPos = targetRect.left + 10;
-            let yPos = targetRect.bottom + 10;
-
-            // Try chunkReferences first
-            if (chunkReferences && chunkReferences.length > 0) {
-              const ref = chunkReferences.find((c) => c.displayNumber === numericBr);
-              if (ref) {
-                try {
-                  const data = await getChunkText(ref.chunkId);
-                  if (onCitationClick) onCitationClick(numericBr);
-                  return;
-                } catch (err) {
-                  console.error("Failed to fetch chunk text:", err);
-                  return;
-                }
-              }
-            }
-            // Fallback: ephemeral chunk
-            if (chunks && chunks.length > 0) {
-              const ephemeralChunk = chunks.find((c) => c.chunkNumber === numericBr);
-              if (ephemeralChunk) {
-                if (onCitationClick) onCitationClick(numericBr);
-                return;
-              }
-            }
-          }}
-        >
-          {seg}
-        </span>
-      );
-    } else {
-      // Normal text segment => render with ReactMarkdown
-      result.push(
-        <ReactMarkdown
-          key={`txt-${i}`}
-          remarkPlugins={[remarkGfm, remarkMath]}
-          rehypePlugins={[rehypeKatex]}
-          components={{
-            p: ({ node, ...props }) => (
-              <span
-                style={{ fontSize: "16px", lineHeight: 1.6, whiteSpace: "pre-wrap" }}
-                {...props}
-              />
-            ),
-          }}
-        >
-          {seg}
-        </ReactMarkdown>
-      );
-    }
-  }
-  return result;
-}
-
 const ChatItem: React.FC<ChatItemProps> = ({
   content,
   role,
@@ -339,12 +261,14 @@ const ChatItem: React.FC<ChatItemProps> = ({
     };
   }, []);
 
-  // Open the chunk text popup
-  function openPopup(x: number, y: number, chunkText: string) {
+  /**
+   * Opens the chunk text popup for bracket references
+   */
+  function openPopup(clientX: number, clientY: number, chunkText: string) {
     const popupWidth = 300;
     const popupHeight = 300;
-    let xPos = x + 10;
-    let yPos = y + 10;
+    let xPos = clientX + 10;
+    let yPos = clientY + 10;
     if (xPos + popupWidth > window.innerWidth) {
       xPos = window.innerWidth - popupWidth - 10;
     }
@@ -355,6 +279,86 @@ const ChatItem: React.FC<ChatItemProps> = ({
     window.dispatchEvent(
       new CustomEvent("citationPopupOpened", { detail: { chatItemId: chatItemIdRef.current } })
     );
+  }
+
+  /**
+   * Splits the given string by bracket references [1], [2] and returns
+   * an array of valid React nodes. We re-introduce openPopup calls here
+   * so that clicking the bracket shows the chunk text popup.
+   */
+  function splitBrackets(str: string): React.ReactNode[] {
+    const bracketRegex = /(\[\d+\])/g;
+    const segments = str.split(bracketRegex);
+    const result: React.ReactNode[] = [];
+
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      if (bracketRegex.test(seg)) {
+        // seg is something like "[2]"
+        const bracketNumber = seg.replace(/\D/g, "");
+        const numericBr = Number(bracketNumber);
+        result.push(
+          <span
+            key={`br-${i}`}
+            style={{ marginLeft: "4px", color: "blue", cursor: "pointer" }}
+            onClick={async (e) => {
+              e.stopPropagation();
+
+              // Capture the click position
+              const xPos = e.clientX;
+              const yPos = e.clientY;
+
+              // If chunkReferences exist, fetch from server
+              if (chunkReferences && chunkReferences.length > 0) {
+                const ref = chunkReferences.find((c) => c.displayNumber === numericBr);
+                if (ref) {
+                  try {
+                    const data = await getChunkText(ref.chunkId);
+                    openPopup(xPos, yPos, data.text ?? "No text found");
+                    if (onCitationClick) onCitationClick(numericBr);
+                    return;
+                  } catch (err) {
+                    console.error("Failed to fetch chunk text:", err);
+                  }
+                }
+              }
+
+              // Otherwise, if ephemeral chunk data exists
+              if (chunks && chunks.length > 0) {
+                const ephemeralChunk = chunks.find((c) => c.chunkNumber === numericBr);
+                if (ephemeralChunk) {
+                  openPopup(xPos, yPos, ephemeralChunk.text);
+                  if (onCitationClick) onCitationClick(numericBr);
+                  return;
+                }
+              }
+
+              // If no chunk found, you could show fallback
+              console.warn("No chunk reference found for bracket", numericBr);
+            }}
+          >
+            {seg}
+          </span>
+        );
+      } else {
+        // Normal text segment => use ReactMarkdown
+        result.push(
+          <ReactMarkdown
+            key={`txt-${i}`}
+            remarkPlugins={[remarkGfm, remarkMath]}
+            rehypePlugins={[rehypeKatex]}
+            components={{
+              p: ({ node, ...props }) => (
+                <span style={{ fontSize: "16px", lineHeight: 1.6, whiteSpace: "pre-wrap" }} {...props} />
+              ),
+            }}
+          >
+            {seg}
+          </ReactMarkdown>
+        );
+      }
+    }
+    return result;
   }
 
   // Handler for citation link click (file citation)
@@ -373,7 +377,6 @@ const ChatItem: React.FC<ChatItemProps> = ({
       x: popupX,
       y: popupY,
       href,
-      // Pass docId only if it's a string
       docId: typeof docId === "string" ? docId : undefined,
     });
     window.dispatchEvent(
@@ -399,7 +402,6 @@ const ChatItem: React.FC<ChatItemProps> = ({
     );
   }
 
-  // Split code blocks
   const blocks = extractBlocks(content);
 
   return (
@@ -458,8 +460,8 @@ const ChatItem: React.FC<ChatItemProps> = ({
               </SyntaxHighlighter>
             );
           } else {
-            // Text block — handle bracket references
-            const bracketed = splitBrackets(block.value, chunkReferences, chunks, onCitationClick);
+            // Text block => handle bracket references for citations
+            const bracketed = splitBrackets(block.value);
             return (
               <Box key={idx} sx={{ mb: 1, color: "white" }}>
                 {bracketed}
@@ -478,7 +480,6 @@ const ChatItem: React.FC<ChatItemProps> = ({
                   href={cit.href || "#"}
                   onClick={(e) => {
                     if (cit.href) {
-                      // Only pass docId if it's a string
                       handleCitationClick(e, cit.href, typeof cit.docId === "string" ? cit.docId : undefined);
                     }
                   }}
