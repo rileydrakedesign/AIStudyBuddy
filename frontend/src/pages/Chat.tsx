@@ -270,17 +270,19 @@ const Chat = () => {
         clearInterval(typeIntervalRef.current);
         typeIntervalRef.current = null;
       }
-      // The last assistant message is in chatSessions
-      let finalMsg: Message | null = null;
       const currentIndex = chatSessions.findIndex((s) => s._id === currentChatSessionId);
       if (currentIndex !== -1) {
         const allMsgs = chatSessions[currentIndex].messages;
         if (allMsgs.length > 0) {
-          finalMsg = allMsgs[allMsgs.length - 1];
+          const finalMsg = allMsgs[allMsgs.length - 1];
+          // Only append if the current chatMessages array does not already end with this message
+          if (
+            chatMessages.length === 0 ||
+            chatMessages[chatMessages.length - 1].content !== finalMsg.content
+          ) {
+            setChatMessages((prev) => [...prev, finalMsg]);
+          }
         }
-      }
-      if (finalMsg && finalMsg.role === "assistant") {
-        setChatMessages((prev) => [...prev, finalMsg as Message]);
       }
       setPartialAssistantMessage("");
       setIsGenerating(false);
@@ -302,25 +304,23 @@ const Chat = () => {
      HELPER: finalize typewriter
      ------------------------------ */
   const finalizeTypewriter = () => {
-    if (typeIntervalRef.current) {
-      clearInterval(typeIntervalRef.current);
-      typeIntervalRef.current = null;
+  if (typeIntervalRef.current) {
+    clearInterval(typeIntervalRef.current);
+    typeIntervalRef.current = null;
+  }
+  const currentSession = chatSessions.find((s) => s._id === currentChatSessionId);
+  if (currentSession && currentSession.messages.length > 0) {
+    const finalMsg = currentSession.messages[currentSession.messages.length - 1];
+    if (
+      chatMessages.length === 0 ||
+      chatMessages[chatMessages.length - 1].content !== finalMsg.content
+    ) {
+      setChatMessages((prev) => [...prev, finalMsg]);
     }
-
-    let finalMsg: Message | null = null;
-    const currentIndex = chatSessions.findIndex((s) => s._id === currentChatSessionId);
-    if (currentIndex !== -1) {
-      const allMsgs = chatSessions[currentIndex].messages;
-      if (allMsgs.length > 0) {
-        finalMsg = allMsgs[allMsgs.length - 1];
-      }
-    }
-    if (finalMsg && finalMsg.role === "assistant") {
-      setChatMessages((prev) => [...prev, finalMsg as Message]);
-    }
-    setPartialAssistantMessage("");
-    setIsGenerating(false);
-  };
+  }
+  setPartialAssistantMessage("");
+  setIsGenerating(false);
+};
 
   /* ------------------------------
      CLASS SELECT CHANGE
@@ -425,7 +425,7 @@ const Chat = () => {
           setPartialAssistantMessage("");
           setIsGenerating(false);
         }
-      }, 30);
+      }, 2);
 
       if (chatData.assignedClass !== undefined) {
         setSelectedClass(chatData.assignedClass || null);
@@ -479,7 +479,7 @@ const Chat = () => {
      SELECT A CHAT SESSION
      ------------------------------ */
   const handleSelectChatSession = (chatSessionId: string) => {
-    finalizeTypewriter();
+    //finalizeTypewriter();
     // Clear any open citation popups before switching
     window.dispatchEvent(new CustomEvent("clearCitationPopups"));
     
