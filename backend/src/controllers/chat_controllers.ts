@@ -3,6 +3,7 @@ import User from "../models/user.js";
 import ChatSession from "../models/chatSession.js";
 import Document from "../models/documents.js"; // Import Document model for citation text update
 import { execFile } from "child_process";
+import axios from "axios";
 
 export const createNewChatSession = async (
   req,
@@ -68,9 +69,9 @@ export const getUserChatSessions = async (
 };
 
 export const generateChatCompletion = async (
-  req,
-  res,
-  next
+  req: Request,
+  res: Response,
+  next: NextFunction
 ) => {
   const { message, class_name, docId, chatSessionId, ephemeral } = req.body;
 
@@ -167,96 +168,69 @@ export const generateChatCompletion = async (
     console.log(`Assigned Document: ${chatSession.assignedDocument || "none"}`);
     console.log(`Ephemeral: ${chatSession.ephemeral}`);
 
-    const pythonPath = process.env.PYTHON_PATH;
-    const scriptPath =
-      "/Users/rileydrake/Desktop/AIStudyBuddy/backend/python_scripts/semantic_search.py";
+    // NEW: Build the URL for the FastAPI endpoint
+    const pythonApiUrl = process.env.PYTHON_API_URL; // e.g., "http://localhost:8000"
+    const semanticSearchEndpoint = `${pythonApiUrl}/api/v1/semantic_search`;
 
-    const options = {
-      env: {
-        ...process.env,
-        MONGO_CONNECTION_STRING: process.env.MONGO_CONNECTION_STRING,
-      },
+    // NEW: Build the request data payload
+    const requestData = {
+      user_id: userId.toString(),
+      class_name: chatSession.assignedClass || "null",
+      doc_id: chatSession.assignedDocument || "null",
+      user_query: message,
+      chat_history: chats,
+      source,
     };
 
-    execFile(
-      pythonPath,
-      [
-        scriptPath,
-        userId.toString(),
-        chatSession.assignedClass || "null",
-        chatSession.assignedDocument || "null",
-        message,
-        JSON.stringify(chats),
-        source,
-      ],
-      options,
-      async (error, stdout, stderr) => {
-        if (error) {
-          console.error(`exec error: ${error}`);
-          return res.status(500).json({ message: "Something went wrong" });
+    // NEW: Make an HTTP POST request to the FastAPI endpoint
+    const responseFromPython = await axios.post(semanticSearchEndpoint, requestData);
+    const resultMessage = responseFromPython.data;
+
+    const aiResponse = resultMessage.message;
+    let citation = resultMessage.citation;
+    const chunks = resultMessage.chunks || [];
+
+    // Build chunk references from the Python's 'chunks' array
+    const chunkReferences = chunks.map((c: any) => ({
+      chunkId: c._id,
+      displayNumber: c.chunkNumber,
+      pageNumber: c.pageNumber ?? null,
+      docId: c.docId ?? null,
+    }));
+
+    // If chatSession has an assignedDocument, update citation text using fileName from MongoDB.
+    if (chatSession.assignedDocument && citation && Array.isArray(citation)) {
+      try {
+        let doc = await Document.findOne({ docId: chatSession.assignedDocument });
+        if (!doc) {
+          // Fallback: if assignedDocument is a Mongo _id, try findById.
+          doc = await Document.findById(chatSession.assignedDocument);
         }
-        if (stderr) {
-          console.error(`stderr: ${stderr}`);
+        if (doc) {
+          citation = citation.map((cit: any) => ({ ...cit, text: doc.fileName }));
         }
-
-        let resultMessage;
-        try {
-          resultMessage = JSON.parse(stdout.trim());
-        } catch (parseError) {
-          console.error("Error parsing Python script output:", parseError);
-          return res
-            .status(500)
-            .json({ message: "Invalid response from backend" });
-        }
-
-        const aiResponse = resultMessage.message;
-        let citation = resultMessage.citation;
-        const chunks = resultMessage.chunks || [];
-
-        // Build chunk references from the Python's 'chunks' array
-        // ADDED docId TO STORE NEW doc_id ATTRIBUTE
-        const chunkReferences = chunks.map((c) => ({
-          chunkId: c._id,             // or c["_id"], depending on how it's returned
-          displayNumber: c.chunkNumber,
-          pageNumber: c.pageNumber ?? null,
-          docId: c.docId ?? null      // <-- ADDED TO INCLUDE docId
-        }));
-
-        // If chatSession has an assignedDocument, update citation text using fileName from MongoDB.
-        if (chatSession.assignedDocument && citation && Array.isArray(citation)) {
-          try {
-            let doc = await Document.findOne({ docId: chatSession.assignedDocument });
-            if (!doc) {
-              // Fallback: if assignedDocument is a Mongo _id, try findById.
-              doc = await Document.findById(chatSession.assignedDocument);
-            }
-            if (doc) {
-              citation = citation.map((cit) => ({ ...cit, text: doc.fileName }));
-            }
-          } catch (docError) {
-            console.error("Error fetching document for citation update:", docError);
-          }
-        }
-
-        // Append assistant's response with updated citation and chunk references
-        chatSession.messages.push({
-          content: aiResponse,
-          role: "assistant",
-          citation,
-          chunkReferences, // store them in the DB
-        });
-
-        await chatSession.save();
-
-        return res.status(200).json({
-          chatSessionId: chatSession._id,
-          messages: chatSession.messages,
-          assignedClass: chatSession.assignedClass,
-          assignedDocument: chatSession.assignedDocument,
-          chunks,
-        });
+      } catch (docError) {
+        console.error("Error fetching document for citation update:", docError);
       }
-    );
+    }
+
+    // Append assistant's response with updated citation and chunk references
+    chatSession.messages.push({
+      content: aiResponse,
+      role: "assistant",
+      citation,
+      chunkReferences, // store them in the DB
+    });
+
+    await chatSession.save();
+
+    return res.status(200).json({
+      chatSessionId: chatSession._id,
+      messages: chatSession.messages,
+      assignedClass: chatSession.assignedClass,
+      assignedDocument: chatSession.assignedDocument,
+      chunks,
+    });
   } catch (error) {
     console.log(error);
     return res.status(500).json({ message: "Something went wrong" });

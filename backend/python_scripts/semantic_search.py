@@ -71,7 +71,6 @@ def perform_semantic_search(query_vector, filters=None):
             }
         },
         {
-            # MINIMAL CHANGE: Project _id so that it's included in the final results
             "$project": {
                 "_id": 1,
                 "text": 1,
@@ -107,12 +106,12 @@ def get_file_citation(search_results):
         's3',
         aws_access_key_id=os.getenv('AWS_ACCESS_KEY'),
         aws_secret_access_key=os.getenv('AWS_SECRET'),
-        region_name=os.getenv('AWS_REGION')  # Replace with your AWS region
+        region_name=os.getenv('AWS_REGION')
     )
-    bucket_name = os.getenv('AWS_S3_BUCKET_NAME')  # Replace with your S3 bucket name
+    bucket_name = os.getenv('AWS_S3_BUCKET_NAME')
 
     for result in search_results:
-        s3_key = result.get('file_name')  # We assume 'file_name' is unique
+        s3_key = result.get('file_name')
         file_title = result.get('file_name')
         doc_id = result.get('doc_id')
 
@@ -216,29 +215,14 @@ def message_to_dict(message):
     else:
         raise TypeError(f"Unexpected message type: {type(message)}")
 
-def main():
-    """Main function to handle user interactions and perform semantic search."""
-
+def process_semantic_search(user_id, class_name, doc_id, user_query, chat_history, source):
+    """
+    New function to process semantic search.
+    Accepts parameters instead of using sys.argv.
+    Returns the JSON output as a Python dict.
+    """
     # Load your prompts from a JSON file
     prompts = load_prompts('/Users/rileydrake/Desktop/AIStudyBuddy/backend/prompts.json')
-
-    # We expect 6 arguments:
-    # 1) user_id
-    # 2) class_name
-    # 3) doc_id
-    # 4) user_query
-    # 5) chat_history JSON
-    # 6) source
-    if len(sys.argv) < 7:
-        print("Error: Not enough arguments provided.", file=sys.stderr)
-        sys.exit(1)
-
-    user_id = sys.argv[1]
-    class_name = sys.argv[2]
-    doc_id = sys.argv[3]
-    user_query = sys.argv[4]
-    chat_history = json.loads(sys.argv[5])
-    source = sys.argv[6].lower()  # 'chrome_extension' or 'main_app'
 
     print(f"Source: {source}", file=sys.stderr)
 
@@ -251,13 +235,13 @@ def main():
     # 1) Rephrase the user query for retrieval
     rephrase_prompt = PromptTemplate(
         template="""You are an assistant tasked with taking a natural language query from a user
-                    and converting it into a query for a vectorstore. In the process, strip out all
-                    information that is not relevant for the retrieval task and return a new, simplified
-                    question for vectorstore retrieval. The new user query should capture the semantic meaning of what
-                    the user is searching for in the most efficient way so that the proper documents are retrieved from the vectorstore.
-                    Only return the response with no other information or descriptors.
-                    user query: {input}
-                    """
+and converting it into a query for a vectorstore. In the process, strip out all
+information that is not relevant for the retrieval task and return a new, simplified
+question for vectorstore retrieval. The new user query should capture the semantic meaning of what
+the user is searching for in the most efficient way so that the proper documents are retrieved from the vectorstore.
+Only return the response with no other information or descriptors.
+user query: {input}
+"""
     )
 
     semantic_query = construct_chain(rephrase_prompt, user_query, chat_history_cleaned)
@@ -272,7 +256,6 @@ def main():
     # 4) Build filters based on doc_id or class_name
     filters = {"user_id": {"$eq": user_id}}
     if doc_id != "null":
-        # If docId is provided, filter specifically by docId
         filters["doc_id"] = {"$eq": doc_id}
     elif class_name and class_name != "null":
         filters["class_id"] = {"$eq": class_name}
@@ -285,28 +268,24 @@ def main():
     # Filter out results below a certain threshold (0.35)
     filtered_results = [doc for doc in similarity_results if doc['score'] > 0.35]
 
-    print(f"results: {search_results}", file=sys.stderr)
-    print(f"processed results: {similarity_results}", file=sys.stderr)
+    print(f"results: {similarity_results}", file=sys.stderr)
 
     # 6) Decide which prompt to use, based on source or route
     if source == "chrome_extension":
         selected_prompt = prompts.get("chrome_extension")
         if not selected_prompt:
             print("Error: 'chrome_extension' prompt not found in prompts.json", file=sys.stderr)
-            sys.exit(1)
-
+            raise ValueError("Prompt 'chrome_extension' not found")
         referencing_instruction = (
             "Whenever you use content from a given chunk in your final answer, "
             "place a bracketed reference [1], [2], [3], etc. at the end of the relevant sentence.\n\n"
         )
         enhanced_prompt = referencing_instruction + selected_prompt
-
     else:
         selected_prompt = prompts.get(route)
         if not selected_prompt:
             print(f"Error: Prompt for route '{route}' not found in prompts.json", file=sys.stderr)
-            sys.exit(1)
-
+            raise ValueError(f"Prompt for route '{route}' not found")
         referencing_instruction = (
             "Whenever you use content from a given chunk in your final answer, "
             "place a bracketed reference [1], [2], [3], etc. at the end of the relevant sentence.\n\n"
@@ -339,7 +318,7 @@ def main():
     chunk_array = []
     for idx, doc in enumerate(filtered_results):
         chunk_array.append({
-            "_id": str(doc["_id"]),           # MINIMAL ADDITION: add string version of the ObjectId
+            "_id": str(doc["_id"]),
             "chunkNumber": idx + 1,
             "text": doc["text"],
             "pageNumber": doc.get("page_number"),
@@ -352,14 +331,42 @@ def main():
     json_output = {
         "message": response,
         "citation": citation,
-        "chats": chat_history,  # chat history if you need to use it on the front end
+        "chats": chat_history,
         "chunks": chunk_array
     }
 
     print("DEBUG: JSON to be returned by semantic_search.py:", json.dumps(json_output), file=sys.stderr)
 
-    # 12) Print the JSON to stdout so the Node controller can parse it
-    print(json.dumps(json_output))
+    return json_output
+
+def main():
+    """
+    CLI entry point for backward compatibility.
+    Expects six arguments from sys.argv:
+    1) user_id
+    2) class_name
+    3) doc_id
+    4) user_query
+    5) chat_history JSON
+    6) source
+    """
+    if len(sys.argv) < 7:
+        print("Error: Not enough arguments provided.", file=sys.stderr)
+        sys.exit(1)
+
+    user_id = sys.argv[1]
+    class_name = sys.argv[2]
+    doc_id = sys.argv[3]
+    user_query = sys.argv[4]
+    chat_history = json.loads(sys.argv[5])
+    source = sys.argv[6].lower()
+
+    try:
+        result = process_semantic_search(user_id, class_name, doc_id, user_query, chat_history, source)
+        print(json.dumps(result))
+    except Exception as e:
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 if __name__ == "__main__":
     try:

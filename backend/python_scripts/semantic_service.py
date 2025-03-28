@@ -1,8 +1,7 @@
-# semantic_service.py
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
-from semantic_search import main as cli_main
+from semantic_search import process_semantic_search
 
 app = FastAPI()
 
@@ -17,8 +16,7 @@ class SearchRequest(BaseModel):
 @app.post("/api/v1/semantic_search")
 async def semantic_search(req: SearchRequest):
     try:
-        # Reuse your existing CLI logic — but capture return value instead of printing
-        result = cli_main(
+        result = process_semantic_search(
             req.user_id,
             req.class_name or "null",
             req.doc_id or "null",
