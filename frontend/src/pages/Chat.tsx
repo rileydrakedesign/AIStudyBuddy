@@ -793,7 +793,7 @@ const Chat = () => {
                 </ListSubheader>
               }
             >
-              <ListItemButton sx={{ pl: 2 }} disabled={isGenerating}>
+              <ListItemButton sx={{ pl: 2 }} disabled={isGenerating} onClick={() => navigate("/upload")}>
                 <ListItemIcon sx={{ color: "white" }}>
                   <AddIcon />
                 </ListItemIcon>
