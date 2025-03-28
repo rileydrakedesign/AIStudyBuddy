@@ -68,6 +68,7 @@ type ChatSession = {
   sessionName: string;
   messages: Message[];
   assignedClass?: string | null;
+  lastUpdated?: number;
 };
 
 type ClassOption = {
@@ -192,15 +193,17 @@ const Chat = () => {
       toast.loading("Loading Chat Sessions", { id: "loadchatsessions" });
       getUserChatSessions()
         .then((data: { chatSessions: ChatSession[] }) => {
-          // Sort by most recent activity
-          const sortedSessions = data.chatSessions.sort(
-            (a, b) => b.messages.length - a.messages.length
-          );
+          // If the sessions don't include a 'lastUpdated' property,
+          // assign one here (you may later want to rely on a backend timestamp).
+          const sessionsWithTimestamp = data.chatSessions.map(session => ({
+            ...session,
+            lastUpdated: (session as any).lastUpdated || Date.now(),
+          }));
+          sessionsWithTimestamp.sort((a, b) => (b.lastUpdated || 0) - (a.lastUpdated || 0));
+          setChatSessions(sessionsWithTimestamp);
 
-          setChatSessions(sortedSessions);
-
-          if (sortedSessions.length > 0) {
-            const first = sortedSessions[0];
+          if (sessionsWithTimestamp.length > 0) {
+            const first = sessionsWithTimestamp[0];
             setCurrentChatSessionId(first._id);
             setChatMessages(first.messages);
             setSelectedClass(first.assignedClass || null);
@@ -213,6 +216,7 @@ const Chat = () => {
         });
     }
   }, [auth]);
+    
 
   /* ------------------------------
      REDIRECT IF NOT LOGGED IN
@@ -349,7 +353,7 @@ const Chat = () => {
     const content = inputRef.current.value.trim();
     inputRef.current.value = "";
 
-    // 1) Immediately add the user message
+    // Immediately add the user message
     const newMessage: Message = { role: "user", content };
     setChatMessages((prev) => [...prev, newMessage]);
 
@@ -357,14 +361,14 @@ const Chat = () => {
     setPartialAssistantMessage("");
 
     try {
-      // If there is no current chat session, automatically create one named "New Chat"
+      // Create a new session if none is active
       let chatSessionId = currentChatSessionId;
       if (!chatSessionId) {
         const data = await createChatSession("New Chat");
         chatSessionId = data.chatSession._id;
         setCurrentChatSessionId(chatSessionId);
         setChatSessions((prev) => [
-          { ...data.chatSession, assignedClass: null },
+          { ...data.chatSession, assignedClass: null, lastUpdated: Date.now() },
           ...prev,
         ]);
       }
@@ -372,25 +376,26 @@ const Chat = () => {
       const classNameForRequest = selectedClass === null ? "null" : selectedClass;
       const chatData = await sendChatRequest(content, classNameForRequest, chatSessionId);
 
-      // STILL storing ephemeral chunks for the newest answer
+      // Store ephemeral chunks for the newest answer
       setChunks(chatData.chunks || []);
 
-      // Update the chat session (either new or existing)
-      setChatSessions((prev) =>
-        prev
-          .map((session) =>
-            session._id === chatData.chatSessionId
-              ? {
-                  ...session,
-                  messages: chatData.messages,
-                  assignedClass: chatData.assignedClass || null,
-                }
-              : session
-          )
-          .sort((a, b) => b.messages.length - a.messages.length)
-      );
+      // Update the active chat session with new messages and update its lastUpdated timestamp
+      setChatSessions((prev) => {
+        const updatedSessions = prev.map((session) =>
+          session._id === chatData.chatSessionId
+            ? {
+                ...session,
+                messages: chatData.messages,
+                assignedClass: chatData.assignedClass || null,
+                lastUpdated: Date.now(), // update recency timestamp
+              }
+            : session
+        );
+        updatedSessions.sort((a, b) => (b.lastUpdated || 0) - (a.lastUpdated || 0));
+        return updatedSessions;
+      });
 
-      // The final assistant message
+      // Process the assistant's message with typewriter effect
       const allMessages = chatData.messages;
       const finalAssistantMsg =
         allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
@@ -401,7 +406,7 @@ const Chat = () => {
         return;
       }
 
-      // Remove the final assistant msg for the typewriter effect
+      // Remove final assistant message for typewriter effect
       const updatedWithoutLast = allMessages.slice(0, allMessages.length - 1);
       setChatMessages(updatedWithoutLast);
 
@@ -436,6 +441,7 @@ const Chat = () => {
       setIsGenerating(false);
     }
   };
+    
 
   /* ------------------------------
      CREATE NEW CHAT
