@@ -441,10 +441,12 @@ const Chat = () => {
      CREATE NEW CHAT
      ------------------------------ */
   const handleCreateNewChatSession = () => {
+    // Clear any document chat so that the main chat view is shown
+    setActiveDocId(null);
     setIsNamingChat(true);
     setNewChatName("");
   };
-
+  
   const handleSubmitNewChatName = async () => {
     if (newChatName.trim() === "") {
       toast.error("Please enter a chat name");
@@ -479,10 +481,11 @@ const Chat = () => {
      SELECT A CHAT SESSION
      ------------------------------ */
   const handleSelectChatSession = (chatSessionId: string) => {
-    //finalizeTypewriter();
+    // Clear any document chat by setting activeDocId to null
+    setActiveDocId(null);
     // Clear any open citation popups before switching
     window.dispatchEvent(new CustomEvent("clearCitationPopups"));
-    
+
     const session = chatSessions.find((s) => s._id === chatSessionId);
     if (session) {
       setCurrentChatSessionId(chatSessionId);
