@@ -51,10 +51,6 @@ const chatSessionSchema = new mongoose.Schema({
         type: String,
         default: "New Chat",
     },
-    createdAt: {
-        type: Date,
-        default: Date.now,
-    },
     messages: [messageSchema],
     assignedClass: {
         type: String,
@@ -75,6 +71,7 @@ const chatSessionSchema = new mongoose.Schema({
     },
 }, {
     _id: false,
+    timestamps: true, // Automatically adds createdAt and updatedAt fields
 });
 chatSessionSchema.index({ _id: 1 }, { unique: true });
 export default mongoose.model("ChatSession", chatSessionSchema);

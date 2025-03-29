@@ -68,7 +68,8 @@ type ChatSession = {
   sessionName: string;
   messages: Message[];
   assignedClass?: string | null;
-  lastUpdated?: number;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 type ClassOption = {
@@ -193,17 +194,15 @@ const Chat = () => {
       toast.loading("Loading Chat Sessions", { id: "loadchatsessions" });
       getUserChatSessions()
         .then((data: { chatSessions: ChatSession[] }) => {
-          // If the sessions don't include a 'lastUpdated' property,
-          // assign one here (you may later want to rely on a backend timestamp).
-          const sessionsWithTimestamp = data.chatSessions.map(session => ({
-            ...session,
-            lastUpdated: (session as any).lastUpdated || Date.now(),
-          }));
-          sessionsWithTimestamp.sort((a, b) => (b.lastUpdated || 0) - (a.lastUpdated || 0));
-          setChatSessions(sessionsWithTimestamp);
+          const sessionsSorted = data.chatSessions.sort((a, b) => {
+            const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+            const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+            return timeB - timeA; // descending: most recent first
+          });
+          setChatSessions(sessionsSorted);
 
-          if (sessionsWithTimestamp.length > 0) {
-            const first = sessionsWithTimestamp[0];
+          if (sessionsSorted.length > 0) {
+            const first = sessionsSorted[0];
             setCurrentChatSessionId(first._id);
             setChatMessages(first.messages);
             setSelectedClass(first.assignedClass || null);
@@ -368,7 +367,7 @@ const Chat = () => {
         chatSessionId = data.chatSession._id;
         setCurrentChatSessionId(chatSessionId);
         setChatSessions((prev) => [
-          { ...data.chatSession, assignedClass: null, lastUpdated: Date.now() },
+          { ...data.chatSession, assignedClass: null, updatedAt: data.chatSession.updatedAt || data.chatSession.createdAt },
           ...prev,
         ]);
       }
@@ -379,7 +378,7 @@ const Chat = () => {
       // Store ephemeral chunks for the newest answer
       setChunks(chatData.chunks || []);
 
-      // Update the active chat session with new messages and update its lastUpdated timestamp
+      // Update the active chat session with new messages.
       setChatSessions((prev) => {
         const updatedSessions = prev.map((session) =>
           session._id === chatData.chatSessionId
@@ -387,11 +386,16 @@ const Chat = () => {
                 ...session,
                 messages: chatData.messages,
                 assignedClass: chatData.assignedClass || null,
-                lastUpdated: Date.now(), // update recency timestamp
+                // Use updatedAt from chatData if provided; otherwise, keep the old value or use current time.
+                updatedAt: chatData.updatedAt || new Date().toISOString(),
               }
             : session
         );
-        updatedSessions.sort((a, b) => (b.lastUpdated || 0) - (a.lastUpdated || 0));
+        updatedSessions.sort((a, b) => {
+          const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+          const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+          return timeB - timeA;
+        });
         return updatedSessions;
       });
 
@@ -406,7 +410,7 @@ const Chat = () => {
         return;
       }
 
-      // Remove final assistant message for typewriter effect
+      // Remove the final assistant message for typewriter effect
       const updatedWithoutLast = allMessages.slice(0, allMessages.length - 1);
       setChatMessages(updatedWithoutLast);
 
@@ -441,6 +445,7 @@ const Chat = () => {
       setIsGenerating(false);
     }
   };
+
     
 
   /* ------------------------------
@@ -460,14 +465,13 @@ const Chat = () => {
     }
     try {
       const data = await createChatSession(newChatName.trim());
-      setChatSessions((prev) => [
-        {
-          ...data.chatSession,
-          assignedClass: null,
-        },
-        ...prev,
-      ]);
-      setCurrentChatSessionId(data.chatSession._id);
+      const newSession = {
+        ...data.chatSession,
+        assignedClass: null,
+        lastUpdated: Date.now(), // Add recency timestamp here
+      };
+      setChatSessions((prev) => [newSession, ...prev]);
+      setCurrentChatSessionId(newSession._id);
       setChatMessages([]);
       setSelectedClass(null);
       setIsNamingChat(false);
@@ -477,6 +481,7 @@ const Chat = () => {
       toast.error("Failed to create new chat session");
     }
   };
+  
 
   const handleCancelNewChat = () => {
     setIsNamingChat(false);
