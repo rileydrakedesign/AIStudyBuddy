@@ -1,6 +1,8 @@
 import { NextFunction, Request, Response } from "express";
+import mongoose from "mongoose";
 import Document, { IDocument } from "../models/documents.js";
 import User from "../models/user.js";
+import ChatSession from "../models/chatSession.js";
 import { execFile } from "child_process";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -185,7 +187,7 @@ export const uploadDocument = async (
           "--s3_key",
           s3Key || "",
           "--doc_id",
-          newDocument._id.toString(), // The critical step
+          newDocument._id.toString(),
         ],
         options,
         async (error, stdout, stderr) => {
@@ -290,7 +292,9 @@ export const getDocumentFile = async (
 };
 
 /**
- * Deletes a document (both from S3 and from Mongo).
+ * Deletes a document (both from S3 and from MongoDB) and cascades deletion:
+ * - Removes chat sessions referencing this document.
+ * - Removes processed document chunks stored in "study_materials2".
  */
 export const deleteDocument = async (
   req: Request,
@@ -316,16 +320,26 @@ export const deleteDocument = async (
       return res.status(403).json({ message: "Unauthorized access" });
     }
 
-    // Delete from S3
+    // Delete the file from S3
     await deleteFileFromS3(document.s3Key);
 
-    // Delete from DB
+    // Delete document record from MongoDB
     await Document.deleteOne({ _id: documentId });
 
-    return res.status(200).json({ message: "Document deleted successfully" });
-  } catch (error) {
-    console.error("Error deleting file from S3:", error);
-    return res.status(500).json({ message: "Error deleting file from S3" });
+    // Cascade deletion: Remove chat sessions that reference this document
+    await ChatSession.deleteMany({ userId: currentUser._id, assignedDocument: documentId });
+
+    // Cascade deletion: Remove processed document chunks from "study_materials2"
+    // <-- Updated code starts here -->
+    const db = mongoose.connection.useDb("study_buddy_demo");
+    const studyMaterialsCollection = db.collection("study_materials2");
+    await studyMaterialsCollection.deleteMany({ "doc_id": documentId });
+    // <-- Updated code ends here -->
+
+    return res.status(200).json({ message: "Document and associated chat sessions and document chunks deleted successfully" });
+  } catch (error: any) {
+    console.error("Error deleting document:", error);
+    return res.status(500).json({ message: "Error deleting document", cause: error.message });
   }
 };
 

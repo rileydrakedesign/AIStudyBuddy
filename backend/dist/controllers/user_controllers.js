@@ -3,9 +3,11 @@ import { hash, compare } from "bcrypt";
 import { createToken } from "../utils/token_manager.js";
 import { COOKIE_NAME } from "../utils/constants.js";
 import mongoose from "mongoose";
+import Document from "../models/documents.js";
+import ChatSession from "../models/chatSession.js";
 export const getAllUsers = async (req, res, next) => {
     try {
-        //get all users
+        // get all users
         const users = await user.find();
         return res.status(200).json({ message: "OK", users });
     }
@@ -16,7 +18,7 @@ export const getAllUsers = async (req, res, next) => {
 };
 export const userSignup = async (req, res, next) => {
     try {
-        //user signup
+        // user signup
         const { name, email, password } = req.body;
         const existingUser = await user.findOne({ email });
         if (existingUser)
@@ -24,7 +26,7 @@ export const userSignup = async (req, res, next) => {
         const hashedPassword = await hash(password, 10);
         const newUser = new user({ name, email, password: hashedPassword });
         await newUser.save();
-        //create token and store cookie
+        // create token and store cookie
         res.clearCookie(COOKIE_NAME, {
             httpOnly: true,
             secure: true,
@@ -54,7 +56,7 @@ export const userSignup = async (req, res, next) => {
 };
 export const userLogin = async (req, res, next) => {
     try {
-        //user signup
+        // user login
         const { email, password } = req.body;
         const currentUser = await user.findOne({ email });
         if (!currentUser) {
@@ -93,12 +95,11 @@ export const userLogin = async (req, res, next) => {
 };
 export const verifyUser = async (req, res, next) => {
     try {
-        //user token check
+        // user token check
         const currentUser = await user.findById(res.locals.jwtData.id);
         if (!currentUser) {
             return res.status(401).send("User not registered OR Token malfunctioned");
         }
-        //console.log(currentUser._id.toString(), res.locals.jwtData.id);
         if (currentUser._id.toString() !== res.locals.jwtData.id) {
             return res.status(401).send("Permissions didn't match");
         }
@@ -125,6 +126,12 @@ export const getUserClasses = async (req, res) => {
         return res.status(500).json({ message: "Failed to fetch user classes" });
     }
 };
+/**
+ * Deletes a class from the user’s classes array and cascades deletion:
+ * - Removes all documents associated with this class.
+ * - Removes all chat sessions referencing this class.
+ * - Removes processed document chunks from "study_materials2" matching this class.
+ */
 export const deleteUserClass = async (req, res) => {
     try {
         const currentUser = await user.findById(res.locals.jwtData.id);
@@ -132,12 +139,24 @@ export const deleteUserClass = async (req, res) => {
             return res.status(401).send("User not registered or token malfunctioned");
         }
         const { classId } = req.params;
-        // Convert the string from the URL to an ObjectId
-        const objectId = new mongoose.Types.ObjectId(classId);
-        // Now .pull({ _id: ... }) will match the subdocument
-        currentUser.classes.pull({ _id: objectId });
+        // Find the class object to get the class name
+        const classToDelete = currentUser.classes.find((cls) => cls._id.toString() === classId);
+        if (!classToDelete) {
+            return res.status(404).json({ message: "Class not found" });
+        }
+        const className = classToDelete.name;
+        // Remove the class from the user's classes array
+        currentUser.classes.pull({ _id: classId });
         await currentUser.save();
-        return res.status(200).json({ message: "Class deleted" });
+        // Cascade deletion: Remove documents associated with this class
+        await Document.deleteMany({ userId: currentUser._id, className: className });
+        // Cascade deletion: Remove chat sessions referencing this class
+        await ChatSession.deleteMany({ userId: currentUser._id, assignedClass: className });
+        // Cascade deletion: Remove processed document chunks from "study_materials2"
+        const db = mongoose.connection.useDb("study_buddy_demo");
+        const studyMaterialsCollection = db.collection("study_materials2");
+        await studyMaterialsCollection.deleteMany({ "metadata.class_id": className });
+        return res.status(200).json({ message: "Class and associated documents, chat sessions, and document chunks deleted successfully" });
     }
     catch (error) {
         console.error("Error deleting class:", error);
@@ -148,7 +167,7 @@ export const deleteUserClass = async (req, res) => {
 };
 export const userLogout = async (req, res, next) => {
     try {
-        //user token check
+        // user token check
         const currentUser = await user.findById(res.locals.jwtData.id);
         if (!currentUser) {
             return res.status(401).send("User not registered OR Token malfunctioned");
