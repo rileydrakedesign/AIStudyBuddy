@@ -151,7 +151,6 @@ export const deleteDocument = async (docId: string) => {
   return res.data; // e.g. { message: "Document deleted" }
 };
 
-
 /**
  * Fetches text for a specific chunk via GET /chat/chunk/:chunkId
  */
@@ -161,4 +160,15 @@ export const getChunkText = async (chunkId: string) => {
     throw new Error("Unable to fetch chunk text");
   }
   return res.data; // e.g. { text, pageNumber, fileName, docId, classId, ... }
+};
+
+/**
+ * Fetches the current user's profile information.
+ */
+export const getUserProfile = async () => {
+  const res = await axios.get("/profile");
+  if (res.status !== 200) {
+    throw new Error("Unable to fetch profile");
+  }
+  return res.data; // Expected response: { message: "OK", profile: { fullName, email, plan } }
 };

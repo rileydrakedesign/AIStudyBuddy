@@ -51,9 +51,10 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [partialAssistantMessage, setPartialAssistantMessage] = useState("");
 
-  // PDF / paging
+  // PDF / paging: define a visible window with start and end pages.
   const [numPages, setNumPages] = useState<number | null>(null);
-  const [visiblePagesCount, setVisiblePagesCount] = useState(3);
+  const [visibleStartPage, setVisibleStartPage] = useState(1);
+  const [visibleEndPage, setVisibleEndPage] = useState(3);
 
   // For highlighting in PDF
   const [highlightedPage, setHighlightedPage] = useState<number | null>(null);
@@ -106,12 +107,10 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
   useEffect(() => {
     const container = chatContainerRef.current;
     if (!container) return;
-
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = container;
       setIsAtBottom(scrollHeight - scrollTop - clientHeight < 50);
     };
-
     container.addEventListener("scroll", handleScroll);
     return () => container.removeEventListener("scroll", handleScroll);
   }, []);
@@ -123,26 +122,41 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
   }, [messages, partialAssistantMessage, isAtBottom]);
 
   /* ------------------------------
-     3) PDF Infinite Scroll
+     3) PDF Infinite Scroll - Forward
      ------------------------------ */
   useEffect(() => {
     const pdfEl = pdfContainerRef.current;
     if (!pdfEl) return;
-
-    const handlePDFScroll = () => {
+    const handlePDFScrollDown = () => {
       if (!numPages) return;
       const { scrollTop, scrollHeight, clientHeight } = pdfEl;
       if (scrollHeight - scrollTop - clientHeight < 300) {
-        setVisiblePagesCount((prev) => {
+        setVisibleEndPage((prev) => {
           const nextVal = prev + 3;
           return nextVal > numPages ? numPages : nextVal;
         });
       }
     };
-
-    pdfEl.addEventListener("scroll", handlePDFScroll);
-    return () => pdfEl.removeEventListener("scroll", handlePDFScroll);
+    pdfEl.addEventListener("scroll", handlePDFScrollDown);
+    return () => pdfEl.removeEventListener("scroll", handlePDFScrollDown);
   }, [numPages]);
+
+  /* ------------------------------
+     3b) PDF Infinite Scroll - Backward
+     ------------------------------ */
+  useEffect(() => {
+    const pdfEl = pdfContainerRef.current;
+    if (!pdfEl) return;
+    const handlePDFScrollUp = () => {
+      if (!numPages) return;
+      const { scrollTop } = pdfEl;
+      if (scrollTop < 100 && visibleStartPage > 1) {
+        setVisibleStartPage((prev) => Math.max(1, prev - 3));
+      }
+    };
+    pdfEl.addEventListener("scroll", handlePDFScrollUp);
+    return () => pdfEl.removeEventListener("scroll", handlePDFScrollUp);
+  }, [numPages, visibleStartPage]);
 
   /* ------------------------------
      4) Send a Message
@@ -155,7 +169,6 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
     setMessages((prev) => [...prev, newMessage]);
     setIsGenerating(true);
     setPartialAssistantMessage("");
-
     try {
       const sessionIdForRequest = docSessionId ?? "null";
       const chatData = await sendChatRequest(
@@ -168,7 +181,6 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
       if (!docSessionId && chatData.chatSessionId) {
         setDocSessionId(chatData.chatSessionId);
       }
-      // Store ephemeral chunks for the newest answer if needed
       setEphemeralChunks(chatData.chunks || []);
       const allMsgs = chatData.messages;
       const assistantMsg = allMsgs.length > 0 ? allMsgs[allMsgs.length - 1] : null;
@@ -215,14 +227,14 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
   /* ------------------------------
      5) Citation Click => Highlight Text + Jump to PDF Page
      ------------------------------ */
-  // Instead of a global citation click handler, we now bind an inline handler per message in the ChatItem mapping.
-  // The jumpToPdfPage function is used globally.
   const jumpToPdfPage = (pageNumber: number) => {
-    if (numPages && pageNumber > visiblePagesCount) {
-      setVisiblePagesCount((prev) => {
-        const needed = pageNumber || 1;
-        return needed > numPages ? numPages : needed;
-      });
+    const margin = 3; // fixed margin for pages before and after the target
+    if (numPages) {
+      // Reset the window to exactly [pageNumber - margin, pageNumber + margin]
+      const newStart = Math.max(1, pageNumber - margin);
+      const newEnd = Math.min(numPages, pageNumber + margin);
+      setVisibleStartPage(newStart);
+      setVisibleEndPage(newEnd);
     }
     const targetId = `pdf-page-${pageNumber}`;
     setTimeout(() => {
@@ -240,19 +252,18 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
     setNumPages(pdf.numPages);
   };
 
-  const customTextRenderer =
-    (pageIndex: number) => (textItem: { str: string }): string => {
-      const { str } = textItem;
-      if (highlightedPage === pageIndex && highlightedText) {
-        const parts = str.split(highlightedText);
-        if (parts.length > 1) {
-          return parts.join(
-            `<mark style="background-color: yellow;">${highlightedText}</mark>`
-          );
-        }
+  const customTextRenderer = (pageIndex: number) => (textItem: { str: string }): string => {
+    const { str } = textItem;
+    if (highlightedPage === pageIndex && highlightedText) {
+      const parts = str.split(highlightedText);
+      if (parts.length > 1) {
+        return parts.join(
+          `<mark style="background-color: yellow;">${highlightedText}</mark>`
+        );
       }
-      return str;
-    };
+    }
+    return str;
+  };
 
   return (
     <Box sx={{ display: "flex", height: "100%", overflow: "hidden" }}>
@@ -265,23 +276,26 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
           <div style={{ width: "100%", height: "100%", padding: "1rem" }}>
             <Document file={docUrl} onLoadSuccess={onDocumentLoadSuccess}>
               {numPages &&
-                Array.from({ length: visiblePagesCount }, (_, i) => {
-                  const pageNumber = i + 1;
-                  return (
-                    <div
-                      key={`page_container_${pageNumber}`}
-                      id={`pdf-page-${pageNumber}`}
-                      style={{ marginBottom: "2rem" }}
-                    >
-                      <Page
-                        pageNumber={pageNumber}
-                        width={600}
-                        customTextRenderer={customTextRenderer(pageNumber)}
-                      />
-                    </div>
-                  );
-                })}
-              {numPages && visiblePagesCount < numPages && (
+                Array.from(
+                  { length: visibleEndPage - visibleStartPage + 1 },
+                  (_, i) => {
+                    const pageNumber = visibleStartPage + i;
+                    return (
+                      <div
+                        key={`page_container_${pageNumber}`}
+                        id={`pdf-page-${pageNumber}`}
+                        style={{ marginBottom: "2rem" }}
+                      >
+                        <Page
+                          pageNumber={pageNumber}
+                          width={600}
+                          customTextRenderer={customTextRenderer(pageNumber)}
+                        />
+                      </div>
+                    );
+                  }
+                )}
+              {numPages && visibleEndPage < numPages && (
                 <Typography variant="body2" sx={{ color: "white" }}>
                   Scroll down to load more pages...
                 </Typography>
@@ -326,7 +340,6 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
               content={msg.content}
               role={msg.role}
               citation={msg.citation}
-              // Bind an inline onCitationClick that uses only this message's chunkReferences.
               chunkReferences={msg.chunkReferences}
               onCitationClick={(chunkNumber: number) => {
                 const ref = msg.chunkReferences?.find(
@@ -334,7 +347,7 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
                 );
                 if (ref && ref.pageNumber) {
                   setHighlightedPage(ref.pageNumber);
-                  setHighlightedText("..."); // Optionally, you can fetch the text here
+                  setHighlightedText("..."); // Optionally, fetch or set highlighted text here
                   jumpToPdfPage(ref.pageNumber);
                 } else {
                   toast.error(`No chunk found for bracket reference [${chunkNumber}] in this message`);
@@ -342,7 +355,6 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
               }}
             />
           ))}
-
           {isGenerating && partialAssistantMessage && (
             <ChatItem
               isDocumentChat={true}
@@ -352,7 +364,6 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
               onCitationClick={() => {}}
             />
           )}
-
           {isGenerating && partialAssistantMessage === "" && (
             <Box
               sx={{
@@ -366,7 +377,6 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
               <Loader />
             </Box>
           )}
-
           <div ref={messagesEndRef} />
         </Box>
 

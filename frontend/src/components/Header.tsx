@@ -5,7 +5,7 @@ import NavigationLink from "./shared/NavigationLink";
 import Logo from "./shared/Logo";
 import NewspaperIcon from "@mui/icons-material/Newspaper";
 import StickyNote2Icon from "@mui/icons-material/StickyNote2";
-import StarIcon from "@mui/icons-material/Star";
+import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import { useLocation } from "react-router-dom";
 import ChatBubble from "@mui/icons-material/ChatBubble";
 
@@ -58,6 +58,12 @@ const Header: React.FC<HeaderProps> = () => {
                 textColor={isActive("/upload") ? "#00B5D8" : "#D1D5DB"}
                 hoverTextColor="#00B5D8"
                 icon={<NewspaperIcon sx={{ color: "#00B5D8" }} />}
+              />
+              <NavigationLink
+                bg={isActive("/profile") ? "#2D3748" : "#1d2d44"}
+                to="/profile"
+                text=""
+                icon={<AccountCircleIcon sx={{ color: "#00B5D8", fontSize: 40 }} />}
               />
             </>
           ) : (

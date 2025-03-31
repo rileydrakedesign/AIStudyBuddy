@@ -6,6 +6,7 @@ import Signup from "./pages/Signup";
 import Chat from "./pages/Chat";
 import NotFound from "./pages/NotFound";
 import UploadDocument from "./pages/Upload";
+import Profile from "./pages/Profile";
 import { useAuth } from "./context/authContext";
 
 function App() {
@@ -22,6 +23,7 @@ function App() {
           <>
             <Route path="/chat" element={<Chat />} />
             <Route path="/upload" element={<UploadDocument />} />
+            <Route path="/profile" element={<Profile />} />
           </>
         )}
         <Route path="*" element={<NotFound />} />
