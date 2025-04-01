@@ -5,11 +5,7 @@ import Document from "../models/documents.js"; // Import Document model for cita
 import { execFile } from "child_process";
 import axios from "axios";
 
-export const createNewChatSession = async (
-  req,
-  res,
-  next
-) => {
+export const createNewChatSession = async (req, res, next) => {
   try {
     const currentUser = await User.findById(res.locals.jwtData.id);
     if (!currentUser) {
@@ -20,11 +16,50 @@ export const createNewChatSession = async (
     const sourceHeader = req.headers["x-source"];
     const source = sourceHeader === "chrome_extension" ? "chrome_extension" : "main_app";
 
-    // Now extension can create new sessions as well
+    // 1) Capture the requested chat session name
+    let desiredName = req.body.name || "New Chat";
+
+    // 2) Check if any existing chat session has the exact same name
+    //    or the same name with a numeric suffix (e.g., "New Chat (1)").
+    //    We use a case-insensitive regex to match:
+    //       ^DESIRED_NAME(\s\(\d+\))?$   (meaning: exactly DESIRED_NAME or DESIRED_NAME (someNumber))
+    const existingSessions = await ChatSession.find({
+      userId: currentUser._id,
+      sessionName: {
+        $regex: new RegExp(`^${desiredName}( \\(\\d+\\))?$`, "i"),
+      },
+    });
+
+    if (existingSessions.length > 0) {
+      // Find highest suffix or detect an exact match
+      let highestSuffix = 0;
+
+      existingSessions.forEach((session) => {
+        // If there's an exact match (case-insensitive), let highestSuffix remain >= 0
+        if (session.sessionName.toLowerCase() === desiredName.toLowerCase()) {
+          if (highestSuffix === 0) {
+            highestSuffix = 0;
+          }
+        }
+        // If there's a suffix like "My Chat (3)", extract the "3"
+        const match = session.sessionName.match(/\((\d+)\)$/);
+        if (match) {
+          const suffixNum = parseInt(match[1], 10);
+          if (suffixNum > highestSuffix) {
+            highestSuffix = suffixNum;
+          }
+        }
+      });
+
+      // Finally, append (highestSuffix + 1) if there's any collision
+      desiredName = `${desiredName} (${highestSuffix + 1})`;
+    }
+
+    // 3) Create the new session with the possibly adjusted name
     const chatSession = await ChatSession.create({
       _id: req.body.chatSessionId ?? undefined,
       userId: currentUser._id,
-      sessionName: req.body.name || "New Chat",
+      sessionName: desiredName,
       messages: [],
       source,
     });
@@ -38,11 +73,7 @@ export const createNewChatSession = async (
   }
 };
 
-export const getUserChatSessions = async (
-  req,
-  res,
-  next
-) => {
+export const getUserChatSessions = async (req, res, next) => {
   try {
     const currentUser = await User.findById(res.locals.jwtData.id);
     if (!currentUser) {
@@ -56,11 +87,10 @@ export const getUserChatSessions = async (
     const query = {
       userId: currentUser._id,
       source: isExtension ? "chrome_extension" : "main_app",
-      ephemeral: false,  // hide ephemeral
+      ephemeral: false, // hide ephemeral
     };
 
     const chatSessions = await ChatSession.find(query);
-
     return res.status(200).json({ chatSessions });
   } catch (error) {
     console.log(error);
@@ -68,14 +98,8 @@ export const getUserChatSessions = async (
   }
 };
 
-export const generateChatCompletion = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+export const generateChatCompletion = async (req, res, next) => {
   const { message, class_name, docId, chatSessionId, ephemeral } = req.body;
-
-  // Convert "null" or missing fields
   const classNameForPython = class_name && class_name !== "null" ? class_name : null;
   const docIdForPython = docId && docId !== "null" ? docId : null;
 
@@ -112,7 +136,7 @@ export const generateChatCompletion = async (
             : "New Chat",
           messages: [],
           source,
-          ephemeral: ephemeral === true,  // mark ephemeral if requested
+          ephemeral: ephemeral === true,
         });
         await chatSession.save();
       } else {
@@ -152,7 +176,7 @@ export const generateChatCompletion = async (
       content: message,
       role: "user",
       citation: null,
-      chunkReferences: [],  // user messages won't typically have chunk refs
+      chunkReferences: [],
     });
 
     // Prepare data for Python
@@ -168,11 +192,11 @@ export const generateChatCompletion = async (
     console.log(`Assigned Document: ${chatSession.assignedDocument || "none"}`);
     console.log(`Ephemeral: ${chatSession.ephemeral}`);
 
-    // NEW: Build the URL for the FastAPI endpoint
+    // Build the URL for the FastAPI endpoint
     const pythonApiUrl = process.env.PYTHON_API_URL; // e.g., "http://localhost:8000"
     const semanticSearchEndpoint = `${pythonApiUrl}/api/v1/semantic_search`;
 
-    // NEW: Build the request data payload
+    // Build the request data payload
     const requestData = {
       user_id: userId.toString(),
       class_name: chatSession.assignedClass || "null",
@@ -182,7 +206,7 @@ export const generateChatCompletion = async (
       source,
     };
 
-    // NEW: Make an HTTP POST request to the FastAPI endpoint
+    // Make an HTTP POST request to the FastAPI endpoint
     const responseFromPython = await axios.post(semanticSearchEndpoint, requestData);
     const resultMessage = responseFromPython.data;
 
@@ -191,23 +215,26 @@ export const generateChatCompletion = async (
     const chunks = resultMessage.chunks || [];
 
     // Build chunk references from the Python's 'chunks' array
-    const chunkReferences = chunks.map((c: any) => ({
+    const chunkReferences = chunks.map((c) => ({
       chunkId: c._id,
       displayNumber: c.chunkNumber,
       pageNumber: c.pageNumber ?? null,
       docId: c.docId ?? null,
     }));
 
-    // If chatSession has an assignedDocument, update citation text using fileName from MongoDB.
+    // If chatSession has an assignedDocument, update citation text using fileName from MongoDB
     if (chatSession.assignedDocument && citation && Array.isArray(citation)) {
       try {
         let doc = await Document.findOne({ docId: chatSession.assignedDocument });
         if (!doc) {
-          // Fallback: if assignedDocument is a Mongo _id, try findById.
+          // Fallback: if assignedDocument is a Mongo _id, try findById
           doc = await Document.findById(chatSession.assignedDocument);
         }
         if (doc) {
-          citation = citation.map((cit: any) => ({ ...cit, text: doc.fileName }));
+          citation = citation.map((cit) => ({
+            ...cit,
+            text: doc.fileName,
+          }));
         }
       } catch (docError) {
         console.error("Error fetching document for citation update:", docError);
@@ -219,7 +246,7 @@ export const generateChatCompletion = async (
       content: aiResponse,
       role: "assistant",
       citation,
-      chunkReferences, // store them in the DB
+      chunkReferences,
     });
 
     await chatSession.save();
@@ -237,18 +264,12 @@ export const generateChatCompletion = async (
   }
 };
 
-export const deleteChatSession = async (
-  req,
-  res,
-  next
-) => {
+export const deleteChatSession = async (req, res, next) => {
   try {
     const { chatSessionId } = req.params;
     const currentUser = await User.findById(res.locals.jwtData.id);
     if (!currentUser) {
-      return res
-        .status(401)
-        .send("User not registered or token malfunctioned");
+      return res.status(401).send("User not registered or token malfunctioned");
     }
 
     const chatSession = await ChatSession.findOneAndDelete({
@@ -267,17 +288,11 @@ export const deleteChatSession = async (
   }
 };
 
-export const deleteAllChatSessions = async (
-  req,
-  res,
-  next
-) => {
+export const deleteAllChatSessions = async (req, res, next) => {
   try {
     const currentUser = await User.findById(res.locals.jwtData.id);
     if (!currentUser) {
-      return res
-        .status(401)
-        .send("User not registered or token malfunctioned");
+      return res.status(401).send("User not registered or token malfunctioned");
     }
 
     await ChatSession.deleteMany({ userId: currentUser._id });
