@@ -180,10 +180,11 @@ export const generateChatCompletion = async (req, res, next) => {
     });
 
     // Prepare data for Python
-    const chats = chatSession.messages.map(({ role, content, citation }) => ({
+    const chats = chatSession.messages.map(({ role, content, citation, chunkReferences }) => ({
       role,
       content,
       citation,
+      chunkReferences,
     }));
 
     console.log(`User ID: ${userId}`);

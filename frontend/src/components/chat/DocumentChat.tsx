@@ -24,6 +24,7 @@ type Message = {
   role: "user" | "assistant";
   content: string;
   citation?: { href: string | null; text: string }[];
+  // Each message stores its own stable chunk references.
   chunkReferences?: ChunkReference[];
 };
 
@@ -50,13 +51,8 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [partialAssistantMessage, setPartialAssistantMessage] = useState("");
 
-  // PDF / paging
+  // PDF / paging: define a visible window with start and end pages.
   const [numPages, setNumPages] = useState<number | null>(null);
-
-  // The central page in view
-  const [currentPage, setCurrentPage] = useState<number>(1);
-
-  // Visible range for lazy loading
   const [visibleStartPage, setVisibleStartPage] = useState(1);
   const [visibleEndPage, setVisibleEndPage] = useState(3);
 
@@ -64,7 +60,7 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
   const [highlightedPage, setHighlightedPage] = useState<number | null>(null);
   const [highlightedText, setHighlightedText] = useState<string | null>(null);
 
-  // Refs
+  // Refs for chat & PDF scrolling
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -72,7 +68,7 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
   const [isAtBottom, setIsAtBottom] = useState(true);
 
   /* ------------------------------
-     AUTO-RESIZE & CURSOR HANDLERS
+     AUTO-RESIZE & CURSOR HANDLERS FOR TEXTAREA
      ------------------------------ */
   const handleInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
     const target = e.currentTarget;
@@ -90,7 +86,7 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
   };
 
   /* ------------------------------
-     1) Fetch Document URL
+     1) Fetch Document URL from S3
      ------------------------------ */
   useEffect(() => {
     getDocumentFile(docId)
@@ -126,59 +122,41 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
   }, [messages, partialAssistantMessage, isAtBottom]);
 
   /* ------------------------------
-     3) Track PDF Scroll => currentPage
-         Then set visibleStartPage/visibleEndPage
+     3) PDF Infinite Scroll - Forward
      ------------------------------ */
-
-  // -- Remove old forward/back "infinite scroll" code --
-  // useEffect(() => { ... }, []);
-  // useEffect(() => { ... }, []);
-
-  // Instead, dynamically compute currentPage based on scroll:
   useEffect(() => {
     const pdfEl = pdfContainerRef.current;
-    if (!pdfEl || !numPages) return;
-
-    const handlePDFScroll = () => {
-      const containerRect = pdfEl.getBoundingClientRect();
-      const pageDivs = pdfEl.querySelectorAll(".pdf-page-container");
-      let newCurrent = currentPage;
-      let minDistance = Infinity;
-
-      pageDivs.forEach((div) => {
-        const rect = div.getBoundingClientRect();
-        // distance from container's vertical center
-        const dist = Math.abs(
-          rect.top - (containerRect.top + containerRect.height / 2)
-        );
-        if (dist < minDistance) {
-          minDistance = dist;
-          const pageNum = parseInt(
-            div.getAttribute("data-page-number") || "1",
-            10
-          );
-          newCurrent = pageNum;
-        }
-      });
-
-      if (newCurrent !== currentPage) {
-        setCurrentPage(newCurrent);
+    if (!pdfEl) return;
+    const handlePDFScrollDown = () => {
+      if (!numPages) return;
+      const { scrollTop, scrollHeight, clientHeight } = pdfEl;
+      if (scrollHeight - scrollTop - clientHeight < 300) {
+        setVisibleEndPage((prev) => {
+          const nextVal = prev + 3;
+          return nextVal > numPages ? numPages : nextVal;
+        });
       }
     };
+    pdfEl.addEventListener("scroll", handlePDFScrollDown);
+    return () => pdfEl.removeEventListener("scroll", handlePDFScrollDown);
+  }, [numPages]);
 
-    pdfEl.addEventListener("scroll", handlePDFScroll);
-    return () => pdfEl.removeEventListener("scroll", handlePDFScroll);
-  }, [numPages, currentPage]);
-
-  // Whenever currentPage changes, update the visible window
+  /* ------------------------------
+     3b) PDF Infinite Scroll - Backward
+     ------------------------------ */
   useEffect(() => {
-    if (!numPages) return;
-    const margin = 3; // number of pages before/after
-    const start = Math.max(1, currentPage - margin);
-    const end = Math.min(numPages, currentPage + margin);
-    setVisibleStartPage(start);
-    setVisibleEndPage(end);
-  }, [currentPage, numPages]);
+    const pdfEl = pdfContainerRef.current;
+    if (!pdfEl) return;
+    const handlePDFScrollUp = () => {
+      if (!numPages) return;
+      const { scrollTop } = pdfEl;
+      if (scrollTop < 100 && visibleStartPage > 1) {
+        setVisibleStartPage((prev) => Math.max(1, prev - 3));
+      }
+    };
+    pdfEl.addEventListener("scroll", handlePDFScrollUp);
+    return () => pdfEl.removeEventListener("scroll", handlePDFScrollUp);
+  }, [numPages, visibleStartPage]);
 
   /* ------------------------------
      4) Send a Message
@@ -247,12 +225,16 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
   };
 
   /* ------------------------------
-     5) Citation Click => Jump
+     5) Citation Click => Highlight Text + Jump to PDF Page
      ------------------------------ */
   const jumpToPdfPage = (pageNumber: number) => {
+    const margin = 3; // fixed margin for pages before and after the target
     if (numPages) {
-      // Just set current page; window effect will happen automatically
-      setCurrentPage(pageNumber);
+      // Reset the window to exactly [pageNumber - margin, pageNumber + margin]
+      const newStart = Math.max(1, pageNumber - margin);
+      const newEnd = Math.min(numPages, pageNumber + margin);
+      setVisibleStartPage(newStart);
+      setVisibleEndPage(newEnd);
     }
     const targetId = `pdf-page-${pageNumber}`;
     setTimeout(() => {
@@ -301,8 +283,6 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
                     return (
                       <div
                         key={`page_container_${pageNumber}`}
-                        className="pdf-page-container"
-                        data-page-number={pageNumber}
                         id={`pdf-page-${pageNumber}`}
                         style={{ marginBottom: "2rem" }}
                       >
@@ -317,7 +297,7 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
                 )}
               {numPages && visibleEndPage < numPages && (
                 <Typography variant="body2" sx={{ color: "white" }}>
-                  Scroll to see more pages...
+                  Scroll down to load more pages...
                 </Typography>
               )}
             </Document>
@@ -367,12 +347,10 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
                 );
                 if (ref && ref.pageNumber) {
                   setHighlightedPage(ref.pageNumber);
-                  setHighlightedText("..."); // optional highlight text
+                  setHighlightedText("..."); // Optionally, fetch or set highlighted text here
                   jumpToPdfPage(ref.pageNumber);
                 } else {
-                  toast.error(
-                    `No chunk found for bracket reference [${chunkNumber}] in this message`
-                  );
+                  toast.error(`No chunk found for bracket reference [${chunkNumber}] in this message`);
                 }
               }}
             />
