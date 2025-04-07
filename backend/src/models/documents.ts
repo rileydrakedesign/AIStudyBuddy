@@ -10,7 +10,8 @@ export interface IDocument extends Document {
   s3Key: string;
   s3Url: string;
   className: string;
-  // Add any additional fields here
+  // NEW: optional isProcessing to track whether this doc is still uploading/processing
+  isProcessing?: boolean;
 }
 
 const documentSchema = new Schema<IDocument>({
@@ -43,7 +44,11 @@ const documentSchema = new Schema<IDocument>({
     type: String,
     required: true,
   },
-  // Additional fields as needed
+  // NEW: isProcessing field to mark documents that haven't finished uploading/processing
+  isProcessing: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 export default mongoose.model<IDocument>("Document", documentSchema);

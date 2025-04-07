@@ -3,11 +3,11 @@ import { AppBar, Toolbar, Box } from "@mui/material";
 import { useAuth } from "../context/authContext";
 import NavigationLink from "./shared/NavigationLink";
 import Logo from "./shared/Logo";
-import NewspaperIcon from "@mui/icons-material/Newspaper";
 import StickyNote2Icon from "@mui/icons-material/StickyNote2";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import { useLocation } from "react-router-dom";
 import ChatBubble from "@mui/icons-material/ChatBubble";
+import DriveFolderUploadIcon from '@mui/icons-material/DriveFolderUpload';
 
 interface HeaderProps {
   sidebarOpen: boolean;
@@ -57,7 +57,7 @@ const Header: React.FC<HeaderProps> = () => {
                 text="Upload"
                 textColor={isActive("/upload") ? "#00B5D8" : "#D1D5DB"}
                 hoverTextColor="#00B5D8"
-                icon={<NewspaperIcon sx={{ color: "#00B5D8" }} />}
+                icon={<DriveFolderUploadIcon sx={{ color: "#00B5D8" }} />}
               />
               <NavigationLink
                 bg={isActive("/profile") ? "#2D3748" : "#1d2d44"}

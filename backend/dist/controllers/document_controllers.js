@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import Document from "../models/documents.js";
 import User from "../models/user.js";
 import ChatSession from "../models/chatSession.js";
-import { execFile } from "child_process";
+import axios from "axios"; // NEW: to call FastAPI
 import { fileURLToPath } from "url";
 import { dirname } from "path";
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand, } from "@aws-sdk/client-s3";
@@ -59,8 +59,9 @@ async function getObjectSignedUrl(key) {
 // Export the Multer upload middleware
 export const uploadMiddleware = upload.array("files", 5);
 /**
- * Uploads a document, stores it in MongoDB, and calls the Python script
- * `load_data.py` with the actual Mongo `_id` via --doc_id argument.
+ * Upload a document, store it in Mongo (isProcessing = true),
+ * respond immediately, then call FastAPI in the background
+ * to do chunking/embedding (which sets isProcessing=false).
  */
 export const uploadDocument = async (req, res, next) => {
     try {
@@ -83,12 +84,12 @@ export const uploadDocument = async (req, res, next) => {
             await currentUser.save();
             console.log(`Added class '${className}' to user ${userId}`);
         }
+        // We'll keep track of the newly created docs for the response
         const uploadedDocs = [];
-        let completedCount = 0;
+        // Process each uploaded file
         for (const file of files) {
             if (!file) {
                 console.log("A file was missing, skipping...");
-                completedCount++;
                 continue;
             }
             console.log("File details:", {
@@ -102,7 +103,7 @@ export const uploadDocument = async (req, res, next) => {
             }
             console.log("S3 key from multer-s3:", s3Key);
             console.log("S3 URL:", s3Url);
-            // Create a new Document record in MongoDB
+            // Create a new Document record in MongoDB (set isProcessing=true)
             const newDocument = new Document({
                 userId: userId,
                 fileName: file.originalname,
@@ -110,53 +111,37 @@ export const uploadDocument = async (req, res, next) => {
                 s3Key: s3Key || `fallbackKey-${file.originalname}`,
                 s3Url: s3Url || `https://...fallbackUrl.../${file.originalname}`,
                 className: className,
+                isProcessing: true,
             });
             await newDocument.save();
             console.log("Stored file meta in mongodb:", newDocument._id);
-            const pythonPath = process.env.PYTHON_PATH || "python";
-            const scriptPath = "/Users/rileydrake/Desktop/AIStudyBuddy/backend/python_scripts/load_data.py";
-            console.log("Executing Python script:", { pythonPath, scriptPath });
-            const options = {
-                env: {
-                    ...process.env,
-                    MONGO_CONNECTION_STRING: process.env.MONGO_CONNECTION_STRING,
-                    AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY,
-                    AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET,
-                    AWS_REGION: process.env.AWS_REGION,
-                    AWS_S3_BUCKET_NAME: process.env.AWS_S3_BUCKET_NAME,
-                    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
-                },
-            };
-            // Pass the actual Mongo _id into the script
-            execFile(pythonPath, [
-                scriptPath,
-                "--user_id",
-                userId,
-                "--class_name",
-                className,
-                "--s3_key",
-                s3Key || "",
-                "--doc_id",
-                newDocument._id.toString(),
-            ], options, async (error, stdout, stderr) => {
-                if (error) {
-                    console.error(`Exec error: ${error}`);
-                }
-                else {
-                    console.log(`Python stdout: ${stdout}`);
-                    console.error(`Python stderr: ${stderr}`);
-                }
-                uploadedDocs.push(newDocument);
-                completedCount++;
-                if (completedCount === files.length) {
-                    return res.status(200).json({
-                        message: "All files uploaded and processed successfully",
-                        documents: uploadedDocs,
-                    });
-                }
-            });
+            uploadedDocs.push(newDocument);
+            // Fire-and-forget call to FastAPI so chunking can continue in background
+            const pythonApiUrl = process.env.PYTHON_API_URL; // e.g., "http://localhost:8000"
+            if (!pythonApiUrl) {
+                console.warn("PYTHON_API_URL not defined; cannot call FastAPI");
+            }
+            else {
+                axios
+                    .post(`${pythonApiUrl}/api/v1/process_upload`, {
+                    user_id: userId,
+                    class_name: className,
+                    s3_key: newDocument.s3Key,
+                    doc_id: newDocument._id.toString(),
+                })
+                    .then(() => {
+                    console.log(`Background chunking started in FastAPI for doc ${newDocument._id}`);
+                })
+                    .catch((err) => {
+                    console.error(`Error calling FastAPI for doc ${newDocument._id}:`, err);
+                });
+            }
         }
-        // No final return here; we respond after the last file is processed
+        // Respond immediately, chunking/embedding is ongoing
+        return res.status(200).json({
+            message: "Upload successful, processing in the background",
+            documents: uploadedDocs,
+        });
     }
     catch (error) {
         console.error(error);
@@ -202,7 +187,7 @@ export const getDocumentFile = async (req, res, next) => {
         if (document.userId.toString() !== currentUser._id.toString()) {
             return res.status(403).json({ message: "Unauthorized access" });
         }
-        let responseType = undefined;
+        let responseType;
         if (document.fileName?.toLowerCase().endsWith(".pdf")) {
             responseType = "application/pdf";
         }
@@ -248,22 +233,27 @@ export const deleteDocument = async (req, res, next) => {
         // Delete document record from MongoDB
         await Document.deleteOne({ _id: documentId });
         // Cascade deletion: Remove chat sessions that reference this document
-        await ChatSession.deleteMany({ userId: currentUser._id, assignedDocument: documentId });
+        await ChatSession.deleteMany({
+            userId: currentUser._id,
+            assignedDocument: documentId,
+        });
         // Cascade deletion: Remove processed document chunks from "study_materials2"
-        // <-- Updated code starts here -->
         const db = mongoose.connection.useDb("study_buddy_demo");
         const studyMaterialsCollection = db.collection("study_materials2");
-        await studyMaterialsCollection.deleteMany({ "doc_id": documentId });
-        // <-- Updated code ends here -->
-        return res.status(200).json({ message: "Document and associated chat sessions and document chunks deleted successfully" });
+        await studyMaterialsCollection.deleteMany({ doc_id: documentId });
+        return res.status(200).json({
+            message: "Document and associated chat sessions and document chunks deleted successfully",
+        });
     }
     catch (error) {
         console.error("Error deleting document:", error);
-        return res.status(500).json({ message: "Error deleting document", cause: error.message });
+        return res
+            .status(500)
+            .json({ message: "Error deleting document", cause: error.message });
     }
 };
 /**
- * Fetches all documents by class for the current user.
+ * Fetches all documents by class for the current user (only those fully processed).
  * Example route: GET /api/v1/class/:className/documents
  */
 export const getDocumentsByClass = async (req, res, next) => {
@@ -278,9 +268,11 @@ export const getDocumentsByClass = async (req, res, next) => {
         if (!className) {
             return res.status(400).json({ message: "Missing 'className' in URL" });
         }
+        // Only show docs where isProcessing=false
         const docs = await Document.find({
             userId: currentUser._id,
             className: decodeURIComponent(className).trim(),
+            isProcessing: false,
         }).sort({ uploadedAt: -1 });
         return res.status(200).json(docs);
     }

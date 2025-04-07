@@ -32,6 +32,9 @@ const s3 = new S3Client({
  * We configure multer-s3 so that each uploaded file
  * is set to "inline" Content-Disposition in S3.
  * This helps with in-browser viewing.
+ *
+ * CHANGE / ADDITION: A 'limits' object is passed to multer
+ * to enforce a fileSize restriction. (Here set to ~200MB).
  */
 const upload = multer({
   storage: multerS3({
@@ -58,6 +61,10 @@ const upload = multer({
       cb(null, s3Key);
     },
   }),
+  // NEW: Limit file size to prevent overly large uploads
+  limits: {
+    fileSize: 200 * 1024 * 1024, // 200MB
+  },
 });
 
 // Create a router instance
@@ -72,7 +79,7 @@ documentRoutes.post(
   validate(documentUploadValidator),
   verifyToken,
   upload.array("files", 10),
-  duplicateDocumentValidator, // NEW: check for duplicate files after upload
+  duplicateDocumentValidator, // check for duplicate files after upload
   uploadDocument
 );
 

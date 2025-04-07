@@ -59,7 +59,6 @@ type Message = {
   role: "user" | "assistant";
   content: string;
   citation?: { href: string | null; text: string }[];
-  // NEW: store chunk references if provided by the backend
   chunkReferences?: ChunkReference[];
 };
 
@@ -82,10 +81,12 @@ type Chunk = {
   text: string;
 };
 
+// NEW: Add "isProcessing" for consistency, though the server omits them if true
 type DocumentItem = {
   _id: string;
   fileName: string;
   className: string;
+  isProcessing?: boolean; 
 };
 
 /* ------------------------------
@@ -134,7 +135,7 @@ const Chat = () => {
   const [activeDocId, setActiveDocId] = useState<string | null>(null);
 
   /* ------------------------------
-     AUTO-RESIZE & CURSOR HANDLERS FOR TEXTAREA
+     AUTO-RESIZE & CURSOR HANDLERS
      ------------------------------ */
   const handleInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
     const target = e.currentTarget;
@@ -215,7 +216,6 @@ const Chat = () => {
         });
     }
   }, [auth]);
-    
 
   /* ------------------------------
      REDIRECT IF NOT LOGGED IN
@@ -265,7 +265,6 @@ const Chat = () => {
 
   /* ------------------------------
      VISIBILITY CHANGE
-     If the user leaves the page mid-type, finalize the message.
      ------------------------------ */
   useEffect(() => {
     const finalizeTypewriter = () => {
@@ -278,7 +277,6 @@ const Chat = () => {
         const allMsgs = chatSessions[currentIndex].messages;
         if (allMsgs.length > 0) {
           const finalMsg = allMsgs[allMsgs.length - 1];
-          // Only append if the current chatMessages array does not already end with this message
           if (
             chatMessages.length === 0 ||
             chatMessages[chatMessages.length - 1].content !== finalMsg.content
@@ -307,23 +305,23 @@ const Chat = () => {
      HELPER: finalize typewriter
      ------------------------------ */
   const finalizeTypewriter = () => {
-  if (typeIntervalRef.current) {
-    clearInterval(typeIntervalRef.current);
-    typeIntervalRef.current = null;
-  }
-  const currentSession = chatSessions.find((s) => s._id === currentChatSessionId);
-  if (currentSession && currentSession.messages.length > 0) {
-    const finalMsg = currentSession.messages[currentSession.messages.length - 1];
-    if (
-      chatMessages.length === 0 ||
-      chatMessages[chatMessages.length - 1].content !== finalMsg.content
-    ) {
-      setChatMessages((prev) => [...prev, finalMsg]);
+    if (typeIntervalRef.current) {
+      clearInterval(typeIntervalRef.current);
+      typeIntervalRef.current = null;
     }
-  }
-  setPartialAssistantMessage("");
-  setIsGenerating(false);
-};
+    const currentSession = chatSessions.find((s) => s._id === currentChatSessionId);
+    if (currentSession && currentSession.messages.length > 0) {
+      const finalMsg = currentSession.messages[currentSession.messages.length - 1];
+      if (
+        chatMessages.length === 0 ||
+        chatMessages[chatMessages.length - 1].content !== finalMsg.content
+      ) {
+        setChatMessages((prev) => [...prev, finalMsg]);
+      }
+    }
+    setPartialAssistantMessage("");
+    setIsGenerating(false);
+  };
 
   /* ------------------------------
      CLASS SELECT CHANGE
@@ -367,7 +365,11 @@ const Chat = () => {
         chatSessionId = data.chatSession._id;
         setCurrentChatSessionId(chatSessionId);
         setChatSessions((prev) => [
-          { ...data.chatSession, assignedClass: null, updatedAt: data.chatSession.updatedAt || data.chatSession.createdAt },
+          {
+            ...data.chatSession,
+            assignedClass: null,
+            updatedAt: data.chatSession.updatedAt || data.chatSession.createdAt,
+          },
           ...prev,
         ]);
       }
@@ -386,7 +388,6 @@ const Chat = () => {
                 ...session,
                 messages: chatData.messages,
                 assignedClass: chatData.assignedClass || null,
-                // Use updatedAt from chatData if provided; otherwise, keep the old value or use current time.
                 updatedAt: chatData.updatedAt || new Date().toISOString(),
               }
             : session
@@ -446,18 +447,15 @@ const Chat = () => {
     }
   };
 
-    
-
   /* ------------------------------
      CREATE NEW CHAT
      ------------------------------ */
   const handleCreateNewChatSession = () => {
-    // Clear any document chat so that the main chat view is shown
     setActiveDocId(null);
     setIsNamingChat(true);
     setNewChatName("");
   };
-  
+
   const handleSubmitNewChatName = async () => {
     if (newChatName.trim() === "") {
       toast.error("Please enter a chat name");
@@ -468,7 +466,7 @@ const Chat = () => {
       const newSession = {
         ...data.chatSession,
         assignedClass: null,
-        lastUpdated: Date.now(), // Add recency timestamp here
+        lastUpdated: Date.now(),
       };
       setChatSessions((prev) => [newSession, ...prev]);
       setCurrentChatSessionId(newSession._id);
@@ -481,7 +479,6 @@ const Chat = () => {
       toast.error("Failed to create new chat session");
     }
   };
-  
 
   const handleCancelNewChat = () => {
     setIsNamingChat(false);
@@ -492,9 +489,7 @@ const Chat = () => {
      SELECT A CHAT SESSION
      ------------------------------ */
   const handleSelectChatSession = (chatSessionId: string) => {
-    // Clear any document chat by setting activeDocId to null
     setActiveDocId(null);
-    // Clear any open citation popups before switching
     window.dispatchEvent(new CustomEvent("clearCitationPopups"));
 
     const session = chatSessions.find((s) => s._id === chatSessionId);
@@ -537,15 +532,10 @@ const Chat = () => {
   const handleDeleteClass = async (classId: string) => {
     try {
       await deleteClass(classId);
-      // Remove from local state
       setClasses((prev) => prev.filter((c) => c._id !== classId));
 
-      // Also remove from classDocs if loaded
       setClassDocs((prev) => {
         const updated = { ...prev };
-        for (const clsName in updated) {
-          // Optionally remove the matching class key here
-        }
         return updated;
       });
 
@@ -588,6 +578,7 @@ const Chat = () => {
     setExpandedClass(clsName);
     if (!classDocs[clsName]) {
       try {
+        // This call now only returns docs where isProcessing === false
         const docs = await getClassDocuments(clsName);
         setClassDocs((prev) => ({ ...prev, [clsName]: docs }));
       } catch (err) {
@@ -625,7 +616,7 @@ const Chat = () => {
   };
 
   if (!auth?.isLoggedIn) {
-    return null; 
+    return null;
   }
 
   return (
@@ -633,7 +624,7 @@ const Chat = () => {
       {/* Global Header */}
       <Header sidebarOpen={sidebarOpen} onToggleSidebar={toggleSidebar} />
 
-      {/* Main container: added position relative for absolute positioning */}
+      {/* Main container */}
       <Box
         sx={{
           display: "flex",

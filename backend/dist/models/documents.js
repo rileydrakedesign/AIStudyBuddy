@@ -30,7 +30,11 @@ const documentSchema = new Schema({
         type: String,
         required: true,
     },
-    // Additional fields as needed
+    // NEW: isProcessing field to mark documents that haven't finished uploading/processing
+    isProcessing: {
+        type: Boolean,
+        default: false,
+    },
 });
 export default mongoose.model("Document", documentSchema);
 //# sourceMappingURL=documents.js.map
