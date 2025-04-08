@@ -94,6 +94,7 @@ export const uploadDocument = async (
   next: NextFunction
 ) => {
   try {
+    /* ---------- authentication ---------- */
     const currentUser = await User.findById(res.locals.jwtData.id);
     if (!currentUser) {
       return res
@@ -101,100 +102,72 @@ export const uploadDocument = async (
         .json({ message: "User not registered or token malfunctioned" });
     }
 
-    const userId = currentUser._id.toString();
-    const files = req.files as Express.Multer.File[];
+    const userId   = currentUser._id.toString();
+    const files    = req.files as Express.Multer.File[];
     const className = req.body.className || "General";
 
     if (!files || files.length === 0) {
       return res.status(400).json({ message: "No file uploaded" });
     }
 
-    // Ensure the class is added if it doesn't exist
-    const classExists = currentUser.classes.some(
-      (cls) => cls.name === className
-    );
-    if (!classExists) {
+    /* ---------- ensure class exists ---------- */
+    if (!currentUser.classes.some((c) => c.name === className)) {
       currentUser.classes.push({ name: className });
       await currentUser.save();
-      console.log(`Added class '${className}' to user ${userId}`);
     }
 
-    // We'll keep track of the newly created docs for the response
+    /* ---------- create docs (isProcessing = true) ---------- */
     const uploadedDocs: IDocument[] = [];
 
-    // Process each uploaded file
     for (const file of files) {
-      if (!file) {
-        console.log("A file was missing, skipping...");
-        continue;
-      }
+      if (!file) continue;
 
-      console.log("File details:", {
-        originalname: file.originalname,
-        mimetype: file.mimetype,
-      });
-
-      const s3Key = (file as any).key;
-      const s3Url = (file as any).location;
-
-      if (!s3Key || !s3Url) {
-        console.warn(
-          "file.key or file.location missing, using fallback keys/URLs."
-        );
-      }
-
-      console.log("S3 key from multer-s3:", s3Key);
-      console.log("S3 URL:", s3Url);
-
-      // Create a new Document record in MongoDB (set isProcessing=true)
-      const newDocument = new Document({
-        userId: userId,
+      const doc = new Document({
+        userId,
         fileName: file.originalname,
         uploadedAt: Date.now(),
-        s3Key: s3Key || `fallbackKey-${file.originalname}`,
-        s3Url: s3Url || `https://...fallbackUrl.../${file.originalname}`,
-        className: className,
+        s3Key: (file as any).key,
+        s3Url: (file as any).location,
+        className,
         isProcessing: true,
       }) as IDocument;
 
-      await newDocument.save();
-      console.log("Stored file meta in mongodb:", newDocument._id);
-      uploadedDocs.push(newDocument);
+      await doc.save();
+      uploadedDocs.push(doc);
+    }
 
-      // Fire-and-forget call to FastAPI so chunking can continue in background
-      const pythonApiUrl = process.env.PYTHON_API_URL; // e.g., "http://localhost:8000"
-      if (!pythonApiUrl) {
-        console.warn("PYTHON_API_URL not defined; cannot call FastAPI");
-      } else {
+    /* ---------- respond immediately ---------- */
+    res.status(200).json({
+      message: "Upload started",
+      documents: uploadedDocs.map((d) => ({
+        _id: d._id,
+        fileName: d.fileName,
+        className: d.className,
+        isProcessing: d.isProcessing,
+      })),
+    });
+
+    /* ---------- background FastAPI call ---------- */
+    const pythonApiUrl = process.env.PYTHON_API_URL; // e.g. http://localhost:8000
+    if (pythonApiUrl) {
+      for (const doc of uploadedDocs) {
         axios
           .post(`${pythonApiUrl}/api/v1/process_upload`, {
             user_id: userId,
             class_name: className,
-            s3_key: newDocument.s3Key,
-            doc_id: newDocument._id.toString(),
+            s3_key: doc.s3Key,
+            doc_id: doc._id.toString(),
           })
-          .then(() => {
-            console.log(
-              `Background chunking started in FastAPI for doc ${newDocument._id}`
-            );
-          })
-          .catch((err) => {
-            console.error(
-              `Error calling FastAPI for doc ${newDocument._id}:`,
-              err
-            );
-          });
+          .catch((err) =>
+            console.error(`FastAPI error for doc ${doc._id}:`, err.message)
+          );
       }
+    } else {
+      console.warn("PYTHON_API_URL not set; background processing skipped.");
     }
-
-    // Respond immediately, chunking/embedding is ongoing
-    return res.status(200).json({
-      message: "Upload successful, processing in the background",
-      documents: uploadedDocs,
-    });
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: "Server error" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
   }
 };
 
