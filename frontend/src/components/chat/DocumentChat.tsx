@@ -1,3 +1,4 @@
+// src/components/documentChat.tsx
 import React, { useEffect, useRef, useState } from "react";
 import { Box, IconButton, Typography } from "@mui/material";
 import { IoMdSend } from "react-icons/io";
@@ -226,23 +227,44 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
 
   /* ------------------------------
      5) Citation Click => Highlight Text + Jump to PDF Page
+        (FIXED: more reliable scroll)
      ------------------------------ */
   const jumpToPdfPage = (pageNumber: number) => {
-    const margin = 3; // fixed margin for pages before and after the target
+    const margin = 3;
     if (numPages) {
-      // Reset the window to exactly [pageNumber - margin, pageNumber + margin]
       const newStart = Math.max(1, pageNumber - margin);
-      const newEnd = Math.min(numPages, pageNumber + margin);
+      const newEnd   = Math.min(numPages, pageNumber + margin);
       setVisibleStartPage(newStart);
       setVisibleEndPage(newEnd);
     }
+
     const targetId = `pdf-page-${pageNumber}`;
-    setTimeout(() => {
-      const el = document.getElementById(targetId);
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth" });
+
+    // Keep scrolling until the layout stabilises or retries run out.
+    const scrollToTarget = (retries = 15) => {
+      const el  = document.getElementById(targetId);
+      const box = pdfContainerRef.current;
+
+      if (!el || !box) {
+        // Either the page hasn’t rendered yet or the container is missing.
+        if (retries > 0) setTimeout(() => scrollToTarget(retries - 1), 100);
+        return;
       }
-    }, 200);
+
+      // Get element’s current position inside the scrolling box.
+      const elRect  = el.getBoundingClientRect();
+      const boxRect = box.getBoundingClientRect();
+      const isInside =
+        elRect.top >= boxRect.top + 4 && elRect.bottom <= boxRect.bottom - 4;
+
+      if (!isInside) {
+        // Not fully visible yet → scroll and try again.
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (retries > 0) setTimeout(() => scrollToTarget(retries - 1), 100);
+      }
+    };
+
+    scrollToTarget();
   };
 
   /* ------------------------------
