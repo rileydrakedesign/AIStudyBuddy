@@ -1,4 +1,3 @@
-// src/components/chat/chatItem.tsx
 import React, { useState, useRef, useEffect } from "react";
 import {
   Box,
@@ -18,6 +17,7 @@ import { coldarkDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import CloseIcon from "@mui/icons-material/Close";
 import Loader from "../ui/loader";
 import { getChunkText } from "../../helpers/api-communicators";
+import "katex/dist/katex.min.css";            // ← NEW: KaTeX styles for math rendering
 
 /* ------------------------------
    HELPERS
@@ -87,6 +87,45 @@ const getDisplayText = (text: string): string => {
 };
 
 /* ------------------------------
+   MARKDOWN RENDERER FOR POPUP
+   ------------------------------ */
+const MarkdownRender: React.FC<{ text: string }> = ({ text }) => (
+  <ReactMarkdown
+    remarkPlugins={[remarkGfm, remarkMath]}
+    rehypePlugins={[rehypeKatex]}
+    components={{
+      code({ inline, className, children, ...props }) {
+        const langMatch = /language-(\w+)/.exec(className || "");
+        return inline ? (
+          <code
+            className={className}
+            style={{ background: "#eee", padding: "2px 4px", borderRadius: 4 }}
+            {...props}
+          >
+            {children}
+          </code>
+        ) : (
+          <SyntaxHighlighter
+            style={coldarkDark}
+            language={langMatch ? langMatch[1] : undefined}
+            wrapLongLines
+            customStyle={{ margin: 0, fontSize: 14 }}
+            {...props}
+          >
+            {String(children).replace(/\n$/, "")}
+          </SyntaxHighlighter>
+        );
+      },
+      p: ({ node, ...props }) => (
+        <p style={{ margin: "0 0 0.5em 0" }} {...props} />
+      ),
+    }}
+  >
+    {text}
+  </ReactMarkdown>
+);
+
+/* ------------------------------
    CITATION POP-UPS
    ------------------------------ */
 
@@ -100,20 +139,19 @@ const CitationPopup: React.FC<{
     anchorEl={anchorEl}
     placement="bottom-start"
     modifiers={[{ name: "offset", options: { offset: [0, 8] } }]}
-    sx={{ zIndex: (theme) => theme.zIndex.modal + 10 }} 
+    sx={{ zIndex: (theme) => theme.zIndex.modal + 10 }}
   >
     <ClickAwayListener onClickAway={onClose}>
       <Box
         sx={{
-          width: 300,
-          maxHeight: 300,
+          width: 320,
+          maxHeight: 320,
           overflowY: "auto",
           bgcolor: "white",
           color: "black",
           p: 2,
           boxShadow: 8,
           borderRadius: 2,
-          zIndex: 1300,
         }}
       >
         <Box
@@ -129,9 +167,9 @@ const CitationPopup: React.FC<{
             <CloseIcon fontSize="small" />
           </IconButton>
         </Box>
-        <Box sx={{ fontSize: "16px", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
-          {chunkText}
-        </Box>
+
+        {/* formatted markdown / math / code */}
+        <MarkdownRender text={chunkText} />
       </Box>
     </ClickAwayListener>
   </Popper>
@@ -157,7 +195,7 @@ const CitationOptionsPopup: React.FC<CitationOptionsPopupProps> = ({
     anchorEl={anchorEl}
     placement="top-start"
     modifiers={[{ name: "offset", options: { offset: [0, -8] } }]}
-    sx={{ zIndex: (theme) => theme.zIndex.modal + 10 }}  
+    sx={{ zIndex: (theme) => theme.zIndex.modal + 10 }}
   >
     <ClickAwayListener onClickAway={onClose}>
       <Box
@@ -166,7 +204,6 @@ const CitationOptionsPopup: React.FC<CitationOptionsPopupProps> = ({
           p: 0.5,
           boxShadow: 8,
           borderRadius: 2,
-          zIndex: 1300,
           display: "flex",
           flexDirection: "column",
           gap: 0.5,
