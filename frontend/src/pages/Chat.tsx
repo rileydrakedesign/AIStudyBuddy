@@ -1008,6 +1008,7 @@ const Chat = () => {
                   onChange={handleClassChange}
                   variant="outlined"
                   sx={{
+                    minWidth: 160,
                     "& .MuiSvgIcon-root": { color: "white" },
                     mr: 2,
                   }}
