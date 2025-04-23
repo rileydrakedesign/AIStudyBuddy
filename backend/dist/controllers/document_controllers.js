@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import Document from "../models/documents.js";
 import User from "../models/user.js";
 import ChatSession from "../models/chatSession.js";
-import axios from "axios"; // NEW: to call FastAPI
+import axios from "axios";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand, } from "@aws-sdk/client-s3";
@@ -253,11 +253,10 @@ export const getDocumentsByClass = async (req, res, next) => {
         if (!className) {
             return res.status(400).json({ message: "Missing 'className' in URL" });
         }
-        // Only show docs where isProcessing=false
+        // ⚠️  new: return *all* docs, flag tells UI if still processing
         const docs = await Document.find({
             userId: currentUser._id,
             className: decodeURIComponent(className).trim(),
-            isProcessing: false,
         }).sort({ uploadedAt: -1 });
         return res.status(200).json(docs);
     }

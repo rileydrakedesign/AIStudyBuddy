@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import Document, { IDocument } from "../models/documents.js";
 import User from "../models/user.js";
 import ChatSession from "../models/chatSession.js";
-import axios from "axios"; // NEW: to call FastAPI
+import axios from "axios"; 
 import path from "path";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
@@ -325,11 +325,10 @@ export const getDocumentsByClass = async (
       return res.status(400).json({ message: "Missing 'className' in URL" });
     }
 
-    // Only show docs where isProcessing=false
+    // ⚠️  new: return *all* docs, flag tells UI if still processing
     const docs = await Document.find({
       userId: currentUser._id,
       className: decodeURIComponent(className).trim(),
-      isProcessing: false,
     }).sort({ uploadedAt: -1 });
 
     return res.status(200).json(docs);

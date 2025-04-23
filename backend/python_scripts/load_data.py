@@ -178,6 +178,7 @@ def load_pdf_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
             {"_id": ObjectId(doc_id)},
             {"$set": {"isProcessing": False}}
         )
+        print("🛠  set isProcessing False for", doc_id)
     except Exception as update_err:
         print(f"Error updating isProcessing for doc {doc_id}: {update_err}", file=sys.stderr)
 

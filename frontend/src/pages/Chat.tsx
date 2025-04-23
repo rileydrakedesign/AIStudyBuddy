@@ -43,6 +43,8 @@ import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import Header from "../components/Header.tsx";
 import DocumentChat from "../components/chat/DocumentChat.tsx";
+import { initializeSocket } from "../helpers/socketClient";   // Δ
+import { Socket } from "socket.io-client"; 
 
 /* ------------------------------
    TYPES
@@ -134,6 +136,8 @@ const Chat = () => {
   // Document-based chat
   const [activeDocId, setActiveDocId] = useState<string | null>(null);
 
+  const socketRef = useRef<Socket | null>(null);
+
   /* ------------------------------
      AUTO-RESIZE & CURSOR HANDLERS
      ------------------------------ */
@@ -151,6 +155,84 @@ const Chat = () => {
       target.setSelectionRange(length, length);
     }, 0);
   };
+
+  /* ------------------------------
+     SOCKET
+     ------------------------------ */
+
+  useEffect(() => {
+    if (!auth?.isLoggedIn) return;                // wait until cookies verified
+  
+    console.log("%c[WS] Initialising…", "color:dodgerblue;font-weight:bold;");
+  
+    // (re)use the singleton – initialiseSocket() reconnects if needed
+    const socket = initializeSocket();
+    socketRef.current = socket;
+  
+    /* ------------- event handlers ------------- */
+    const handleConnect = () => {
+      console.log("🔗 front-end socket connected", socket.id);
+    };
+  
+    const handleDocumentReady = (data: {
+      docId: string;
+      fileName: string;
+      className: string;
+    }) => {
+      console.log("✅ document-ready received on client", data);
+  
+      // 1) dismiss any “processing…” loader and show success toast
+      toast.success(`${data.fileName} finished processing`, {
+        id: `processing-${data.docId}`,
+      });
+  
+      // 2) update the local classDocs state
+      setClassDocs((prev) => {
+        const docs = prev[data.className] ?? [];
+        const exists = docs.some((d) => d._id === data.docId);
+  
+        const updatedDocs = exists
+          ? docs.map((d) =>
+              d._id === data.docId ? { ...d, isProcessing: false } : d
+            )
+          : [
+              ...docs,
+              {
+                _id: data.docId,
+                fileName: data.fileName,
+                className: data.className,
+                isProcessing: false,
+              },
+            ];
+  
+        return { ...prev, [data.className]: updatedDocs };
+      });
+    };
+  
+    /* ------------- register listeners ------------- */
+    socket.on("connect", handleConnect);
+    socket.on("document-ready", handleDocumentReady);
+  
+    /* ------------- cleanup ------------- */
+    return () => {
+      // keep the underlying connection alive, just remove our handlers
+      socket.off("connect", handleConnect);
+      socket.off("document-ready", handleDocumentReady);
+    };
+  }, [auth?.isLoggedIn]);
+
+  /* ------------------------------ toast loader for in‑process docs ------------------------------ */
+  useEffect(() => {
+    Object.values(classDocs).flat().forEach((doc) => {
+      const id = `processing-${doc._id}`;
+      if (doc.isProcessing) {
+        toast.loading(`Processing ${doc.fileName}…`, { id });
+      } else {
+        toast.dismiss(id);
+      }
+    });
+  }, [classDocs]);
+  
 
   /* ------------------------------
      FETCH CLASSES ON LOAD
@@ -830,7 +912,7 @@ const Chat = () => {
                         classDocs[cls.name].map((doc) => (
                           <ListItem key={doc._id} sx={{ color: "white" }} className="doc-list-item">
                             <Button
-                              disabled={isGenerating}
+                              disabled={isGenerating || doc.isProcessing}   
                               onClick={() => handleOpenDocumentChat(doc._id)}
                               sx={{
                                 color: "#1976d2",

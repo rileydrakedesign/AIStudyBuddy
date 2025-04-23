@@ -1,8 +1,8 @@
-// server.ts
 import fs from "fs";
 import https from "https";
 import app from "./app.js";
 import { connectToDatabase } from "./db/connection.js";
+import { initializeWebSocket } from "./utils/socket_server.js";
 // Absolute paths to your certificate and key files
 const CERT_PATH = "/Users/rileydrake/Desktop/AIStudyBuddy/localhost.pem";
 const KEY_PATH = "/Users/rileydrake/Desktop/AIStudyBuddy/localhost-key.pem";
@@ -14,19 +14,16 @@ if (!fs.existsSync(KEY_PATH) || !fs.existsSync(CERT_PATH)) {
 // Read the certificate and private key
 const key = fs.readFileSync(KEY_PATH);
 const cert = fs.readFileSync(CERT_PATH);
-// Create HTTPS server
 const httpsServer = https.createServer({ key, cert }, app);
-// Choose a port, e.g., 3000
 const PORT = process.env.PORT || 3000;
-// Connect to the database and start the HTTPS server
 connectToDatabase()
     .then(() => {
-    httpsServer.listen(PORT, () => {
-        console.log(`HTTPS server is running at https://localhost:${PORT}`);
-    });
+    /* initialise sockets on the HTTPS server */
+    initializeWebSocket(httpsServer); // ⬅️ NEW
+    httpsServer.listen(PORT, () => console.log(`HTTPS + WS server running at https://localhost:${PORT}`));
 })
     .catch((err) => {
     console.error("Failed to connect to the database:", err);
-    process.exit(1); // Exit the process with an error code
+    process.exit(1);
 });
 //# sourceMappingURL=index.js.map
