@@ -95,19 +95,24 @@ export const userLogin = async (req, res, next) => {
 };
 export const verifyUser = async (req, res, next) => {
     try {
-        // Prevent caching of this endpoint so clients always receive a fresh 200
+        // Prevent caching so the client always gets fresh data
         res.set("Cache-Control", "no-store");
-        // user token check
         const currentUser = await user.findById(res.locals.jwtData.id);
         if (!currentUser) {
-            return res.status(401).send("User not registered OR Token malfunctioned");
+            return res
+                .status(401)
+                .send("User not registered OR Token malfunctioned");
         }
         if (currentUser._id.toString() !== res.locals.jwtData.id) {
             return res.status(401).send("Permissions didn't match");
         }
-        return res
-            .status(200)
-            .json({ message: "OK", name: currentUser.name, email: currentUser.email });
+        return res.status(200).json({
+            message: "OK",
+            name: currentUser.name,
+            email: currentUser.email,
+            plan: currentUser.plan,
+            chatRequestCount: currentUser.chatRequestCount,
+        });
     }
     catch (error) {
         console.log(error);

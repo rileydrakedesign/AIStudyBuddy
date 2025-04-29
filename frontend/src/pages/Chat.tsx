@@ -4,7 +4,6 @@ import {
   Typography,
   Button,
   IconButton,
-  Select,
   MenuItem,
   List,
   ListItem,
@@ -15,6 +14,7 @@ import {
   Divider,
   ListItemIcon,
   Collapse,
+  LinearProgress,
 } from "@mui/material";
 import red from "@mui/material/colors/red";
 import { useAuth } from "../context/authContext";
@@ -31,6 +31,7 @@ import {
   getClassDocuments,
   deleteClass,
   deleteDocument,
+  verifyUser,
 } from "../helpers/api-communicators";
 import toast from "react-hot-toast";
 import ChatBubbleIcon from "@mui/icons-material/ChatBubble";
@@ -43,14 +44,12 @@ import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import Header from "../components/Header.tsx";
 import DocumentChat from "../components/chat/DocumentChat.tsx";
-import { initializeSocket } from "../helpers/socketClient";   // Δ
-import { Socket } from "socket.io-client"; 
+import { initializeSocket } from "../helpers/socketClient";
+import { Socket } from "socket.io-client";
 
 /* ------------------------------
    TYPES
-   ------------------------------ */
-
-// New chunk reference type
+------------------------------ */
 type ChunkReference = {
   chunkId: string;
   displayNumber: number;
@@ -83,20 +82,18 @@ type Chunk = {
   text: string;
 };
 
-// NEW: Add "isProcessing" for consistency, though the server omits them if true
 type DocumentItem = {
   _id: string;
   fileName: string;
   className: string;
-  isProcessing?: boolean; 
+  isProcessing?: boolean;
 };
 
 /* ------------------------------
    COMPONENT
-   ------------------------------ */
+------------------------------ */
 const Chat = () => {
   const navigate = useNavigate();
-  // Updated ref type from HTMLInputElement to HTMLTextAreaElement
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const auth = useAuth();
 
@@ -136,16 +133,18 @@ const Chat = () => {
   // Document-based chat
   const [activeDocId, setActiveDocId] = useState<string | null>(null);
 
+  // Free-plan usage counter
+  const [chatUsage, setChatUsage] = useState<{ count: number; limit: number } | null>(null);
+
   const socketRef = useRef<Socket | null>(null);
 
   /* ------------------------------
      AUTO-RESIZE & CURSOR HANDLERS
-     ------------------------------ */
+  ------------------------------ */
   const handleInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
     const target = e.currentTarget;
     target.style.height = "auto";
-    const maxHeight = 150; // maximum height in pixels
-    target.style.height = Math.min(target.scrollHeight, maxHeight) + "px";
+    target.style.height = Math.min(target.scrollHeight, 150) + "px";
   };
 
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -158,43 +157,22 @@ const Chat = () => {
 
   /* ------------------------------
      SOCKET
-     ------------------------------ */
-
+  ------------------------------ */
   useEffect(() => {
-    if (!auth?.isLoggedIn) return;                // wait until cookies verified
-  
-    console.log("%c[WS] Initialising…", "color:dodgerblue;font-weight:bold;");
-  
-    // (re)use the singleton – initialiseSocket() reconnects if needed
+    if (!auth?.isLoggedIn) return; // wait until cookies verified
+
     const socket = initializeSocket();
     socketRef.current = socket;
-  
-    /* ------------- event handlers ------------- */
-    const handleConnect = () => {
-      console.log("🔗 front-end socket connected", socket.id);
-    };
-  
-    const handleDocumentReady = (data: {
-      docId: string;
-      fileName: string;
-      className: string;
-    }) => {
-      console.log("✅ document-ready received on client", data);
-  
-      // 1) dismiss any “processing…” loader and show success toast
-      toast.success(`${data.fileName} finished processing`, {
-        id: `processing-${data.docId}`,
-      });
-  
-      // 2) update the local classDocs state
+
+    const handleDocumentReady = (data: { docId: string; fileName: string; className: string }) => {
+      toast.success(`${data.fileName} finished processing`, { id: `processing-${data.docId}` });
+
       setClassDocs((prev) => {
         const docs = prev[data.className] ?? [];
         const exists = docs.some((d) => d._id === data.docId);
-  
+
         const updatedDocs = exists
-          ? docs.map((d) =>
-              d._id === data.docId ? { ...d, isProcessing: false } : d
-            )
+          ? docs.map((d) => (d._id === data.docId ? { ...d, isProcessing: false } : d))
           : [
               ...docs,
               {
@@ -204,39 +182,37 @@ const Chat = () => {
                 isProcessing: false,
               },
             ];
-  
+
         return { ...prev, [data.className]: updatedDocs };
       });
     };
-  
-    /* ------------- register listeners ------------- */
-    socket.on("connect", handleConnect);
+
     socket.on("document-ready", handleDocumentReady);
-  
-    /* ------------- cleanup ------------- */
+
     return () => {
-      // keep the underlying connection alive, just remove our handlers
-      socket.off("connect", handleConnect);
       socket.off("document-ready", handleDocumentReady);
     };
   }, [auth?.isLoggedIn]);
 
-  /* ------------------------------ toast loader for in‑process docs ------------------------------ */
+  /* ------------------------------
+     toast loader for docs
+  ------------------------------ */
   useEffect(() => {
-    Object.values(classDocs).flat().forEach((doc) => {
-      const id = `processing-${doc._id}`;
-      if (doc.isProcessing) {
-        toast.loading(`Processing ${doc.fileName}…`, { id });
-      } else {
-        toast.dismiss(id);
-      }
-    });
+    Object.values(classDocs)
+      .flat()
+      .forEach((doc) => {
+        const id = `processing-${doc._id}`;
+        if (doc.isProcessing) {
+          toast.loading(`Processing ${doc.fileName}…`, { id });
+        } else {
+          toast.dismiss(id);
+        }
+      });
   }, [classDocs]);
-  
 
   /* ------------------------------
      FETCH CLASSES ON LOAD
-     ------------------------------ */
+  ------------------------------ */
   useEffect(() => {
     const fetchClasses = async () => {
       try {
@@ -246,82 +222,85 @@ const Chat = () => {
         const storedClass = localStorage.getItem("selectedClass");
         if (storedClass === "null") {
           setSelectedClass(null);
-        } else if (
-          storedClass &&
-          classes.some((cls: ClassOption) => cls.name === storedClass)
-        ) {
+        } else if (storedClass && classes.some((cls) => cls.name === storedClass)) {
           setSelectedClass(storedClass);
         }
       } catch (error) {
         console.error("Error fetching classes", error);
       }
     };
+    if (auth?.isLoggedIn) fetchClasses();
+  }, [auth]);
 
-    if (auth?.isLoggedIn) {
-      fetchClasses();
-    }
+  /* ------------------------------
+     FETCH USAGE COUNTER (free plan)
+  ------------------------------ */
+  useEffect(() => {
+    const fetchUsage = async () => {
+      try {
+        const data = await verifyUser();
+        if (data.plan === "free") setChatUsage({ count: data.chatRequestCount, limit: 25 });
+      } catch (err) {
+        console.error("Failed to fetch usage", err);
+      }
+    };
+    if (auth?.isLoggedIn) fetchUsage();
   }, [auth]);
 
   /* ------------------------------
      SAVE SELECTED CLASS LOCALLY
-     ------------------------------ */
+  ------------------------------ */
   useEffect(() => {
     localStorage.setItem("selectedClass", selectedClass || "null");
   }, [selectedClass]);
 
   /* ------------------------------
      FETCH CHAT SESSIONS ON LOAD
-     ------------------------------ */
+  ------------------------------ */
   useEffect(() => {
-    if (auth?.isLoggedIn && auth.user) {
-      toast.loading("Loading Chat Sessions", { id: "loadchatsessions" });
-      getUserChatSessions()
-        .then((data: { chatSessions: ChatSession[] }) => {
-          const sessionsSorted = data.chatSessions.sort((a, b) => {
-            const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
-            const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
-            return timeB - timeA; // descending: most recent first
-          });
-          setChatSessions(sessionsSorted);
+    if (!(auth?.isLoggedIn && auth.user)) return;
 
-          if (sessionsSorted.length > 0) {
-            const first = sessionsSorted[0];
-            setCurrentChatSessionId(first._id);
-            setChatMessages(first.messages);
-            setSelectedClass(first.assignedClass || null);
-          }
-          toast.success("Successfully loaded chat sessions", { id: "loadchatsessions" });
-        })
-        .catch((err) => {
-          console.error("Error loading chat sessions:", err);
-          toast.error("Loading Chat Sessions Failed", { id: "loadchatsessions" });
+    toast.loading("Loading Chat Sessions", { id: "loadchatsessions" });
+    getUserChatSessions()
+      .then((data: { chatSessions: ChatSession[] }) => {
+        const sessionsSorted = data.chatSessions.sort((a, b) => {
+          const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+          const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+          return timeB - timeA;
         });
-    }
+        setChatSessions(sessionsSorted);
+
+        if (sessionsSorted.length > 0) {
+          const first = sessionsSorted[0];
+          setCurrentChatSessionId(first._id);
+          setChatMessages(first.messages);
+          setSelectedClass(first.assignedClass || null);
+        }
+        toast.success("Successfully loaded chat sessions", { id: "loadchatsessions" });
+      })
+      .catch((err) => {
+        console.error("Error loading chat sessions:", err);
+        toast.error("Loading Chat Sessions Failed", { id: "loadchatsessions" });
+      });
   }, [auth]);
 
   /* ------------------------------
      REDIRECT IF NOT LOGGED IN
-     ------------------------------ */
+  ------------------------------ */
   useEffect(() => {
-    if (!auth?.user) {
-      navigate("/login");
-    }
+    if (!auth?.user) navigate("/login");
   }, [auth, navigate]);
 
   /* ------------------------------
      SCROLLING
-     ------------------------------ */
+  ------------------------------ */
   useEffect(() => {
     const container = chatContainerRef.current;
     if (!container) return;
 
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = container;
-      if (scrollHeight - scrollTop - clientHeight < 50) {
-        setIsAtBottom(true);
-      } else {
-        setIsAtBottom(false);
-      }
+      setIsAtBottom(scrollHeight - scrollTop - clientHeight < 50);
     };
 
     container.addEventListener("scroll", handleScroll);
@@ -329,63 +308,27 @@ const Chat = () => {
   }, []);
 
   useEffect(() => {
-    if (isAtBottom && messagesEndRef.current) {
+    if (isAtBottom && messagesEndRef.current)
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
-    }
   }, [chatMessages, partialAssistantMessage, isAtBottom]);
 
   /* ------------------------------
      CLEANUP ON UNMOUNT
-     ------------------------------ */
+  ------------------------------ */
   useEffect(() => {
     return () => {
-      if (typeIntervalRef.current) {
-        clearInterval(typeIntervalRef.current);
-      }
+      if (typeIntervalRef.current) clearInterval(typeIntervalRef.current);
     };
   }, []);
 
   /* ------------------------------
-     VISIBILITY CHANGE
-     ------------------------------ */
-  useEffect(() => {
-    const finalizeTypewriter = () => {
-      if (typeIntervalRef.current) {
-        clearInterval(typeIntervalRef.current);
-        typeIntervalRef.current = null;
-      }
-      const currentIndex = chatSessions.findIndex((s) => s._id === currentChatSessionId);
-      if (currentIndex !== -1) {
-        const allMsgs = chatSessions[currentIndex].messages;
-        if (allMsgs.length > 0) {
-          const finalMsg = allMsgs[allMsgs.length - 1];
-          if (
-            chatMessages.length === 0 ||
-            chatMessages[chatMessages.length - 1].content !== finalMsg.content
-          ) {
-            setChatMessages((prev) => [...prev, finalMsg]);
-          }
-        }
-      }
-      setPartialAssistantMessage("");
-      setIsGenerating(false);
-    };
+     CLASS SELECT CHANGE
+  ------------------------------ */
+  const handleClassChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const c = event.target.value === "null" ? null : event.target.value;
+    setSelectedClass(c);
+  };
 
-    const handleVisibilityChange = () => {
-      if (document.hidden && isGenerating && partialAssistantMessage) {
-        finalizeTypewriter();
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [chatSessions, currentChatSessionId, isGenerating, partialAssistantMessage]);
-
-  /* ------------------------------
-     HELPER: finalize typewriter
-     ------------------------------ */
   const finalizeTypewriter = () => {
     if (typeIntervalRef.current) {
       clearInterval(typeIntervalRef.current);
@@ -405,17 +348,7 @@ const Chat = () => {
     setIsGenerating(false);
   };
 
-  /* ------------------------------
-     CLASS SELECT CHANGE
-     ------------------------------ */
-  const handleClassChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const c = event.target.value === "null" ? null : event.target.value;
-    setSelectedClass(c);
-  };
-
-  const handleStop = () => {
-    finalizeTypewriter();
-  };
+  const handleStop = () => finalizeTypewriter();
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !isGenerating) {
@@ -426,13 +359,19 @@ const Chat = () => {
 
   /* ------------------------------
      SUBMIT HANDLER
-     ------------------------------ */
+  ------------------------------ */
   const handleSubmit = async () => {
+    
+    /* ── limit check ───────────────────────────── */
+    if (chatUsage && chatUsage.count >= chatUsage.limit) {
+      toast.error("Monthly chat limit reached for the free plan");
+      return;
+    }
+
     if (!inputRef.current || !inputRef.current.value.trim()) return;
     const content = inputRef.current.value.trim();
     inputRef.current.value = "";
 
-    // Immediately add the user message
     const newMessage: Message = { role: "user", content };
     setChatMessages((prev) => [...prev, newMessage]);
 
@@ -440,7 +379,6 @@ const Chat = () => {
     setPartialAssistantMessage("");
 
     try {
-      // Create a new session if none is active
       let chatSessionId = currentChatSessionId;
       if (!chatSessionId) {
         const data = await createChatSession("New Chat");
@@ -459,10 +397,13 @@ const Chat = () => {
       const classNameForRequest = selectedClass === null ? "null" : selectedClass;
       const chatData = await sendChatRequest(content, classNameForRequest, chatSessionId);
 
-      // Store ephemeral chunks for the newest answer
+      // free-plan: increment local counter
+      setChatUsage((prev) =>
+        prev ? { ...prev, count: Math.min(prev.count + 1, prev.limit) } : prev
+      );
+
       setChunks(chatData.chunks || []);
 
-      // Update the active chat session with new messages.
       setChatSessions((prev) => {
         const updatedSessions = prev.map((session) =>
           session._id === chatData.chatSessionId
@@ -482,7 +423,6 @@ const Chat = () => {
         return updatedSessions;
       });
 
-      // Process the assistant's message with typewriter effect
       const allMessages = chatData.messages;
       const finalAssistantMsg =
         allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
@@ -493,7 +433,6 @@ const Chat = () => {
         return;
       }
 
-      // Remove the final assistant message for typewriter effect
       const updatedWithoutLast = allMessages.slice(0, allMessages.length - 1);
       setChatMessages(updatedWithoutLast);
 
@@ -522,16 +461,22 @@ const Chat = () => {
       if (chatData.assignedClass !== undefined) {
         setSelectedClass(chatData.assignedClass || null);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error in handleSubmit:", error);
-      toast.error("Failed to send message");
+      if (error.response && error.response.status === 403) {
+        toast.error(
+          error.response.data.message || "Monthly chat limit reached for the free plan"
+        );
+      } else {
+        toast.error("Failed to send message");
+      }
       setIsGenerating(false);
     }
   };
 
   /* ------------------------------
      CREATE NEW CHAT
-     ------------------------------ */
+  ------------------------------ */
   const handleCreateNewChatSession = () => {
     setActiveDocId(null);
     setIsNamingChat(true);
@@ -569,7 +514,7 @@ const Chat = () => {
 
   /* ------------------------------
      SELECT A CHAT SESSION
-     ------------------------------ */
+  ------------------------------ */
   const handleSelectChatSession = (chatSessionId: string) => {
     setActiveDocId(null);
     window.dispatchEvent(new CustomEvent("clearCitationPopups"));
@@ -584,7 +529,7 @@ const Chat = () => {
 
   /* ------------------------------
      DELETE A CHAT SESSION
-     ------------------------------ */
+  ------------------------------ */
   const handleDeleteChatSession = async (chatSessionId: string) => {
     try {
       await deleteChatSession(chatSessionId);
@@ -610,7 +555,7 @@ const Chat = () => {
 
   /* ------------------------------
      DELETE A CLASS
-     ------------------------------ */
+  ------------------------------ */
   const handleDeleteClass = async (classId: string) => {
     try {
       await deleteClass(classId);
@@ -630,7 +575,7 @@ const Chat = () => {
 
   /* ------------------------------
      DELETE A DOCUMENT
-     ------------------------------ */
+  ------------------------------ */
   const handleDeleteDocument = async (docId: string, className: string) => {
     try {
       await deleteDocument(docId);
@@ -651,7 +596,7 @@ const Chat = () => {
 
   /* ------------------------------
      Classes & Documents
-     ------------------------------ */
+  ------------------------------ */
   const handleToggleClass = async (clsName: string) => {
     if (expandedClass === clsName) {
       setExpandedClass(null);
@@ -660,7 +605,6 @@ const Chat = () => {
     setExpandedClass(clsName);
     if (!classDocs[clsName]) {
       try {
-        // This call now only returns docs where isProcessing === false
         const docs = await getClassDocuments(clsName);
         setClassDocs((prev) => ({ ...prev, [clsName]: docs }));
       } catch (err) {
@@ -677,7 +621,7 @@ const Chat = () => {
 
   /* ------------------------------
      DELETE ALL CHAT SESSIONS
-     ------------------------------ */
+  ------------------------------ */
   const handleDeleteAllChatSessions = async () => {
     try {
       await deleteAllChatSessions();
@@ -692,21 +636,17 @@ const Chat = () => {
     }
   };
 
-  // Handler for sidebar toggle
-  const toggleSidebar = () => {
-    setSidebarOpen(!sidebarOpen);
-  };
+  const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
 
-  if (!auth?.isLoggedIn) {
-    return null;
-  }
+  if (!auth?.isLoggedIn) return null;
 
+  /* ------------------------------
+     RENDER
+  ------------------------------ */
   return (
     <Box sx={{ width: "100%", height: "100vh", overflow: "hidden" }}>
-      {/* Global Header */}
       <Header sidebarOpen={sidebarOpen} onToggleSidebar={toggleSidebar} />
 
-      {/* Main container */}
       <Box
         sx={{
           display: "flex",
@@ -716,7 +656,7 @@ const Chat = () => {
           marginTop: "64px",
         }}
       >
-        {/* Sidebar */}
+        {/* -------------------- SIDEBAR -------------------- */}
         {sidebarOpen && (
           <Box
             sx={{
@@ -730,10 +670,7 @@ const Chat = () => {
           >
             {/* Chats */}
             <List
-              sx={{
-                color: "white",
-                mt: 2,
-              }}
+              sx={{ color: "white", mt: 2 }}
               subheader={
                 <ListSubheader
                   component="div"
@@ -810,11 +747,7 @@ const Chat = () => {
                   </Box>
                 </Box>
               ) : (
-                <ListItemButton
-                  onClick={handleCreateNewChatSession}
-                  disabled={isGenerating}
-                  sx={{ pl: 2 }}
-                >
+                <ListItemButton onClick={handleCreateNewChatSession} disabled={isGenerating} sx={{ pl: 2 }}>
                   <ListItemIcon sx={{ color: "white" }}>
                     <AddIcon />
                   </ListItemIcon>
@@ -912,7 +845,7 @@ const Chat = () => {
                         classDocs[cls.name].map((doc) => (
                           <ListItem key={doc._id} sx={{ color: "white" }} className="doc-list-item">
                             <Button
-                              disabled={isGenerating || doc.isProcessing}   
+                              disabled={isGenerating || doc.isProcessing}
                               onClick={() => handleOpenDocumentChat(doc._id)}
                               sx={{
                                 color: "#1976d2",
@@ -982,7 +915,7 @@ const Chat = () => {
           </Box>
         )}
 
-        {/* Main Chat Section OR Document Chat */}
+        {/* -------------------- MAIN CHAT -------------------- */}
         <Box
           sx={{
             display: "flex",
@@ -998,7 +931,7 @@ const Chat = () => {
             <DocumentChat docId={activeDocId} onClose={() => setActiveDocId(null)} />
           ) : (
             <>
-              {/* Class Selector */}
+              {/* Class Selector + free-plan chat counter */}
               <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
                 <TextField
                   id="class-select"
@@ -1007,11 +940,7 @@ const Chat = () => {
                   value={selectedClass || "null"}
                   onChange={handleClassChange}
                   variant="outlined"
-                  sx={{
-                    minWidth: 160,
-                    "& .MuiSvgIcon-root": { color: "white" },
-                    mr: 2,
-                  }}
+                  sx={{ minWidth: 160, "& .MuiSvgIcon-root": { color: "white" }, mr: 2 }}
                   InputProps={{ sx: { color: "white" } }}
                   SelectProps={{
                     MenuProps: {
@@ -1041,6 +970,19 @@ const Chat = () => {
                     </MenuItem>
                   ))}
                 </TextField>
+
+                {chatUsage && (
+                  <Box sx={{ ml: "auto", display: "flex", alignItems: "center", minWidth: 140 }}>
+                    <Typography sx={{ mr: 1, color: "white" }}>
+                      {`${chatUsage.count}/${chatUsage.limit}`}
+                    </Typography>
+                    <LinearProgress
+                      variant="determinate"
+                      value={(chatUsage.count / chatUsage.limit) * 100}
+                      sx={{ width: 100, height: 8, bgcolor: "#424242", borderRadius: 1 }}
+                    />
+                  </Box>
+                )}
               </Box>
 
               {/* Chat Messages Container */}
@@ -1130,18 +1072,14 @@ const Chat = () => {
                         key={index}
                         content={chat.content}
                         role={chat.role}
-                        citation={chat.citation}
+                        citation={chat.citation && chat.citation.length ? chat.citation : undefined}
                         chunkReferences={chat.chunkReferences}
                         onDocumentChat={handleOpenDocumentChat}
                       />
                     ))}
 
                     {isGenerating && partialAssistantMessage && (
-                      <ChatItem
-                        content={partialAssistantMessage}
-                        role="assistant"
-                        citation={[]}
-                      />
+                      <ChatItem content={partialAssistantMessage} role="assistant" />
                     )}
 
                     {isGenerating && !partialAssistantMessage && (
@@ -1197,13 +1135,7 @@ const Chat = () => {
                       </IconButton>
                     ) : (
                       <IconButton onClick={handleStop} sx={{ color: "white", mx: 1 }}>
-                        <Box
-                          sx={{
-                            width: 16,
-                            height: 16,
-                            backgroundColor: "white",
-                          }}
-                        />
+                        <Box sx={{ width: 16, height: 16, backgroundColor: "white" }} />
                       </IconButton>
                     )}
                   </Box>

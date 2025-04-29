@@ -17,7 +17,7 @@ import { coldarkDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import CloseIcon from "@mui/icons-material/Close";
 import Loader from "../ui/loader";
 import { getChunkText } from "../../helpers/api-communicators";
-import "katex/dist/katex.min.css";            // ← NEW: KaTeX styles for math rendering
+import "katex/dist/katex.min.css";
 
 /* ------------------------------
    HELPERS
@@ -94,7 +94,7 @@ const MarkdownRender: React.FC<{ text: string }> = ({ text }) => (
     remarkPlugins={[remarkGfm, remarkMath]}
     rehypePlugins={[rehypeKatex]}
     components={{
-      code({ inline, className, children, ...props }) {
+      code({ inline, className, children, ...props }: any) {
         const langMatch = /language-(\w+)/.exec(className || "");
         return inline ? (
           <code
@@ -106,7 +106,7 @@ const MarkdownRender: React.FC<{ text: string }> = ({ text }) => (
           </code>
         ) : (
           <SyntaxHighlighter
-            style={coldarkDark}
+            style={coldarkDark as any}          
             language={langMatch ? langMatch[1] : undefined}
             wrapLongLines
             customStyle={{ margin: 0, fontSize: 14 }}
@@ -168,7 +168,6 @@ const CitationPopup: React.FC<{
           </IconButton>
         </Box>
 
-        {/* formatted markdown / math / code */}
         <MarkdownRender text={chunkText} />
       </Box>
     </ClickAwayListener>
@@ -437,7 +436,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
           b.type === "code" ? (
             <SyntaxHighlighter
               key={i}
-              style={coldarkDark}
+              style={coldarkDark as any}
               language={b.language}
               customStyle={{
                 width: "100%",

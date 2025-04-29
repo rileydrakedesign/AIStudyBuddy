@@ -99,33 +99,58 @@ export const getUserChatSessions = async (req, res, next) => {
 };
 
 export const generateChatCompletion = async (req, res, next) => {
+  /* ---------- request body ---------- */
   const { message, class_name, docId, chatSessionId, ephemeral } = req.body;
   const classNameForPython = class_name && class_name !== "null" ? class_name : null;
-  const docIdForPython = docId && docId !== "null" ? docId : null;
+  const docIdForPython     = docId      && docId      !== "null" ? docId      : null;
 
   try {
+    /* ---------- AUTH ---------- */
     const currentUser = await User.findById(res.locals.jwtData.id);
     if (!currentUser) {
-      return res
-        .status(401)
-        .json({ message: "User not registered or token malfunctioned" });
+      return res.status(401).json({ message: "User not registered or token malfunctioned" });
     }
 
-    const userId = currentUser._id;
+    /* ==================================================================
+       FREE-TIER LIMIT  (NEW)
+    ================================================================== */
+    if (currentUser.plan === "free") {
+      const now = new Date();
+
+      // Reset monthly counter if month/year rolled over
+      if (
+        !currentUser.chatRequestResetAt ||
+        now.getMonth()   !== currentUser.chatRequestResetAt.getMonth() ||
+        now.getFullYear() !== currentUser.chatRequestResetAt.getFullYear()
+      ) {
+        currentUser.chatRequestCount   = 0;
+        currentUser.chatRequestResetAt = now;
+      }
+
+      if (currentUser.chatRequestCount >= 25) {
+        return res.status(403).json({
+          message: "Free plan limit reached (25 chats/month). Upgrade to premium for unlimited chats.",
+        });
+      }
+
+      // Consume one request
+      currentUser.chatRequestCount += 1;
+      await currentUser.save();
+    }
+    /* ================================================================== */
+
+    /* ---------- session bookkeeping ---------- */
+    const userId       = currentUser._id;
     const sourceHeader = req.headers["x-source"];
-    const source = sourceHeader === "chrome_extension" ? "chrome_extension" : "main_app";
+    const source       = sourceHeader === "chrome_extension" ? "chrome_extension" : "main_app";
 
     let chatSession;
 
-    // 1) If we have a chatSessionId, find or create that session
+    // 1)  If chatSessionId provided, find or create it
     if (chatSessionId && chatSessionId !== "null") {
-      chatSession = await ChatSession.findOne({
-        _id: chatSessionId,
-        userId,
-      });
+      chatSession = await ChatSession.findOne({ _id: chatSessionId, userId });
 
       if (!chatSession) {
-        // If not found, create a new one
         chatSession = new ChatSession({
           _id: chatSessionId,
           userId,
@@ -139,14 +164,11 @@ export const generateChatCompletion = async (req, res, next) => {
           ephemeral: ephemeral === true,
         });
         await chatSession.save();
-      } else {
-        // If found, ensure there's no mismatch
-        if (chatSession.source !== source) {
-          return res.status(400).json({ message: "Chat session source mismatch" });
-        }
+      } else if (chatSession.source !== source) {
+        return res.status(400).json({ message: "Chat session source mismatch" });
       }
     } else {
-      // 2) No chatSessionId => create a new session
+      // 2) Create a new session
       chatSession = new ChatSession({
         userId,
         sessionName: docIdForPython
@@ -161,17 +183,11 @@ export const generateChatCompletion = async (req, res, next) => {
       await chatSession.save();
     }
 
-    // If a class_name is provided, store it
-    if (classNameForPython) {
-      chatSession.assignedClass = classNameForPython;
-    }
+    // Store class/document references if supplied
+    if (classNameForPython) chatSession.assignedClass = classNameForPython;
+    if (docIdForPython)     chatSession.assignedDocument = docIdForPython;
 
-    // If docId is provided, store it
-    if (docIdForPython) {
-      chatSession.assignedDocument = docIdForPython;
-    }
-
-    // Append user message
+    /* ---------- push user message ---------- */
     chatSession.messages.push({
       content: message,
       role: "user",
@@ -179,7 +195,7 @@ export const generateChatCompletion = async (req, res, next) => {
       chunkReferences: [],
     });
 
-    // Prepare data for Python
+    /* ---------- prepare FastAPI payload ---------- */
     const chats = chatSession.messages.map(({ role, content, citation, chunkReferences }) => ({
       role,
       content,
@@ -187,62 +203,49 @@ export const generateChatCompletion = async (req, res, next) => {
       chunkReferences,
     }));
 
-    console.log(`User ID: ${userId}`);
-    console.log(`Source: ${source}`);
-    console.log(`Assigned Class: ${chatSession.assignedClass || "none"}`);
-    console.log(`Assigned Document: ${chatSession.assignedDocument || "none"}`);
-    console.log(`Ephemeral: ${chatSession.ephemeral}`);
-
-    // Build the URL for the FastAPI endpoint
-    const pythonApiUrl = process.env.PYTHON_API_URL; // e.g., "http://localhost:8000"
+    const pythonApiUrl           = process.env.PYTHON_API_URL; // e.g. http://localhost:8000
     const semanticSearchEndpoint = `${pythonApiUrl}/api/v1/semantic_search`;
 
-    // Build the request data payload
     const requestData = {
-      user_id: userId.toString(),
-      class_name: chatSession.assignedClass || "null",
-      doc_id: chatSession.assignedDocument || "null",
+      user_id:   userId.toString(),
+      class_name: chatSession.assignedClass   || "null",
+      doc_id:     chatSession.assignedDocument || "null",
       user_query: message,
       chat_history: chats,
       source,
     };
 
-    // Make an HTTP POST request to the FastAPI endpoint
+    /* ---------- call FastAPI ---------- */
     const responseFromPython = await axios.post(semanticSearchEndpoint, requestData);
-    const resultMessage = responseFromPython.data;
+    const resultMessage      = responseFromPython.data;
 
     const aiResponse = resultMessage.message;
-    let citation = resultMessage.citation;
-    const chunks = resultMessage.chunks || [];
+    let   citation   = resultMessage.citation;
+    const chunks     = resultMessage.chunks || [];
 
-    // Build chunk references from the Python's 'chunks' array
+    /* ---------- build chunk references ---------- */
     const chunkReferences = chunks.map((c) => ({
-      chunkId: c._id,
-      displayNumber: c.chunkNumber,
-      pageNumber: c.pageNumber ?? null,
-      docId: c.docId ?? null,
+      chunkId:        c._id,
+      displayNumber:  c.chunkNumber,
+      pageNumber:     c.pageNumber ?? null,
+      docId:          c.docId      ?? null,
     }));
 
-    // If chatSession has an assignedDocument, update citation text using fileName from MongoDB
+    /* ---------- update citation text if single-document chat ---------- */
     if (chatSession.assignedDocument && citation && Array.isArray(citation)) {
       try {
         let doc = await Document.findOne({ docId: chatSession.assignedDocument });
-        if (!doc) {
-          // Fallback: if assignedDocument is a Mongo _id, try findById
-          doc = await Document.findById(chatSession.assignedDocument);
-        }
+        if (!doc) doc = await Document.findById(chatSession.assignedDocument);
+
         if (doc) {
-          citation = citation.map((cit) => ({
-            ...cit,
-            text: doc.fileName,
-          }));
+          citation = citation.map((cit) => ({ ...cit, text: doc.fileName }));
         }
       } catch (docError) {
         console.error("Error fetching document for citation update:", docError);
       }
     }
 
-    // Append assistant's response with updated citation and chunk references
+    /* ---------- push assistant response ---------- */
     chatSession.messages.push({
       content: aiResponse,
       role: "assistant",
@@ -252,10 +255,11 @@ export const generateChatCompletion = async (req, res, next) => {
 
     await chatSession.save();
 
+    /* ---------- respond to client ---------- */
     return res.status(200).json({
-      chatSessionId: chatSession._id,
-      messages: chatSession.messages,
-      assignedClass: chatSession.assignedClass,
+      chatSessionId:   chatSession._id,
+      messages:        chatSession.messages,
+      assignedClass:   chatSession.assignedClass,
       assignedDocument: chatSession.assignedDocument,
       chunks,
     });
@@ -264,6 +268,7 @@ export const generateChatCompletion = async (req, res, next) => {
     return res.status(500).json({ message: "Something went wrong" });
   }
 };
+
 
 export const deleteChatSession = async (req, res, next) => {
   try {

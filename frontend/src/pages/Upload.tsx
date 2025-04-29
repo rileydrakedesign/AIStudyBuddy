@@ -6,14 +6,18 @@ import {
   Typography,
   IconButton,
   Autocomplete,
+  LinearProgress,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import { useAuth } from "../context/authContext";
-import { uploadDocument, getUserClasses } from "../helpers/api-communicators"; // Ensure getUserClasses is imported
+import {
+  uploadDocument,
+  getUserClasses,
+  getUserDocuments,
+  verifyUser,
+} from "../helpers/api-communicators";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
-
-// Import your custom UploadBox component
 import UploadBox from "../components/ui/uploadBox";
 
 interface ClassOption {
@@ -24,115 +28,135 @@ const UploadDocument: React.FC = () => {
   const auth = useAuth();
   const navigate = useNavigate();
 
-  // Local state: multiple files & class name
+  /* local file + class state */
   const [files, setFiles] = useState<File[]>([]);
   const [className, setClassName] = useState<string | null>(null);
-  const [classOptions, setClassOptions] = useState<string[]>([]); // Changed to string[]
+  const [classOptions, setClassOptions] = useState<string[]>([]);
 
-  // Fetch user's existing classes via API
+  /* NEW – free-plan doc counter */
+  const [docUsage, setDocUsage] = useState<{ count: number; limit: number } | null>(null);
+
+  /* ──────────────────── fetch classes */
   useEffect(() => {
     const fetchClasses = async () => {
       try {
-        const response = await getUserClasses(); // Assuming getUserClasses returns { classes: ClassOption[] }
-        const classesData: ClassOption[] = response.classes; // Adjust based on actual response structure
-        const classNames = classesData.map((cls) => cls.name);
-        setClassOptions(classNames); // Set as string[]
-
-        // Optionally, set a default or previously selected class
-        const storedClass = localStorage.getItem("selectedClass");
-        if (storedClass && classNames.includes(storedClass)) {
-          setClassName(storedClass);
-        } else {
-          setClassName(null);
-        }
-      } catch (error) {
-        console.error("Error fetching classes", error);
+        const { classes }: { classes: ClassOption[] } = await getUserClasses();
+        const names = classes.map((c) => c.name);
+        setClassOptions(names);
+        const stored = localStorage.getItem("selectedClass");
+        if (stored && names.includes(stored)) setClassName(stored);
+      } catch (err) {
+        console.error("Error fetching classes", err);
         toast.error("Failed to fetch classes");
       }
     };
-
-    if (auth?.isLoggedIn) {
-      fetchClasses();
-    }
+    if (auth?.isLoggedIn) fetchClasses();
   }, [auth]);
 
-  // Handle adding newly chosen files
-  const handleFilesSelected = (fileList: FileList) => {
-    const newFiles = Array.from(fileList);
-    // Optionally, prevent duplicate files
-    setFiles((prev) => [...prev, ...newFiles]);
-  };
+  /* ──────────────────── fetch doc usage (free plan) */
+  useEffect(() => {
+    const fetchUsage = async () => {
+      try {
+        const user = await verifyUser();
+        if (user.plan !== "free") return; // premium users: no bar
+        const { documents } = await getUserDocuments();
+        setDocUsage({ count: documents.length, limit: 3 });
+      } catch (err) {
+        console.error("Failed to fetch document usage", err);
+      }
+    };
+    if (auth?.isLoggedIn) fetchUsage();
+  }, [auth]);
 
-  // Remove a file from the list by index
-  const handleRemoveFile = (index: number) => {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
-  };
+  /* add files */
+  const handleFilesSelected = (fileList: FileList) =>
+    setFiles((prev) => [...prev, ...Array.from(fileList)]);
 
-  // Upload to server
+  /* remove file */
+  const handleRemoveFile = (idx: number) =>
+    setFiles((prev) => prev.filter((_, i) => i !== idx));
+
+  /* submit upload */
   const handleSubmit = async () => {
-    if (files.length === 0) {
-      toast.error("Please select at least one file to upload");
+    /* ── limit check ───────────────────────────── */
+    if (docUsage && docUsage.count >= docUsage.limit) {
+      toast.error("Document upload limit reached for the free plan");
       return;
     }
-    if (!className || !className.trim()) {
-      toast.error("Please enter the class name");
-      return;
-    }
+
+    if (!files.length) return toast.error("Please select at least one file");
+    if (!className?.trim()) return toast.error("Please enter the class name");
 
     const formData = new FormData();
-    // Append all files under the key "files" to match backend's expectation
-    files.forEach((file) => {
-      formData.append("files", file);
-    });
+    files.forEach((f) => formData.append("files", f));
     formData.append("className", className);
 
     try {
-      toast.loading("Uploading document(s)...", { id: "uploadDoc" });
+      toast.loading("Uploading document(s)…", { id: "uploadDoc" });
       await uploadDocument(formData);
       toast.success("Document(s) uploaded successfully!", { id: "uploadDoc" });
-      // Reset the form
+
+      /* bump usage counter for free plan */
+      setDocUsage((prev) =>
+        prev ? { ...prev, count: Math.min(prev.count + files.length, prev.limit) } : prev
+      );
+
+      /* reset form */
       setFiles([]);
       setClassName(null);
-    } catch (error: any) {
-      console.error(error);
-      // Check if the error status is 409 to display the duplicate error message
-      if (error.response && error.response.status === 409) {
-        toast.error(error.response.data.message || "Document already exists in class", { id: "uploadDoc" });
+    } catch (err: any) {
+      if (err.response && err.response.status === 403) {
+        toast.error(
+          err.response.data.message || "Document upload limit reached for the free plan",
+          { id: "uploadDoc" }
+        );
+      } else if (err.response && err.response.status === 409) {
+        toast.error(
+          err.response.data.message || "Document already exists in class",
+          { id: "uploadDoc" }
+        );
       } else {
         toast.error("Failed to upload document(s)", { id: "uploadDoc" });
       }
     }
   };
 
-  // Handle authentication redirect
+  /* redirect if not logged in */
   useEffect(() => {
-    if (!auth?.isLoggedIn) {
-      navigate("/login");
-    }
+    if (!auth?.isLoggedIn) navigate("/login");
   }, [auth, navigate]);
 
+  /* ──────────────────── JSX */
   return (
-    <Box
-      sx={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        mt: 20,
-        gap: 3,
-        width: "100%",
-      }}
-    >
+    <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", mt: 20, gap: 3 }}>
+      {/* counter on its own line */}
+      {docUsage && (
+        <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
+          <Typography sx={{ mr: 1, color: "white" }}>
+            {`${docUsage.count}/${docUsage.limit}`}
+          </Typography>
+          <LinearProgress
+            variant="determinate"
+            value={(docUsage.count / docUsage.limit) * 100}
+            sx={{ width: 100, height: 8, bgcolor: "#424242", borderRadius: 1 }}
+          />
+        </Box>
+      )}
+
+      {/* centered header on its own line */}
       <Typography
         sx={{
-          fontSize: "40px",
+          fontSize: 40,
           color: "white",
           mb: 2,
-          fontWeight: "600",
+          fontWeight: 600,
+          textAlign: "center",
         }}
       >
         Upload Document(s)
       </Typography>
 
+      {/* main upload card */}
       <Box
         sx={{
           width: { md: "50%", xs: "90%" },
@@ -142,18 +166,19 @@ const UploadDocument: React.FC = () => {
           display: "flex",
           flexDirection: "column",
           gap: 3,
-          border: "1px solid white", // White border around main container
+          border: "1px solid white",
+          position: "relative",
         }}
       >
-        {/* Use your custom UploadBox, passing in the callback */}
+        {/* file drop zone */}
         <UploadBox onFilesSelected={handleFilesSelected} />
 
-        {/* Display chosen files with name & delete icon */}
+        {/* selected files list */}
         {files.length > 0 && (
           <Box sx={{ mt: 2 }}>
-            {files.map((file, index) => (
+            {files.map((file, idx) => (
               <Box
-                key={index}
+                key={idx}
                 sx={{
                   display: "flex",
                   alignItems: "center",
@@ -165,10 +190,7 @@ const UploadDocument: React.FC = () => {
                 }}
               >
                 <Typography sx={{ color: "white" }}>{file.name}</Typography>
-                <IconButton
-                  onClick={() => handleRemoveFile(index)}
-                  sx={{ color: "white" }}
-                >
+                <IconButton onClick={() => handleRemoveFile(idx)} sx={{ color: "white" }}>
                   <DeleteIcon />
                 </IconButton>
               </Box>
@@ -176,18 +198,13 @@ const UploadDocument: React.FC = () => {
           </Box>
         )}
 
-        {/* Autocomplete for Class Name */}
+        {/* class selector */}
         <Autocomplete
           options={classOptions}
           value={className}
-          onChange={(event: any, newValue: string | null) => {
-            setClassName(newValue);
-            // Optionally, store the selected class in localStorage
-            if (newValue) {
-              localStorage.setItem("selectedClass", newValue);
-            } else {
-              localStorage.removeItem("selectedClass");
-            }
+          onChange={(_, v) => {
+            setClassName(v);
+            v ? localStorage.setItem("selectedClass", v) : localStorage.removeItem("selectedClass");
           }}
           freeSolo
           renderInput={(params) => (
@@ -198,59 +215,38 @@ const UploadDocument: React.FC = () => {
               sx={{
                 bgcolor: "#212121",
                 borderRadius: 1,
-                color: "white", // Set input text color to white
-                "& .MuiInputLabel-root": { color: "white" }, // Set label color to white
+                color: "white",
+                "& .MuiInputLabel-root": { color: "white" },
                 "& .MuiOutlinedInput-root": {
-                  "& fieldset": {
-                    borderColor: "white", // Set border color to white
-                  },
-                  "&:hover fieldset": {
-                    borderColor: "white", // Hover border color
-                  },
-                  "&.Mui-focused fieldset": {
-                    borderColor: "white", // Focus border color
-                  },
+                  "& fieldset": { borderColor: "white" },
+                  "&:hover fieldset": { borderColor: "white" },
+                  "&.Mui-focused fieldset": { borderColor: "white" },
                 },
-                "& .MuiInputBase-input": {
-                  color: "white", // Input text color
-                },
+                "& .MuiInputBase-input": { color: "white" },
               }}
             />
           )}
           ListboxProps={{
-            // Apply styles directly to the listbox using ListboxProps
             sx: {
-              backgroundColor: "white", // Set dropdown background to white
-              "& .MuiAutocomplete-option": {
-                color: "black", // Set dropdown option text color to black
-              },
-              "& .MuiAutocomplete-option[data-focus='true']": {
-                backgroundColor: "#f0f0f0", // Optional: change background on hover/focus
-              },
+              backgroundColor: "white",
+              "& .MuiAutocomplete-option": { color: "black" },
+              "& .MuiAutocomplete-option[data-focus='true']": { backgroundColor: "#f0f0f0" },
             },
           }}
           componentsProps={{
-            clearIndicator: {
-              sx: {
-                color: "white", // Set clear (X) icon color to white
-                "&:hover": {
-                  color: "#cccccc", // Optional: change color on hover
-                },
-              },
-            },
+            clearIndicator: { sx: { color: "white", "&:hover": { color: "#ccc" } } },
           }}
         />
 
+        {/* upload button */}
         <Button
           variant="contained"
           onClick={handleSubmit}
           sx={{
             mt: 2,
             bgcolor: "primary.main",
-            border: "1px solid white", // White border around the button
-            ":hover": {
-              bgcolor: "primary.dark",
-            },
+            border: "1px solid white",
+            ":hover": { bgcolor: "primary.dark" },
           }}
         >
           Upload

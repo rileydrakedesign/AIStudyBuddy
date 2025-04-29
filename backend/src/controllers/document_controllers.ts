@@ -88,27 +88,42 @@ export const uploadMiddleware = upload.array("files", 5);
  * respond immediately, then call FastAPI in the background
  * to do chunking/embedding (which sets isProcessing=false).
  */
-export const uploadDocument = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+export const uploadDocument = async (req, res, next) => {
   try {
-    /* ---------- authentication ---------- */
+    /* ---------- AUTH ---------- */
     const currentUser = await User.findById(res.locals.jwtData.id);
     if (!currentUser) {
-      return res
-        .status(401)
-        .json({ message: "User not registered or token malfunctioned" });
+      return res.status(401).json({ message: "User not registered or token malfunctioned" });
     }
 
-    const userId   = currentUser._id.toString();
-    const files    = req.files as Express.Multer.File[];
+    const userId    = currentUser._id.toString();
+    const files     = req.files as Express.Multer.File[];
     const className = req.body.className || "General";
 
     if (!files || files.length === 0) {
       return res.status(400).json({ message: "No file uploaded" });
     }
+
+    /* ==================================================================
+       FREE-TIER DOCUMENT LIMIT  (NEW)
+    ================================================================== */
+    if (currentUser.plan === "free") {
+      const existingDocs = await Document.countDocuments({ userId: currentUser._id });
+      const remaining    = 3 - existingDocs;
+
+      if (remaining <= 0) {
+        return res.status(403).json({
+          message: "Free plan users may store up to 3 documents. Delete a document or upgrade to premium.",
+        });
+      }
+
+      if (files.length > remaining) {
+        return res.status(403).json({
+          message: `Free plan: you have space for ${remaining} more document(s). Reduce your upload or upgrade.`,
+        });
+      }
+    }
+    /* ================================================================== */
 
     /* ---------- ensure class exists ---------- */
     if (!currentUser.classes.some((c) => c.name === className)) {
@@ -124,10 +139,10 @@ export const uploadDocument = async (
 
       const doc = new Document({
         userId,
-        fileName: file.originalname,
-        uploadedAt: Date.now(),
-        s3Key: (file as any).key,
-        s3Url: (file as any).location,
+        fileName:    file.originalname,
+        uploadedAt:  Date.now(),
+        s3Key:       (file as any).key,       // populated by Multer if using S3 storage
+        s3Url:       (file as any).location,  // "
         className,
         isProcessing: true,
       }) as IDocument;
@@ -136,27 +151,27 @@ export const uploadDocument = async (
       uploadedDocs.push(doc);
     }
 
-    /* ---------- respond immediately ---------- */
+    /* ---------- immediate response ---------- */
     res.status(200).json({
       message: "Upload started",
       documents: uploadedDocs.map((d) => ({
-        _id: d._id,
-        fileName: d.fileName,
-        className: d.className,
+        _id:        d._id,
+        fileName:   d.fileName,
+        className:  d.className,
         isProcessing: d.isProcessing,
       })),
     });
 
     /* ---------- background FastAPI call ---------- */
-    const pythonApiUrl = process.env.PYTHON_API_URL; // e.g. http://localhost:8000
+    const pythonApiUrl = process.env.PYTHON_API_URL;  // e.g. http://localhost:8000
     if (pythonApiUrl) {
       for (const doc of uploadedDocs) {
         axios
           .post(`${pythonApiUrl}/api/v1/process_upload`, {
-            user_id: userId,
+            user_id:    userId,
             class_name: className,
-            s3_key: doc.s3Key,
-            doc_id: doc._id.toString(),
+            s3_key:     doc.s3Key,
+            doc_id:     doc._id.toString(),
           })
           .catch((err) =>
             console.error(`FastAPI error for doc ${doc._id}:`, err.message)
@@ -170,6 +185,7 @@ export const uploadDocument = async (
     res.status(500).json({ message: "Server error" });
   }
 };
+
 
 /**
  * Returns all documents for the current user.

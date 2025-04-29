@@ -65,12 +65,10 @@ export const uploadMiddleware = upload.array("files", 5);
  */
 export const uploadDocument = async (req, res, next) => {
     try {
-        /* ---------- authentication ---------- */
+        /* ---------- AUTH ---------- */
         const currentUser = await User.findById(res.locals.jwtData.id);
         if (!currentUser) {
-            return res
-                .status(401)
-                .json({ message: "User not registered or token malfunctioned" });
+            return res.status(401).json({ message: "User not registered or token malfunctioned" });
         }
         const userId = currentUser._id.toString();
         const files = req.files;
@@ -78,6 +76,24 @@ export const uploadDocument = async (req, res, next) => {
         if (!files || files.length === 0) {
             return res.status(400).json({ message: "No file uploaded" });
         }
+        /* ==================================================================
+           FREE-TIER DOCUMENT LIMIT  (NEW)
+        ================================================================== */
+        if (currentUser.plan === "free") {
+            const existingDocs = await Document.countDocuments({ userId: currentUser._id });
+            const remaining = 3 - existingDocs;
+            if (remaining <= 0) {
+                return res.status(403).json({
+                    message: "Free plan users may store up to 3 documents. Delete a document or upgrade to premium.",
+                });
+            }
+            if (files.length > remaining) {
+                return res.status(403).json({
+                    message: `Free plan: you have space for ${remaining} more document(s). Reduce your upload or upgrade.`,
+                });
+            }
+        }
+        /* ================================================================== */
         /* ---------- ensure class exists ---------- */
         if (!currentUser.classes.some((c) => c.name === className)) {
             currentUser.classes.push({ name: className });
@@ -92,15 +108,15 @@ export const uploadDocument = async (req, res, next) => {
                 userId,
                 fileName: file.originalname,
                 uploadedAt: Date.now(),
-                s3Key: file.key,
-                s3Url: file.location,
+                s3Key: file.key, // populated by Multer if using S3 storage
+                s3Url: file.location, // "
                 className,
                 isProcessing: true,
             });
             await doc.save();
             uploadedDocs.push(doc);
         }
-        /* ---------- respond immediately ---------- */
+        /* ---------- immediate response ---------- */
         res.status(200).json({
             message: "Upload started",
             documents: uploadedDocs.map((d) => ({

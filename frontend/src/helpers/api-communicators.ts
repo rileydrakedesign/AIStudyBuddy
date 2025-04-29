@@ -172,3 +172,19 @@ export const getUserProfile = async () => {
   }
   return res.data; // Expected response: { message: "OK", profile: { fullName, email, plan } }
 };
+
+// api-communicators.ts
+export const verifyUser = async () => {
+  // use the same base path as the other user endpoints
+  const res = await axios.get("/user/auth-status");
+  if (res.status !== 200) throw new Error("Unable to verify");
+  return res.data;   // { plan, chatRequestCount, ... }
+};
+
+
+// helpers/api-communicators.ts
+export const getUserDocuments = async () => {
+  const res = await axios.get("/documents/all-documents");   
+  if (res.status !== 200) throw new Error("Unable to fetch documents");
+  return res.data;                                           // { documents: [...] }
+};
