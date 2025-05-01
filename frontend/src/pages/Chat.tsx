@@ -260,7 +260,7 @@ const Chat = () => {
   useEffect(() => {
     if (!(auth?.isLoggedIn && auth.user)) return;
 
-    toast.loading("Loading Chat Sessions", { id: "loadchatsessions" });
+    //toast.loading("Loading Chat Sessions", { id: "loadchatsessions" });
     getUserChatSessions()
       .then((data: { chatSessions: ChatSession[] }) => {
         const sessionsSorted = data.chatSessions.sort((a, b) => {
@@ -276,7 +276,7 @@ const Chat = () => {
           setChatMessages(first.messages);
           setSelectedClass(first.assignedClass || null);
         }
-        toast.success("Successfully loaded chat sessions", { id: "loadchatsessions" });
+        //toast.success("Successfully loaded chat sessions", { id: "loadchatsessions" });
       })
       .catch((err) => {
         console.error("Error loading chat sessions:", err);

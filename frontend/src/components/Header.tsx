@@ -1,3 +1,4 @@
+// src/components/Header.tsx
 import React from "react";
 import { AppBar, Toolbar, Box } from "@mui/material";
 import { useAuth } from "../context/authContext";
@@ -7,11 +8,15 @@ import StickyNote2Icon from "@mui/icons-material/StickyNote2";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import { useLocation } from "react-router-dom";
 import ChatBubble from "@mui/icons-material/ChatBubble";
-import DriveFolderUploadIcon from '@mui/icons-material/DriveFolderUpload';
+import DriveFolderUploadIcon from "@mui/icons-material/DriveFolderUpload";
 
+/** 
+ * Props are now **optional** so `<Header />` can be used without
+ * passing anything.  They remain available for a future sidebar-toggle.
+ */
 interface HeaderProps {
-  sidebarOpen: boolean;
-  onToggleSidebar: () => void;
+  sidebarOpen?: boolean;
+  onToggleSidebar?: () => void;
 }
 
 const Header: React.FC<HeaderProps> = () => {
