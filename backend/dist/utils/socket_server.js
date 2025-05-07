@@ -5,11 +5,12 @@ import signature from "cookie-signature";
 import Document from "../models/documents.js";
 import { COOKIE_NAME } from "./constants.js";
 import dotenv from "dotenv";
+import logger from "./logger.js";
 dotenv.config();
 /*-------------------------------------------------------------------
   DEBUG helper – wrap every interesting datum with a clear label
 -------------------------------------------------------------------*/
-const log = (...args) => console.log("\x1b[35m[WS‑auth]\x1b[0m", ...args); // magenta tag
+const log = (...args) => logger.debug(args);
 /*-------------------------------------------------------------------
   In‑memory socket registry
 -------------------------------------------------------------------*/
@@ -89,7 +90,7 @@ export const initializeWebSocket = (server /* http.Server */) => {
         });
         log("📨 emitted document‑ready to", room);
     });
-    console.log("✅ WebSocket server ready – detailed auth logging enabled");
+    logger.info("✅ WebSocket server ready – detailed auth logging enabled");
 };
 /*-------------------------------------------------------------------
   helper / utility functions
