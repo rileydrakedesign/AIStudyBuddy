@@ -58,7 +58,7 @@ export const createNewChatSession = async (req, res, next) => {
             .json({ message: "Chat session created", chatSession });
     }
     catch (error) {
-        console.log(error);
+        req.log.error(error);
         return res.status(500).json({ message: "ERROR", cause: error.message });
     }
 };
@@ -80,7 +80,7 @@ export const getUserChatSessions = async (req, res, next) => {
         return res.status(200).json({ chatSessions });
     }
     catch (error) {
-        console.log(error);
+        req.log.error(error);
         return res.status(500).json({ message: "ERROR", cause: error.message });
     }
 };
@@ -189,7 +189,9 @@ export const generateChatCompletion = async (req, res, next) => {
             source,
         };
         /* ---------- call FastAPI ---------- */
-        const responseFromPython = await axios.post(semanticSearchEndpoint, requestData);
+        const responseFromPython = await axios.post(semanticSearchEndpoint, requestData, {
+            headers: { 'X-Request-ID': req.id } // ← added
+        });
         const resultMessage = responseFromPython.data;
         const aiResponse = resultMessage.message;
         let citation = resultMessage.citation;
@@ -233,7 +235,7 @@ export const generateChatCompletion = async (req, res, next) => {
         });
     }
     catch (error) {
-        console.log(error);
+        req.log.error(error);
         return res.status(500).json({ message: "Something went wrong" });
     }
 };
@@ -254,7 +256,7 @@ export const deleteChatSession = async (req, res, next) => {
         return res.status(200).json({ message: "Chat session deleted" });
     }
     catch (error) {
-        console.log(error);
+        req.log.error(error);
         return res.status(500).json({ message: "ERROR", cause: error.message });
     }
 };
@@ -268,7 +270,7 @@ export const deleteAllChatSessions = async (req, res, next) => {
         return res.status(200).json({ message: "All chat sessions deleted" });
     }
     catch (error) {
-        console.log(error);
+        req.log.error(error);
         return res.status(500).json({ message: "ERROR", cause: error.message });
     }
 };

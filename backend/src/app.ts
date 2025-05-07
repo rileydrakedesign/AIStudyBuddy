@@ -9,6 +9,7 @@ import * as PinoHttpNS from 'pino-http';                     // namespace import
 // fall back to the namespace itself for CommonJS resolution.
 const pinoHttp = (PinoHttpNS as any).default ?? (PinoHttpNS as any);
 
+import { v4 as uuid } from 'uuid';    
 import logger from './utils/logger.js';           // the singleton created in utils/logger.ts
 /* ──────────────────────────────────────────────── */
 
@@ -45,15 +46,31 @@ app.use(cookieParser(process.env.COOKIE_SECRET));
 /* ─────────── NEW: replace morgan with pino-http ─────────── */
 app.use(
   pinoHttp({
-    logger,                               // reuse global pino instance
+    logger,
+    genReqId() {
+      return uuid();                       // ← NEW request-ID
+    },                               // reuse global pino instance
     serializers: {
       res(res) {
         return { statusCode: res.statusCode };
       },
     },
+    /* elevate warn/error levels automatically */
+    customLogLevel(_req, res, err) {
+      if (err || res.statusCode >= 500) return 'error';
+      if (res.statusCode >= 400) return 'warn';
+      return 'info';
+    },
   })
 );
 /* ─────────────────────────────────────────────────────────── */
+
+/* add request-ID header so callers can forward / log it */
+app.use((req, res, next) => {
+  if (req.id) res.setHeader("X-Request-ID", req.id as string);
+  next();
+});
+
 
 // Route handling
 app.use('/api/v1', appRouter);

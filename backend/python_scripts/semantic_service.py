@@ -1,10 +1,30 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from typing import List, Optional
 from semantic_search import process_semantic_search
 from load_data import load_pdf_data
+from logger_setup import log
+import uuid
+from fastapi.responses import JSONResponse
 
 app = FastAPI()
+
+# ⋆ NEW – request-ID middleware + contextual logging
+@app.middleware("http")
+async def add_req_id(request: Request, call_next):
+    req_id = str(uuid.uuid4())
+    with log.contextualize(req_id=req_id):
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            log.exception(exc)
+            return JSONResponse(
+                status_code=500,
+                content={"error": type(exc).__name__, "message": str(exc), "reqId": req_id},
+            )
+        response.headers["X-Request-ID"] = req_id
+        return response
+
 
 class SearchRequest(BaseModel):
     user_id: str

@@ -68,7 +68,7 @@ export const createNewChatSession = async (req, res, next) => {
       .status(201)
       .json({ message: "Chat session created", chatSession });
   } catch (error) {
-    console.log(error);
+    (req as any).log.error(error);
     return res.status(500).json({ message: "ERROR", cause: error.message });
   }
 };
@@ -93,7 +93,7 @@ export const getUserChatSessions = async (req, res, next) => {
     const chatSessions = await ChatSession.find(query);
     return res.status(200).json({ chatSessions });
   } catch (error) {
-    console.log(error);
+    (req as any).log.error(error);
     return res.status(500).json({ message: "ERROR", cause: error.message });
   }
 };
@@ -216,7 +216,13 @@ export const generateChatCompletion = async (req, res, next) => {
     };
 
     /* ---------- call FastAPI ---------- */
-    const responseFromPython = await axios.post(semanticSearchEndpoint, requestData);
+    const responseFromPython = await axios.post(
+      semanticSearchEndpoint,
+      requestData,
+      {
+        headers: { 'X-Request-ID': (req as any).id }   // ← added
+      }
+    );
     const resultMessage      = responseFromPython.data;
 
     const aiResponse = resultMessage.message;
@@ -264,7 +270,7 @@ export const generateChatCompletion = async (req, res, next) => {
       chunks,
     });
   } catch (error) {
-    console.log(error);
+    (req as any).log.error(error);
     return res.status(500).json({ message: "Something went wrong" });
   }
 };
@@ -289,7 +295,7 @@ export const deleteChatSession = async (req, res, next) => {
 
     return res.status(200).json({ message: "Chat session deleted" });
   } catch (error) {
-    console.log(error);
+    (req as any).log.error(error);
     return res.status(500).json({ message: "ERROR", cause: error.message });
   }
 };
@@ -305,7 +311,7 @@ export const deleteAllChatSessions = async (req, res, next) => {
 
     return res.status(200).json({ message: "All chat sessions deleted" });
   } catch (error) {
-    console.log(error);
+    (req as any).log.error(error);
     return res.status(500).json({ message: "ERROR", cause: error.message });
   }
 };
