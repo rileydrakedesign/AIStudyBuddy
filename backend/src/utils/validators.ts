@@ -100,13 +100,19 @@ export const handleChatCompletionValidation = (
   next: NextFunction
 ) => {
   // Log the raw incoming body
-  console.log("Incoming /chat/new request body =>", req.body);
+  (req as any).log.debug(
+    { body: req.body },
+    "Incoming /chat/new request body"
+  );
+  
 
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     // If there's a validation error, log it out
-    console.log("Validation errors =>", errors.array());
-    return res.status(422).json({ errors: errors.array() });
+    (req as any).log.debug(
+      { errors: errors.array() },
+      "Validation errors"
+    );
   }
   // No errors; proceed to the next middleware/controller
   next();
@@ -158,8 +164,11 @@ export const duplicateDocumentValidator = async (req: Request, res: Response, ne
                 Key: (f as any).key,
               }));
             } catch (deleteError) {
-              console.error("Error deleting duplicate file from S3", (f as any).key, deleteError);
-            }
+              (req as any).log.error(
+                { err: deleteError, s3Key: (f as any).key },
+                "Error deleting duplicate file from S3"
+              );
+            }            
           }
         }
         return res.status(409).json({ message: "Document already exists in class" });
@@ -167,7 +176,9 @@ export const duplicateDocumentValidator = async (req: Request, res: Response, ne
     }
     next();
   } catch (error) {
-    console.error("Error in duplicateDocumentValidator:", error);
-    return res.status(500).json({ message: "Server error in duplicate document check" });
-  }
+    (req as any).log.error(error, "Error in duplicateDocumentValidator");
+    return res
+      .status(500)
+      .json({ message: "Server error in duplicate document check" });
+  }  
 };

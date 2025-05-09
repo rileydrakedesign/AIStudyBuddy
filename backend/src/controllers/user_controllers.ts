@@ -17,9 +17,9 @@ export const getAllUsers = async (
     const users = await user.find();
     return res.status(200).json({ message: "OK", users });
   } catch (error: any) {
-    console.log(error);
+    (req as any).log.error(error);
     return res.status(200).json({ message: "ERROR", cause: error.message });
-  }
+  }  
 };
 
 export const userSignup = async (
@@ -62,7 +62,7 @@ export const userSignup = async (
       .status(200)
       .json({ message: "OK", name: newUser.name, email: newUser.email });
   } catch (error: any) {
-    console.log(error);
+    (req as any).log.error(error);
     return res.status(200).json({ message: "ERROR", cause: error.message });
   }
 };
@@ -113,7 +113,7 @@ export const userLogin = async (
       .status(200)
       .json({ message: "OK", name: currentUser.name, email: currentUser.email });
   } catch (error: any) {
-    console.log(error);
+    (req as any).log.error(error);
     return res.status(200).json({ message: "ERROR", cause: error.message });
   }
 };
@@ -145,9 +145,9 @@ export const verifyUser = async (
       chatRequestCount: currentUser.chatRequestCount, 
     });
   } catch (error: any) {
-    console.log(error);
+    (req as any).log.error(error);
     return res.status(200).json({ message: "ERROR", cause: error.message });
-  }
+  }  
 };
 
 
@@ -163,11 +163,11 @@ export const getUserClasses = async (req: Request, res: Response) => {
     const userClasses = currentUser.classes || [];
     return res.status(200).json({ classes: userClasses });
   } catch (error) {
-    console.error(error);
+    (req as any).log.error(error);
     return res
       .status(500)
       .json({ message: "Failed to fetch user classes" });
-  }
+  }  
 };
 
 /* ------------------------------------------------------------
@@ -215,9 +215,9 @@ export const deleteUserClass = async (req: Request, res: Response) => {
           "Class and associated documents, chat sessions, and document chunks deleted successfully",
       });
   } catch (error: any) {
-    console.error("Error deleting class:", error);
+    (req as any).log.error({ err: error }, "Error deleting class");
     return res.status(500).json({ message: "ERROR", cause: error.message });
-  }
+  } 
 };
 
 export const userLogout = async (
@@ -249,7 +249,7 @@ export const userLogout = async (
       .status(200)
       .json({ message: "OK", name: currentUser.name, email: currentUser.email });
   } catch (error: any) {
-    console.log(error);
+    (req as any).log.error(error);
     return res.status(200).json({ message: "ERROR", cause: error.message });
-  }
+  }    
 };

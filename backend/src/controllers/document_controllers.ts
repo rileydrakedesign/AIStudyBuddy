@@ -174,16 +174,19 @@ export const uploadDocument = async (req, res, next) => {
             doc_id:     doc._id.toString(),
           })
           .catch((err) =>
-            console.error(`FastAPI error for doc ${doc._id}:`, err.message)
+            (req as any).log.error(
+              { err, docId: doc._id },
+              "FastAPI error during document processing"
+            )
           );
       }
     } else {
-      console.warn("PYTHON_API_URL not set; background processing skipped.");
+      (req as any).log.warn("PYTHON_API_URL not set; background processing skipped.")
     }
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Server error" });
-  }
+  } catch (error) {
+    (req as any).log.error(error);
+    return res.status(500).json({ message: "Server error" });
+  }  
 };
 
 
@@ -206,9 +209,9 @@ export const getUserDocuments = async (
     const documents = await Document.find({ userId: currentUser._id });
     return res.status(200).json({ message: "OK", documents });
   } catch (error) {
-    console.error(error);
+    (req as any).log.error(error);
     return res.status(500).json({ message: "Server error" });
-  }
+  }  
 };
 
 /**
@@ -256,9 +259,9 @@ export const getDocumentFile = async (
     const url = await getSignedUrl(s3Client, command, { expiresIn: 120 });
     return res.status(200).json({ url });
   } catch (error) {
-    console.error(error);
+    (req as any).log.error(error);
     return res.status(500).json({ message: "Server error" });
-  }
+  }  
 };
 
 /**
@@ -312,11 +315,11 @@ export const deleteDocument = async (
         "Document and associated chat sessions and document chunks deleted successfully",
     });
   } catch (error: any) {
-    console.error("Error deleting document:", error);
+    (req as any).log.error(error);
     return res
       .status(500)
       .json({ message: "Error deleting document", cause: error.message });
-  }
+  }  
 };
 
 /**
@@ -348,10 +351,10 @@ export const getDocumentsByClass = async (
     }).sort({ uploadedAt: -1 });
 
     return res.status(200).json(docs);
-  } catch (error) {
-    console.error("Error fetching documents by class:", error);
+  } catch (error: any) {
+    (req as any).log.error(error);
     return res
       .status(500)
-      .json({ message: "Failed to fetch documents", error: String(error) });
-  }
+      .json({ message: "Error fetching documents by class", cause: error.message });
+  }  
 };

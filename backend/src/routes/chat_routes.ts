@@ -89,9 +89,9 @@ chatRoutes.get("/chunk/:chunkId", verifyToken, async (req, res) => {
       // any other fields you wish to expose (title, author, etc.)
     });
   } catch (error) {
-    console.error("Error fetching chunk:", error);
+    (req as any).log.error(error, "Error fetching chunk");
     return res.status(500).json({ message: "Unable to fetch chunk" });
-  }
+  }  
 });
 
 export default chatRoutes;

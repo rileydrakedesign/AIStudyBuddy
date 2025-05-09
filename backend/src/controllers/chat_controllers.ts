@@ -247,7 +247,10 @@ export const generateChatCompletion = async (req, res, next) => {
           citation = citation.map((cit) => ({ ...cit, text: doc.fileName }));
         }
       } catch (docError) {
-        console.error("Error fetching document for citation update:", docError);
+        (req as any).log.warn(
+          { err: docError, docId: chatSession.assignedDocument },
+          "Error fetching document for citation update"
+        );
       }
     }
 
