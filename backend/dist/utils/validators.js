@@ -84,12 +84,11 @@ export const downloadValidator = [
 ];
 export const handleChatCompletionValidation = (req, res, next) => {
     // Log the raw incoming body
-    console.log("Incoming /chat/new request body =>", req.body);
+    req.log.debug({ body: req.body }, "Incoming /chat/new request body");
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
         // If there's a validation error, log it out
-        console.log("Validation errors =>", errors.array());
-        return res.status(422).json({ errors: errors.array() });
+        req.log.debug({ errors: errors.array() }, "Validation errors");
     }
     // No errors; proceed to the next middleware/controller
     next();
@@ -137,7 +136,7 @@ export const duplicateDocumentValidator = async (req, res, next) => {
                             }));
                         }
                         catch (deleteError) {
-                            console.error("Error deleting duplicate file from S3", f.key, deleteError);
+                            req.log.error({ err: deleteError, s3Key: f.key }, "Error deleting duplicate file from S3");
                         }
                     }
                 }
@@ -147,8 +146,10 @@ export const duplicateDocumentValidator = async (req, res, next) => {
         next();
     }
     catch (error) {
-        console.error("Error in duplicateDocumentValidator:", error);
-        return res.status(500).json({ message: "Server error in duplicate document check" });
+        req.log.error(error, "Error in duplicateDocumentValidator");
+        return res
+            .status(500)
+            .json({ message: "Server error in duplicate document check" });
     }
 };
 //# sourceMappingURL=validators.js.map

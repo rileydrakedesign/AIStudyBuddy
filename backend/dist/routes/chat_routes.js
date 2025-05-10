@@ -54,7 +54,7 @@ chatRoutes.get("/chunk/:chunkId", verifyToken, async (req, res) => {
         });
     }
     catch (error) {
-        console.error("Error fetching chunk:", error);
+        req.log.error(error, "Error fetching chunk");
         return res.status(500).json({ message: "Unable to fetch chunk" });
     }
 });

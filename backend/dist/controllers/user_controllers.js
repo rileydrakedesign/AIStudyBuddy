@@ -12,7 +12,7 @@ export const getAllUsers = async (req, res, next) => {
         return res.status(200).json({ message: "OK", users });
     }
     catch (error) {
-        console.log(error);
+        req.log.error(error);
         return res.status(200).json({ message: "ERROR", cause: error.message });
     }
 };
@@ -50,7 +50,7 @@ export const userSignup = async (req, res, next) => {
             .json({ message: "OK", name: newUser.name, email: newUser.email });
     }
     catch (error) {
-        console.log(error);
+        req.log.error(error);
         return res.status(200).json({ message: "ERROR", cause: error.message });
     }
 };
@@ -89,7 +89,7 @@ export const userLogin = async (req, res, next) => {
             .json({ message: "OK", name: currentUser.name, email: currentUser.email });
     }
     catch (error) {
-        console.log(error);
+        req.log.error(error);
         return res.status(200).json({ message: "ERROR", cause: error.message });
     }
 };
@@ -115,7 +115,7 @@ export const verifyUser = async (req, res, next) => {
         });
     }
     catch (error) {
-        console.log(error);
+        req.log.error(error);
         return res.status(200).json({ message: "ERROR", cause: error.message });
     }
 };
@@ -131,7 +131,7 @@ export const getUserClasses = async (req, res) => {
         return res.status(200).json({ classes: userClasses });
     }
     catch (error) {
-        console.error(error);
+        req.log.error(error);
         return res
             .status(500)
             .json({ message: "Failed to fetch user classes" });
@@ -174,7 +174,7 @@ export const deleteUserClass = async (req, res) => {
         });
     }
     catch (error) {
-        console.error("Error deleting class:", error);
+        req.log.error({ err: error }, "Error deleting class");
         return res.status(500).json({ message: "ERROR", cause: error.message });
     }
 };
@@ -202,7 +202,7 @@ export const userLogout = async (req, res, next) => {
             .json({ message: "OK", name: currentUser.name, email: currentUser.email });
     }
     catch (error) {
-        console.log(error);
+        req.log.error(error);
         return res.status(200).json({ message: "ERROR", cause: error.message });
     }
 };

@@ -214,7 +214,7 @@ export const generateChatCompletion = async (req, res, next) => {
                 }
             }
             catch (docError) {
-                console.error("Error fetching document for citation update:", docError);
+                req.log.warn({ err: docError, docId: chatSession.assignedDocument }, "Error fetching document for citation update");
             }
         }
         /* ---------- push assistant response ---------- */

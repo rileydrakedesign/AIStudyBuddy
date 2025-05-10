@@ -137,16 +137,16 @@ export const uploadDocument = async (req, res, next) => {
                     s3_key: doc.s3Key,
                     doc_id: doc._id.toString(),
                 })
-                    .catch((err) => console.error(`FastAPI error for doc ${doc._id}:`, err.message));
+                    .catch((err) => req.log.error({ err, docId: doc._id }, "FastAPI error during document processing"));
             }
         }
         else {
-            console.warn("PYTHON_API_URL not set; background processing skipped.");
+            req.log.warn("PYTHON_API_URL not set; background processing skipped.");
         }
     }
-    catch (err) {
-        console.error(err);
-        res.status(500).json({ message: "Server error" });
+    catch (error) {
+        req.log.error(error);
+        return res.status(500).json({ message: "Server error" });
     }
 };
 /**
@@ -164,7 +164,7 @@ export const getUserDocuments = async (req, res, next) => {
         return res.status(200).json({ message: "OK", documents });
     }
     catch (error) {
-        console.error(error);
+        req.log.error(error);
         return res.status(500).json({ message: "Server error" });
     }
 };
@@ -204,7 +204,7 @@ export const getDocumentFile = async (req, res, next) => {
         return res.status(200).json({ url });
     }
     catch (error) {
-        console.error(error);
+        req.log.error(error);
         return res.status(500).json({ message: "Server error" });
     }
 };
@@ -247,7 +247,7 @@ export const deleteDocument = async (req, res, next) => {
         });
     }
     catch (error) {
-        console.error("Error deleting document:", error);
+        req.log.error(error);
         return res
             .status(500)
             .json({ message: "Error deleting document", cause: error.message });
@@ -277,10 +277,10 @@ export const getDocumentsByClass = async (req, res, next) => {
         return res.status(200).json(docs);
     }
     catch (error) {
-        console.error("Error fetching documents by class:", error);
+        req.log.error(error);
         return res
             .status(500)
-            .json({ message: "Failed to fetch documents", error: String(error) });
+            .json({ message: "Error fetching documents by class", cause: error.message });
     }
 };
 //# sourceMappingURL=document_controllers.js.map

@@ -16,7 +16,7 @@ export const getUserProfile = async (req, res, next) => {
         });
     }
     catch (error) {
-        console.error(error);
+        req.log.error(error);
         return res.status(500).json({ message: "ERROR", cause: error.message });
     }
 };
@@ -41,7 +41,7 @@ export const updateUserProfile = async (req, res, next) => {
         });
     }
     catch (error) {
-        console.error(error);
+        req.log.error(error);
         return res.status(500).json({ message: "ERROR", cause: error.message });
     }
 };
@@ -51,7 +51,7 @@ export const resetUserPassword = async (req, res, next) => {
         return res.status(200).json({ message: "Password reset functionality not implemented yet" });
     }
     catch (error) {
-        console.error(error);
+        req.log.error(error);
         return res.status(500).json({ message: "ERROR", cause: error.message });
     }
 };
@@ -61,7 +61,7 @@ export const changeUserPlan = async (req, res, next) => {
         return res.status(200).json({ message: "Plan change functionality not implemented yet" });
     }
     catch (error) {
-        console.error(error);
+        req.log.error(error);
         return res.status(500).json({ message: "ERROR", cause: error.message });
     }
 };

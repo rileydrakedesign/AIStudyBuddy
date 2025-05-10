@@ -19,6 +19,8 @@ from semantic_router.encoders import CohereEncoder, OpenAIEncoder
 from botocore.exceptions import ClientError
 import boto3
 from urllib.parse import quote
+from logger_setup import log
+
 
 # You might need this if you want to convert string IDs to ObjectId:
 # from bson import ObjectId
@@ -313,13 +315,13 @@ def process_semantic_search(user_id, class_name, doc_id, user_query, chat_histor
 
     # 1) Determine the route BEFORE any rephrasing
     route = semantic_router(user_query)
-    print(f"Detected route: {route}", file=sys.stderr)
+    log.debug(f"Detected route: {route}")
 
     skip_search = (route == "follow_up")
 
     # We'll load prompts first
     prompts = load_prompts('/Users/rileydrake/Desktop/AIStudyBuddy/backend/prompts.json')
-    print(f"Source: {source}", file=sys.stderr)
+    log.debug(f"Source: {source}")
 
     # Clean up chat history to avoid curly brace parse issues
     chat_history_cleaned = []
@@ -342,7 +344,7 @@ def process_semantic_search(user_id, class_name, doc_id, user_query, chat_histor
     if skip_search:
         last_chunk_refs = get_last_assistant_chunk_references(chat_history_cleaned)
         if last_chunk_refs:
-            print("Reusing chunkReferences from last assistant message", file=sys.stderr)
+            log.debug("Reusing chunkReferences from last assistant message")
             # Convert them to chunk_array with DB lookup for text
             chunk_array = convert_chunk_references_to_chunk_array(last_chunk_refs)
         else:
@@ -373,7 +375,7 @@ user query: {input}
         elif class_name and class_name != "null":
             filters["class_id"] = {"$eq": class_name}
 
-        print(f"filter: {filters}", file=sys.stderr)
+        log.debug(f"Filter: {filters}")
 
         # 6) Perform the semantic search
         search_results = perform_semantic_search(query_vector, filters)
@@ -381,7 +383,7 @@ user query: {input}
         # Filter out results below a chosen threshold
         filtered_results = [doc for doc in similarity_results if doc['score'] > 0.35]
 
-        print(f"results: {similarity_results}", file=sys.stderr)
+        log.debug("Vector search results", similarity_results)
 
         # Build a new chunk_array from the filtered results
         for idx, doc in enumerate(filtered_results):
@@ -397,7 +399,7 @@ user query: {input}
     if source == "chrome_extension":
         selected_prompt = prompts.get("chrome_extension")
         if not selected_prompt:
-            print("Error: 'chrome_extension' prompt not found in prompts.json", file=sys.stderr)
+            log.error("'chrome_extension' prompt not found in prompts.json")
             raise ValueError("Prompt 'chrome_extension' not found")
         referencing_instruction = (
             "Whenever you use content from a given chunk in your final answer, "
@@ -407,7 +409,7 @@ user query: {input}
     else:
         selected_prompt = prompts.get(route)
         if not selected_prompt:
-            print(f"Error: Prompt for route '{route}' not found in prompts.json", file=sys.stderr)
+            log.error(f"Error: Prompt for route '{route}' not found in prompts.json")
             raise ValueError(f"Prompt for route '{route}' not found")
         referencing_instruction = (
             "Whenever you use content from a given chunk in your final answer, "
@@ -465,7 +467,7 @@ user query: {input}
         "chunkReferences": chunk_references
     })
 
-    print("DEBUG: JSON to be returned by semantic_search.py:", json.dumps(json_output), file=sys.stderr)
+    log.debug("Outgoing JSON", json_output)
     return json_output
 
 
@@ -481,7 +483,7 @@ def main():
     6) source
     """
     if len(sys.argv) < 7:
-        print("Error: Not enough arguments provided.", file=sys.stderr)
+        log.error("Error: Not enough arguments provided.")
         sys.exit(1)
 
     user_id = sys.argv[1]
@@ -493,9 +495,9 @@ def main():
 
     try:
         result = process_semantic_search(user_id, class_name, doc_id, user_query, chat_history, source)
-        print(json.dumps(result))
+        log.debug(json.dumps(result))
     except Exception as e:
-        print(f"Error: {str(e)}", file=sys.stderr)
+        log.error(f"Error: {str(e)}")
         sys.exit(1)
 
 
@@ -503,5 +505,5 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        print(f"Error: {str(e)}", file=sys.stderr)
+        log.error(f"Error: {str(e)}")
         sys.exit(1)

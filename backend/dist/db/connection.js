@@ -1,3 +1,4 @@
+import logger from "../utils/logger.js";
 import mongoose, { connect, disconnect } from "mongoose";
 let mainDbConnected = false;
 let studyBuddyConnection = null;
@@ -13,11 +14,11 @@ async function connectToDatabase() {
             // or pass dbName: "test" if you specifically want that:
             // await connect(process.env.MONGO_CONNECTION_STRING!, { dbName: "test" });
             mainDbConnected = true;
-            console.log("Connected to main DB (legacy) successfully.");
+            logger.info("Connected to main DB (legacy) successfully.");
         }
     }
     catch (error) {
-        console.log(error);
+        logger.error(error, "Could not connect to MongoDB (main)");
         throw new Error("Could not Connect To MongoDB (main)");
     }
 }
@@ -29,11 +30,11 @@ async function disconnectFromDatabase() {
         if (mainDbConnected) {
             await disconnect();
             mainDbConnected = false;
-            console.log("Disconnected from main DB (legacy).");
+            logger.info("Disconnected from main DB (legacy).");
         }
     }
     catch (error) {
-        console.log(error);
+        logger.error(error, "Could not disconnect from MongoDB (main)");
         throw new Error("Could not Disconnect From MongoDB (main)");
     }
 }
@@ -54,18 +55,18 @@ async function connectToStudyBuddyDb() {
         // Wait for connection to open
         await new Promise((resolve, reject) => {
             studyBuddyConnection?.once("open", () => {
-                console.log("Connected to study_buddy_demo DB for chunk data.");
+                logger.info("Connected to study_buddy_demo DB for chunk data.");
                 resolve();
             });
             studyBuddyConnection?.on("error", (err) => {
-                console.log("Error connecting to study_buddy_demo:", err);
+                logger.error(err, "Error connecting to study_buddy_demo");
                 reject(err);
             });
         });
         return studyBuddyConnection;
     }
     catch (error) {
-        console.log(error);
+        logger.error(error, "Could not connect to study_buddy_demo DB");
         throw new Error("Could not connect to study_buddy_demo DB");
     }
 }
@@ -77,11 +78,11 @@ async function disconnectFromStudyBuddyDb() {
         if (studyBuddyConnection) {
             await studyBuddyConnection.close();
             studyBuddyConnection = null;
-            console.log("Disconnected from study_buddy_demo DB.");
+            logger.info("Disconnected from study_buddy_demo DB.");
         }
     }
     catch (error) {
-        console.log(error);
+        logger.error(error, "Could not disconnect from study_buddy_demo DB");
         throw new Error("Could not disconnect from study_buddy_demo DB");
     }
 }

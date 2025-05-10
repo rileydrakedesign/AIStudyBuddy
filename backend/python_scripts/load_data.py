@@ -16,6 +16,8 @@ from bson import ObjectId
 import pymupdf
 from langchain_text_splitters import MarkdownHeaderTextSplitter
 from langchain_experimental.text_splitter import SemanticChunker
+from logger_setup import log
+
 
 load_dotenv()
 
@@ -150,11 +152,11 @@ def load_pdf_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
     try:
         response = s3_client.get_object(Bucket=os.getenv('AWS_S3_BUCKET_NAME'), Key=s3_key)
     except Exception as e:
-        print(f"Error downloading {s3_key} from S3: {e}", file=sys.stderr)
+        log.error(f"Error downloading {s3_key} from S3", exc_info=True)
         return
 
     if response['ContentLength'] == 0:
-        print(f"File {s3_key} in S3 is empty.", file=sys.stderr)
+        log.warning(f"S3 file, {s3_key} is empty")
         return
 
     pdf_stream = BytesIO(response['Body'].read())
@@ -163,7 +165,7 @@ def load_pdf_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
     # The doc in main_collection
     document = main_collection.find_one({"_id": ObjectId(doc_id)})
     if not document:
-        print(f"No document with _id={doc_id}", file=sys.stderr)
+        log.error(f"No document with _id={doc_id}")
         return
 
     file_name = os.path.basename(s3_key)
@@ -178,11 +180,11 @@ def load_pdf_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
             {"_id": ObjectId(doc_id)},
             {"$set": {"isProcessing": False}}
         )
-        print("🛠  set isProcessing False for", doc_id)
+        log.info("set isProcessing False for", doc_id)
     except Exception as update_err:
-        print(f"Error updating isProcessing for doc {doc_id}: {update_err}", file=sys.stderr)
+        log.error(f"Error updating isProcessing for doc {doc_id}: {update_err}")
 
-    print(f"Processed and stored embeddings for doc {doc_id} successfully.")
+    log.info(f"Processed and stored embeddings for doc {doc_id} successfully.")
 
     # You can close the client if you like, though in FastAPI you typically keep the global client open:
     # client.close()

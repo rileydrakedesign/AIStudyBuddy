@@ -33,8 +33,10 @@ export const downloadFile = async (req, res) => {
         return res.redirect(url);
     }
     catch (error) {
-        console.error('Error generating pre-signed URL:', error);
-        return res.status(500).json({ message: 'Error generating download link', error: error.message });
+        req.log.error({ err: error, s3Key: req.query.s3_key }, "Error generating pre-signed URL");
+        return res
+            .status(500)
+            .json({ message: "Error generating download link", error: error.message });
     }
 };
 //# sourceMappingURL=download_controllers.js.map
