@@ -2,7 +2,7 @@
 fastapi==0.115.4
 uvicorn==0.23.2          # dev & local; gunicorn wraps it in prod
 gunicorn==22.0.0         # prod ASGI HTTP server
-pydantic==2.9.2
+pydantic>=2.10.2,<3
 python-multipart==0.0.9  # FastAPI file-upload helper
 python-dotenv==1.0.1     # loads .env in local dev
 
