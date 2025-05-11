@@ -1,8 +1,4 @@
-"""
-Shared Loguru configuration.
-– Pretty prints locally, JSON in prod.
-– Level set via LOG_LEVEL (default INFO).
-"""
+
 import os, sys
 from loguru import logger
 
