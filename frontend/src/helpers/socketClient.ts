@@ -16,7 +16,7 @@ export const initializeSocket = (): Socket => {
     { tokenPresent: false }
   );
 
-  socket = io("https://localhost:3000", {
+  socket = io(import.meta.env.VITE_WS_URL, {
     withCredentials: true,          // keep cookie auth
     /* leave transports undefined so Socket.IO can upgrade */
   });
