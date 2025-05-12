@@ -19,8 +19,8 @@ langchain-core==0.3.15
 langchain-text-splitters==0.3.2
 langchain-mongodb==0.2.0
 langchain-experimental==0.3.3
-semantic-router==0.1.8
+semantic-router==0.1.4  
 
 # ───────────────────── utilities ──────────────────────────
 loguru==0.7.3            # structured logging
-boto3-stubs[essential]   # optional type hints; safe to drop
+#boto3-stubs[essential]   # optional type hints; safe to drop
