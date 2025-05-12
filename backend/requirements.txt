@@ -14,8 +14,8 @@ pymupdf==1.24.13         # main PDF → Markdown extractor
 
 # ───────────────────── LLM / RAG stack ────────────────────
 openai==1.54.0
-langchain-openai==0.2.5
-langchain-core==0.3.15
+langchain-openai>=0.2.8
+langchain-core>=0.3.20
 langchain-text-splitters==0.3.2
 langchain-mongodb==0.2.0
 langchain-experimental==0.3.3
