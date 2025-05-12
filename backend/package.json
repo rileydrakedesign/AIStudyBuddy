@@ -5,7 +5,7 @@
   "main": "index.ts",
   "type": "module",
   "engines": {
-    "node": "20.x"                 
+    "node": "20.x"
   },
   "scripts": {
     "dev": "concurrently \"npx tsc --watch\" \"nodemon -q dist/index.js\" ",
@@ -21,7 +21,7 @@
     "@aws-sdk/s3-request-presigner": "^3.654.0",
     "@aws-sdk/util-stream-node": "^3.370.0",
     "axios": "^1.8.4",
-    "bcrypt": "^5.1.0",
+    "bcrypt": "^5.1.1",
     "concurrently": "^8.2.0",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
