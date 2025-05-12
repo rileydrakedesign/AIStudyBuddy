@@ -25,6 +25,8 @@ const app = express();
 const allowedOrigins = [
   'https://localhost:5173',                       // Frontend Application
   'chrome-extension://fgammdbnfifiohdnmdlcgofflpgbhklk', // Chrome Extension
+  'https://class-chat-7se96o1mk-riley-drakes-projects.vercel.app',
+  'https://class-chat-frontend.vercel.app',
 ];
 
 // CORS configuration options
