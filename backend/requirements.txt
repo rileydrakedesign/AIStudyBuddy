@@ -1,26 +1,37 @@
-# ───────────────────── core framework ─────────────────────
+# === web framework ===
 fastapi==0.115.4
-uvicorn==0.23.2          # dev & local; gunicorn wraps it in prod
-gunicorn==22.0.0         # prod ASGI HTTP server
-pydantic>=2.10.2,<3
-python-multipart==0.0.9  # FastAPI file-upload helper
-python-dotenv==1.0.1     # loads .env in local dev
+uvicorn==0.23.2
+gunicorn==22.0.0          # not in the conda env, but keep the version you were using
 
-# ───────────────────── data & I/O ─────────────────────────
-pymongo==4.8.0           # MongoDB Atlas
-boto3==1.34.142          # AWS S3
-PyPDF2==3.0.1            # PDF parser fallback
-pymupdf==1.24.13         # main PDF → Markdown extractor
+# === data handling / uploads ===
+python-multipart==0.0.9
+python-dotenv==1.0.1
+pydantic==2.9.2           # matches your env (plus Pydantic-core inside the wheel)
 
-# ───────────────────── LLM / RAG stack ────────────────────
+# === storage / database / cloud ===
+pymongo==4.8.0
+boto3==1.34.142
+botocore==1.34.142        # boto3 pulls this, but pin for safety
+
+# === PDF & document utilities ===
+PyPDF2==3.0.1
+PyMuPDF==1.24.13
+
+# === LLM stack ===
 openai==1.54.0
-langchain-openai>=0.2.8
-langchain-core>=0.3.20
+tiktoken==0.7.0
+langchain-openai==0.2.5
+langchain-core==0.3.15
 langchain-text-splitters==0.3.2
 langchain-mongodb==0.2.0
 langchain-experimental==0.3.3
-semantic-router==0.1.4  
+langchain-community==0.3.5      # pulled by experimental
+semantic-router==0.0.50          # version actually present in env
+tenacity==8.5.0                  # langchain dependency
+anyio==4.4.0                     # fastapi / openai shared dep
+httpx==0.27.0                    # openai / fastapi shared dep
 
-# ───────────────────── utilities ──────────────────────────
-loguru==0.7.3            # structured logging
-#boto3-stubs[essential]   # optional type hints; safe to drop
+# === util ===
+loguru==0.7.3
+annotated-types==0.7.0
+typing-extensions==4.12.2
