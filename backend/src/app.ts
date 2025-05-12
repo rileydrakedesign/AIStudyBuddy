@@ -16,20 +16,22 @@ import appRouter from './routes/index.js';
 config();                                    // load .env
 const app = express();
 
-/* ---------- CORS allow-list ----------- */
+// -------- CORS allow-list ------------
 const allowedExact = new Set<string>([
   'http://localhost:5173',
   'https://localhost:5173',
   'chrome-extension://fgammdbnfifiohdnmdlcgofflpgbhklk',
-  'https://class-chat-frontend.vercel.app',          // production alias
+  'https://class-chat-frontend.vercel.app',   // production alias
 ]);
 
-const vercelPreviewRegex = /^https:\/\/class-chat-[\w-]+\.vercel\.app$/;
-
 function isAllowed(origin?: string): boolean {
-  if (!origin) return true;                  // curl / Postman, same-origin
+  if (!origin) return true;                       // curl / Postman
   if (allowedExact.has(origin)) return true;
-  if (vercelPreviewRegex.test(origin)) return true;   // any preview URL
+
+  // Accept *any* Vercel URL that begins with class-chat- and ends with .vercel.app
+  if (origin.startsWith('https://class-chat-') && origin.endsWith('.vercel.app')) {
+    return true;
+  }
   return false;
 }
 
