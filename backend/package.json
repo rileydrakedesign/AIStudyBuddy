@@ -4,6 +4,9 @@
   "description": "",
   "main": "index.ts",
   "type": "module",
+  "engines": {
+    "node": "20.x"                 
+  },
   "scripts": {
     "dev": "concurrently \"npx tsc --watch\" \"nodemon -q dist/index.js\" ",
     "build": "tsc",
