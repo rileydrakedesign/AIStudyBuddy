@@ -29,7 +29,6 @@ function isAllowed(origin?: string): boolean {
   if (allowedExact.has(origin)) return true;
 
   if (
-    origin.startsWith('https://class-chat-') &&
     origin.includes('.vercel.app')
   ) {
     return true;
