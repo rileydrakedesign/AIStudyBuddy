@@ -151,10 +151,15 @@ def format_prompt1(template, **kwargs):
     return prompt.format(**kwargs)
 
 
-def load_prompts(file_path):
-    """Load prompts from a JSON file."""
-    with open(file_path, 'r') as file:
-        return json.load(file)
+def load_prompts():
+    """
+    Load prompts from prompts.json sitting in the same folder as this file.
+    Works both locally and in your Heroku slug.
+    """
+    # Path(__file__).parent is the directory semantic_service.py lives in
+    prompts_file = Path(__file__).parent / "prompts.json"
+    with prompts_file.open("r") as f:
+        return json.load(f)
 
 
 def construct_chain(prompt_template, user_query, chat_history):
@@ -320,7 +325,7 @@ def process_semantic_search(user_id, class_name, doc_id, user_query, chat_histor
     skip_search = (route == "follow_up")
 
     # We'll load prompts first
-    prompts = load_prompts('/Users/rileydrake/Desktop/AIStudyBuddy/backend/prompts.json')
+    prompts = load_prompts()
     log.debug(f"Source: {source}")
 
     # Clean up chat history to avoid curly brace parse issues
