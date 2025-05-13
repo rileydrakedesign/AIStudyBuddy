@@ -29,7 +29,7 @@ function isAllowed(origin?: string): boolean {
   if (allowedExact.has(origin)) return true;
 
   if (
-    origin.includes('.classchatai.app')
+    origin.includes('app.classchatai.com')
   ) {
     return true;
   }

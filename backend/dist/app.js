@@ -23,7 +23,7 @@ function isAllowed(origin) {
         return true; // curl / Postman
     if (allowedExact.has(origin))
         return true;
-    if (origin.includes('.classchatai.app')) {
+    if (origin.includes('app.classchatai.com')) {
         return true;
     }
     return false;
