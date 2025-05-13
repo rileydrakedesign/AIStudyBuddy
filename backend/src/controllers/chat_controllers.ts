@@ -203,7 +203,7 @@ export const generateChatCompletion = async (req, res, next) => {
       chunkReferences,
     }));
 
-    const pythonApiUrl           = process.env.PYTHON_API_URL; // e.g. http://localhost:8000
+    const pythonApiUrl           = process.env.PYTHON_API_URL; 
     const semanticSearchEndpoint = `${pythonApiUrl}/api/v1/semantic_search`;
 
     const requestData = {
