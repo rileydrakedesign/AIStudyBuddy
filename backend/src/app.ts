@@ -47,6 +47,8 @@ const corsOptions: cors.CorsOptions = {
 };
 /* -------------------------------------- */
 
+app.options('*', cors(corsOptions)); 
+
 /* middle-ware chain ------------------------------------------------------ */
 app.set('trust proxy', 1);                   // cookies behind Heroku router
 app.use(cors(corsOptions));
