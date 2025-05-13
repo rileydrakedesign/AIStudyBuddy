@@ -20,6 +20,8 @@ from botocore.exceptions import ClientError
 import boto3
 from urllib.parse import quote
 from logger_setup import log
+from pathlib import Path
+
 
 
 # You might need this if you want to convert string IDs to ObjectId:
