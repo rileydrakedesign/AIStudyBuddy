@@ -25,13 +25,16 @@ const allowedExact = new Set<string>([
 ]);
 
 function isAllowed(origin?: string): boolean {
-  if (!origin) return true;                       // curl / Postman
+  if (!origin) return true;                                         // curl / Postman
   if (allowedExact.has(origin)) return true;
 
-  // Accept *any* Vercel URL that begins with class-chat- and ends with .vercel.app
-  if (origin.startsWith('https://class-chat-') && origin.endsWith('.vercel.app')) {
+  if (
+    origin.startsWith('https://class-chat-') &&
+    origin.includes('.vercel.app')
+  ) {
     return true;
   }
+
   return false;
 }
 
