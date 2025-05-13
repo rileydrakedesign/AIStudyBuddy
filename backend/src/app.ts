@@ -29,7 +29,7 @@ function isAllowed(origin?: string): boolean {
   if (allowedExact.has(origin)) return true;
 
   if (
-    origin.includes('.vercel.app')
+    origin.includes('.classchatai.app')
   ) {
     return true;
   }

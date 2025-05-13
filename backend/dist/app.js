@@ -23,7 +23,7 @@ function isAllowed(origin) {
         return true; // curl / Postman
     if (allowedExact.has(origin))
         return true;
-    if (origin.includes('.vercel.app')) {
+    if (origin.includes('.classchatai.app')) {
         return true;
     }
     return false;
