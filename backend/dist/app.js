@@ -14,7 +14,6 @@ const app = express();
 // -------- CORS allow-list ------------
 const allowedExact = new Set([
     'http://localhost:5173',
-    'https://localhost:5173',
     'chrome-extension://fgammdbnfifiohdnmdlcgofflpgbhklk',
     'https://class-chat-frontend.vercel.app', // production alias
 ]);
