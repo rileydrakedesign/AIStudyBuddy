@@ -26,7 +26,7 @@ export let io: Server;
 export const initializeWebSocket = (server: any /* http.Server */) => {
   io = new Server(server, {
     cors: {
-      origin: process.env.CLIENT_ORIGIN || "https://localhost:5173",
+      origin: process.env.CLIENT_ORIGIN || "https://app.classchatai.com",
       methods: ["GET", "POST"],
       credentials: true,
     },
