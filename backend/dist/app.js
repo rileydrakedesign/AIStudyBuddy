@@ -15,7 +15,8 @@ const app = express();
 const allowedExact = new Set([
     'http://localhost:5173',
     'chrome-extension://fgammdbnfifiohdnmdlcgofflpgbhklk',
-    'https://class-chat-frontend.vercel.app', // production alias
+    'https://class-chat-frontend.vercel.app',
+    'https://app.classchatai.com',
 ]);
 function isAllowed(origin) {
     if (!origin)
