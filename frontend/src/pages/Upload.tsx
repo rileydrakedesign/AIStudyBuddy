@@ -30,8 +30,8 @@ const UploadDocument: React.FC = () => {
 
   /* local file + class state */
   const [files, setFiles] = useState<File[]>([]);
-  const [className, setClassName] = useState<string>("");          // ← default to empty string
-  const [inputClass, setInputClass] = useState<string>("");        // ← track live typing
+  const [className, setClassName] = useState<string>("");
+  const [inputClass, setInputClass] = useState<string>("");
   const [classOptions, setClassOptions] = useState<string[]>([]);
 
   /* NEW – free-plan doc counter */
@@ -100,6 +100,9 @@ const UploadDocument: React.FC = () => {
       await uploadDocument(formData);
       toast.success("Document(s) uploaded successfully!", { id: "uploadDoc" });
 
+      /* → automatically return to chat */
+      navigate("/chat");                    //  ← added line
+
       /* bump usage counter for free plan */
       setDocUsage((prev) =>
         prev ? { ...prev, count: Math.min(prev.count + files.length, prev.limit) } : prev
@@ -148,7 +151,7 @@ const UploadDocument: React.FC = () => {
         </Box>
       )}
 
-      {/* centered header on its own line */}
+      {/* centered header */}
       <Typography
         sx={{
           fontSize: 40,
@@ -207,11 +210,11 @@ const UploadDocument: React.FC = () => {
         <Autocomplete
           options={classOptions}
           freeSolo
-          value={className}               // reflects the last confirmed selection
-          inputValue={inputClass}         // live text in the input
+          value={className}
+          inputValue={inputClass}
           onInputChange={(_, newInput) => {
             setInputClass(newInput);
-            setClassName(newInput);      // keep both states in sync → no Enter needed
+            setClassName(newInput);
           }}
           onChange={(_, newVal) => {
             const val = typeof newVal === "string" ? newVal : "";
