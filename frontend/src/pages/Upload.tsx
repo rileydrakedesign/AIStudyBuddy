@@ -30,7 +30,8 @@ const UploadDocument: React.FC = () => {
 
   /* local file + class state */
   const [files, setFiles] = useState<File[]>([]);
-  const [className, setClassName] = useState<string | null>(null);
+  const [className, setClassName] = useState<string>("");          // ← default to empty string
+  const [inputClass, setInputClass] = useState<string>("");        // ← track live typing
   const [classOptions, setClassOptions] = useState<string[]>([]);
 
   /* NEW – free-plan doc counter */
@@ -44,7 +45,10 @@ const UploadDocument: React.FC = () => {
         const names = classes.map((c) => c.name);
         setClassOptions(names);
         const stored = localStorage.getItem("selectedClass");
-        if (stored && names.includes(stored)) setClassName(stored);
+        if (stored && names.includes(stored)) {
+          setClassName(stored);
+          setInputClass(stored);
+        }
       } catch (err) {
         console.error("Error fetching classes", err);
         toast.error("Failed to fetch classes");
@@ -85,11 +89,11 @@ const UploadDocument: React.FC = () => {
     }
 
     if (!files.length) return toast.error("Please select at least one file");
-    if (!className?.trim()) return toast.error("Please enter the class name");
+    if (!inputClass.trim()) return toast.error("Please enter the class name");
 
     const formData = new FormData();
     files.forEach((f) => formData.append("files", f));
-    formData.append("className", className);
+    formData.append("className", inputClass.trim());
 
     try {
       toast.loading("Uploading document(s)…", { id: "uploadDoc" });
@@ -103,7 +107,9 @@ const UploadDocument: React.FC = () => {
 
       /* reset form */
       setFiles([]);
-      setClassName(null);
+      setClassName("");
+      setInputClass("");
+      localStorage.removeItem("selectedClass");
     } catch (err: any) {
       if (err.response && err.response.status === 403) {
         toast.error(
@@ -111,10 +117,9 @@ const UploadDocument: React.FC = () => {
           { id: "uploadDoc" }
         );
       } else if (err.response && err.response.status === 409) {
-        toast.error(
-          err.response.data.message || "Document already exists in class",
-          { id: "uploadDoc" }
-        );
+        toast.error(err.response.data.message || "Document already exists in class", {
+          id: "uploadDoc",
+        });
       } else {
         toast.error("Failed to upload document(s)", { id: "uploadDoc" });
       }
@@ -201,12 +206,21 @@ const UploadDocument: React.FC = () => {
         {/* class selector */}
         <Autocomplete
           options={classOptions}
-          value={className}
-          onChange={(_, v) => {
-            setClassName(v);
-            v ? localStorage.setItem("selectedClass", v) : localStorage.removeItem("selectedClass");
-          }}
           freeSolo
+          value={className}               // reflects the last confirmed selection
+          inputValue={inputClass}         // live text in the input
+          onInputChange={(_, newInput) => {
+            setInputClass(newInput);
+            setClassName(newInput);      // keep both states in sync → no Enter needed
+          }}
+          onChange={(_, newVal) => {
+            const val = typeof newVal === "string" ? newVal : "";
+            setClassName(val);
+            setInputClass(val);
+            val
+              ? localStorage.setItem("selectedClass", val)
+              : localStorage.removeItem("selectedClass");
+          }}
           renderInput={(params) => (
             <TextField
               {...params}
