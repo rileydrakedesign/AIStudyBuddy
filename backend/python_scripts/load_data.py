@@ -86,11 +86,16 @@ async def summarize_many(text_blocks: list[str], concurrency: int = 8) -> list[s
     """Return summaries in parallel to hide LLM latency."""
     prompts = [{"text": t} for t in text_blocks]
     chains  = [prompt_tpl | llm | summary_parser for _ in prompts]
-    return await llm.abatch(
+
+    log.info(f"▶ LLM abatch starting – {len(prompts)} prompts")
+    out = await llm.abatch(
         prompts,
         chains=chains,
         max_concurrency=concurrency,
     )
+    log.info("✔ LLM abatch finished")                                # end
+    return out
+
 
 # =========================================================
 #            per-page markdown → semantic chunks
@@ -158,7 +163,9 @@ def build_raptor_tree(leaves: list, fan_out=FAN_OUT) -> list:
         k        = ceil(len(current_layer) / fan_out)
 
         # ---------- ★ change ❶ – batched embeddings ----------
+        log.info(f"▶ embedding {len(texts)} texts (batch {idx})")
         vecs = embedding_model.embed_documents([n["text"] for n in current_layer])
+        log.info("✔ embeddings done")
 
         labels = MiniBatchKMeans(
             n_clusters=k,
@@ -218,6 +225,7 @@ def store_nodes(nodes: list):
         MongoDBAtlasVectorSearch.from_texts(
             texts, embedding_model, collection=collection, metadatas=metadatas
         )
+        log.info(f"✔ Mongo batch inserted")
         gc.collect()
 
 # =========================================================
@@ -225,6 +233,7 @@ def store_nodes(nodes: list):
 # =========================================================
 def load_pdf_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
     # 1. download
+    log.info("=== upload start ===")   
     try:
         obj = s3_client.get_object(
             Bucket=os.getenv("AWS_S3_BUCKET_NAME"), Key=s3_key
