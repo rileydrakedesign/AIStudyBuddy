@@ -3,6 +3,7 @@
 import os, uuid, argparse, gc, asyncio
 from io import BytesIO
 from math import ceil
+from typing import List
 from bson import ObjectId
 from dotenv import load_dotenv
 from pymongo import MongoClient
@@ -82,7 +83,7 @@ def summarize_document(text: str) -> str:
     return chain.invoke({"text": text})
 
 # ---------- ★ change ❸ – async/batched summariser ----------
-async def summarize_many(text_blocks: list[str], concurrency: int = 8) -> list[str]:
+async def summarize_many(text_blocks: List[str], concurrency: int = 8) -> List[str]:
     """Return summaries in parallel to hide LLM latency."""
     prompts = [{"text": t} for t in text_blocks]
     chains  = [prompt_tpl | llm | summary_parser for _ in prompts]
@@ -93,7 +94,7 @@ async def summarize_many(text_blocks: list[str], concurrency: int = 8) -> list[s
         chains=chains,
         max_concurrency=concurrency,
     )
-    log.info("✔ LLM abatch finished")                                # end
+    log.info("✔ LLM abatch finished")
     return out
 
 
@@ -157,13 +158,15 @@ def build_raptor_tree(leaves: list, fan_out=FAN_OUT) -> list:
     level_map     = {"leaf": "section", "section": "chapter", "chapter": "doc"}
     current_layer = leaves
     current_lvl   = "leaf"
+    round_idx     = 0                     # ← used for logging
 
     while len(current_layer) > fan_out:
         next_lvl = level_map[current_lvl]
         k        = ceil(len(current_layer) / fan_out)
 
         # ---------- ★ change ❶ – batched embeddings ----------
-        log.info(f"▶ embedding {len(texts)} texts (batch {idx})")
+        num_texts = len(current_layer)                       # FIXED (was undefined)
+        log.info(f"▶ round {round_idx}: embedding {num_texts} texts")
         vecs = embedding_model.embed_documents([n["text"] for n in current_layer])
         log.info("✔ embeddings done")
 
@@ -179,12 +182,14 @@ def build_raptor_tree(leaves: list, fan_out=FAN_OUT) -> list:
             clusters.setdefault(lbl, []).append(node)
 
         # ---- summarize each cluster in parallel (★ change ❸)
-        summaries = asyncio.run(
-            summarize_many([" ".join(n["text"] for n in grp)] for grp in clusters.values())
-        )
+        cluster_texts = [" ".join(n["text"] for n in grp) for grp in clusters.values()]  # FIXED generator→list
+        summaries = asyncio.run(summarize_many(cluster_texts))
+
+        # keep cluster order deterministic
+        cluster_items = list(clusters.items())                 # FIXED ordering
 
         new_layer = []
-        for parent_txt, (lbl, grp) in zip(summaries, clusters.items()):
+        for parent_txt, (lbl, grp) in zip(summaries, cluster_items):
             parent_id = str(uuid.uuid4())
             for child in grp:
                 child["metadata"]["parent_id"] = parent_id
@@ -205,8 +210,9 @@ def build_raptor_tree(leaves: list, fan_out=FAN_OUT) -> list:
         current_layer.extend(new_layer)
         current_layer  = new_layer
         current_lvl    = next_lvl
+        round_idx     += 1                                       # increment for log
 
-        del vecs, labels, clusters
+        del vecs, labels, clusters, cluster_items
         gc.collect()
 
     return leaves + current_layer
@@ -220,12 +226,12 @@ def _grouper(seq, size):
 
 def store_nodes(nodes: list):
     for batch in _grouper(nodes, EMBEDDING_BATCH_SIZE):
-        texts     = [n["text"]      for n in batch]
-        metadatas = [n["metadata"]  for n in batch]
+        texts     = [n["text"]     for n in batch]
+        metadatas = [n["metadata"] for n in batch]
         MongoDBAtlasVectorSearch.from_texts(
             texts, embedding_model, collection=collection, metadatas=metadatas
         )
-        log.info(f"✔ Mongo batch inserted")
+        log.info("✔ Mongo batch inserted")
         gc.collect()
 
 # =========================================================
@@ -233,7 +239,7 @@ def store_nodes(nodes: list):
 # =========================================================
 def load_pdf_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
     # 1. download
-    log.info("=== upload start ===")   
+    log.info("=== upload start ===")
     try:
         obj = s3_client.get_object(
             Bucket=os.getenv("AWS_S3_BUCKET_NAME"), Key=s3_key
