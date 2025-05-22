@@ -38,3 +38,5 @@ annotated-types==0.7.0
 typing-extensions==4.12.2
 
 scikit-learn==1.4.2
+redis>=5
+rq>=1.17

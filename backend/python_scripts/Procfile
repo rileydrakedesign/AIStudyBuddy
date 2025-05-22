@@ -1,1 +1,5 @@
+# ───────── existing web dyno – keep as is ─────────
 web: gunicorn semantic_service:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT
+
+# ───────── new worker dyno for background PDF ingest ─────────
+worker: rq worker pdf_ingest --url $REDIS_URL --with-scheduler
