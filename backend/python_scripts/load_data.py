@@ -1,9 +1,6 @@
-# load_data.py  – RAPTOR-ready ingest pipeline
-# =========================================================
-import os
-import uuid
-import argparse
-import gc                               # ★ NEW – manual GC after heavy steps
+# load_data.py  – RAPTOR-ready ingest pipeline (fast edition)
+# ===========================================================
+import os, uuid, argparse, gc, asyncio
 from io import BytesIO
 from math import ceil
 from bson import ObjectId
@@ -13,7 +10,7 @@ import pymupdf
 import boto3
 from logger_setup import log
 
-# ----------------- langchain / LLM helpers ----------------
+# ─────────────── lang-chain / LLM helpers ────────────────
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_text_splitters import (
     RecursiveCharacterTextSplitter,
@@ -24,178 +21,173 @@ from langchain_mongodb import MongoDBAtlasVectorSearch
 from langchain_core.output_parsers import StrOutputParser
 from langchain.prompts import PromptTemplate
 
-# ----------------- NEW: clustering / math -----------------
-from sklearn.cluster import MiniBatchKMeans as KMeans  # ★ CHANGED
-# ==========================================================
+# ─────────────── vector math / clustering ────────────────
+from sklearn.cluster import MiniBatchKMeans          # ★ change ❷
+
+# =========================================================
 load_dotenv()
 
-# ----------------- Constants & configuration --------------
+# ─────────────── app constants ───────────────────────────
 CONNECTION_STRING          = os.getenv("MONGO_CONNECTION_STRING")
 DB_NAME                    = "study_buddy_demo"
-COLLECTION_NAME            = "study_materials2"          # chunk & summary store
-MAIN_FILE_COLLECTION_NAME  = "documents"                 # metadata
+COLLECTION_NAME            = "study_materials2"
+MAIN_FILE_COLLECTION_NAME  = "documents"
 MAIN_FILE_DB_NAME          = "test"
 
-MAX_LEAF_CHUNKS            = 400      # > → build RAPTOR tree
-FAN_OUT                    = 8        # max children per parent
-DOC_SUMMARY_THRESHOLD      = 12_000   # tokens – generate summary if above
-CLUSTER_SUMMARY_TOKENS     = 200      # ≈150–200 tokens per parent summary
-EMBEDDING_BATCH_SIZE       = 100      # ★ NEW – for low-RAM inserts
+MAX_LEAF_CHUNKS            = 400
+FAN_OUT                    = 8
+DOC_SUMMARY_THRESHOLD      = 12_000          # tokens
+EMBEDDING_BATCH_SIZE       = 128             # ★ change ❶
 
-# ----------------- Mongo & S3 clients ---------------------
+# ─────────────── external clients ────────────────────────
 client          = MongoClient(CONNECTION_STRING)
 collection      = client[DB_NAME][COLLECTION_NAME]
 main_collection = client[MAIN_FILE_DB_NAME][MAIN_FILE_COLLECTION_NAME]
 
 s3_client = boto3.client(
     "s3",
-    aws_access_key_id=os.getenv("AWS_ACCESS_KEY"),
-    aws_secret_access_key=os.getenv("AWS_SECRET"),
-    region_name=os.getenv("AWS_REGION"),
+    aws_access_key_id     = os.getenv("AWS_ACCESS_KEY"),
+    aws_secret_access_key = os.getenv("AWS_SECRET"),
+    region_name           = os.getenv("AWS_REGION"),
 )
 
-# ----------------- LLM setup ------------------------------
+# ─────────────── models ──────────────────────────────────
 llm             = ChatOpenAI(model="gpt-3.5-turbo-0125", temperature=0)
 embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
 
-# ==========================================================
-#                     Utility functions
-# ==========================================================
-def _simple_token_len(text: str) -> int:
-    """Approximate token count (≈0.75 * words)."""
-    return int(len(text.split()) * 0.75) + 1
+# =========================================================
+#                     utilities
+# =========================================================
+def _simple_token_len(txt: str) -> int:
+    return int(len(txt.split()) * 0.75) + 1
 
 
-def summarize_document(text_input: str) -> str:
-    """One-shot abstractive summary (~150 tokens + term list)."""
-    prompt_text = (
-        "You are an elite study-guide writer.\n\n"
-        "INSTRUCTIONS\n"
-        "------------\n"
-        "1. Read the document in {text}.\n"
-        "2. Produce a **concise abstract** (~150 tokens) covering every core idea.\n"
-        "3. Then list **8-15 key terms with one-sentence definitions**.\n\n"
-        "FORMAT STRICTLY AS:\n"
-        "SUMMARY:\n"
-        "<abstract>\n\n"
-        "KEY TERMS & DEFINITIONS:\n"
-        "• Term – definition\n"
-        "• Term – definition\n"
-        "(continue bullets)\n\n"
-        "Be accurate and do not invent facts."
+prompt_tpl = PromptTemplate.from_template(
+    "You are an elite study-guide writer.\n\n"
+    "1. Read the document in {text}.\n"
+    "2. Produce a concise abstract (~150 tokens).\n"
+    "3. Then list 8-15 key terms with one-sentence definitions.\n\n"
+    "FORMAT STRICTLY AS:\n"
+    "SUMMARY:\n"
+    "<abstract>\n\n"
+    "KEY TERMS & DEFINITIONS:\n"
+    "• Term – definition\n"
+    "(continue bullets)\n\n"
+    "Be accurate and do not invent facts."
+)
+summary_parser = StrOutputParser()
+
+def summarize_document(text: str) -> str:
+    chain = prompt_tpl | llm | summary_parser
+    return chain.invoke({"text": text})
+
+# ---------- ★ change ❸ – async/batched summariser ----------
+async def summarize_many(text_blocks: list[str], concurrency: int = 8) -> list[str]:
+    """Return summaries in parallel to hide LLM latency."""
+    prompts = [{"text": t} for t in text_blocks]
+    chains  = [prompt_tpl | llm | summary_parser for _ in prompts]
+    return await llm.abatch(
+        prompts,
+        chains=chains,
+        max_concurrency=concurrency,
     )
-    prompt  = PromptTemplate.from_template(prompt_text)
-    chain   = prompt | llm | StrOutputParser()
-    return chain.invoke({"text": text_input})
 
+# =========================================================
+#            per-page markdown → semantic chunks
+# =========================================================
+def process_markdown_with_page_numbers(pdf_stream, user_id, class_id, doc_id, fname):
+    doc        = pymupdf.open(stream=pdf_stream, filetype="pdf")
+    num_pages  = len(doc)
 
-# ==========================================================
-#                Chunk-level text extraction
-# ==========================================================
-def process_markdown_with_page_numbers(pdf_stream, user_id, class_id, doc_id, file_name):
-    """
-    Extract Markdown from each page, split into semantic chunks,
-    return list[{'text': ..., 'metadata': {...}}].
-    """
-    doc       = pymupdf.open(stream=pdf_stream, filetype="pdf")
-    num_pages = len(doc)
-
-    headers_to_split_on = [
-        ("#", "H1"), ("##", "H2"), ("###", "H3"),
-        ("####", "H4"), ("#####", "H5"), ("######", "H6"),
-    ]
-    markdown_splitter = MarkdownHeaderTextSplitter(headers_to_split_on)
-    semantic_splitter = SemanticChunker(
+    md_splitter  = MarkdownHeaderTextSplitter(
+        [("#", "H1"), ("##", "H2"), ("###", "H3"),
+         ("####", "H4"), ("#####", "H5"), ("######", "H6")]
+    )
+    sem_splitter = SemanticChunker(
         embedding_model, breakpoint_threshold_type="standard_deviation"
     )
-    fallback_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
+    fallback     = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
 
-    all_chunks = []
+    meta_pdf  = doc.metadata or {}
+    base_meta = {
+        "file_name": fname,
+        "title":     meta_pdf.get("title",  "Unknown"),
+        "author":    meta_pdf.get("author", "Unknown"),
+        "user_id":   user_id,
+        "class_id":  class_id,
+        "doc_id":    doc_id,
+        "level":     "leaf",
+        "is_summary": False,
+    }
 
-    pdf_meta = doc.metadata
-    title  = pdf_meta.get("title",  "Unknown") if pdf_meta else "Unknown"
-    author = pdf_meta.get("author", "Unknown") if pdf_meta else "Unknown"
-
-    for page_idx in range(num_pages):
-        page_md = doc.load_page(page_idx).get_text("markdown")
-        if not page_md.strip():
+    chunks = []
+    for p_idx in range(num_pages):
+        page_md = doc.load_page(p_idx).get_text("markdown").strip()
+        if not page_md:
             continue
 
-        docs = markdown_splitter.split_text(page_md) or fallback_splitter.create_documents(page_md)
+        docs = md_splitter.split_text(page_md) or fallback.create_documents(page_md)
         for d in docs:
-            chunk_text = d.page_content.strip()
-            if not chunk_text:
+            txt = d.page_content.strip()
+            if not txt:
                 continue
-
-            sub_chunks = (
-                semantic_splitter.split_text(chunk_text)
-                if len(chunk_text) > 1000
-                else [chunk_text]
-            )
-            for sub in sub_chunks:
-                all_chunks.append(
+            parts = sem_splitter.split_text(txt) if len(txt) > 1000 else [txt]
+            for part in parts:
+                chunks.append(
                     {
-                        "text": sub,
+                        "text": part,
                         "metadata": {
-                            "file_name":   file_name,
-                            "title":       title,
-                            "author":      author,
-                            "user_id":     user_id,
-                            "class_id":    class_id,
-                            "doc_id":      doc_id,
-                            "is_summary":  False,
-                            "page_number": page_idx + 1,
-                            "level":       "leaf",
+                            **base_meta,
+                            "page_number": p_idx + 1,
                             "parent_id":   None,
                         },
                     }
                 )
-    return all_chunks
+    return chunks
 
+# =========================================================
+#                 RAPTOR tree builder
+# =========================================================
+def build_raptor_tree(leaves: list, fan_out=FAN_OUT) -> list:
+    level_map     = {"leaf": "section", "section": "chapter", "chapter": "doc"}
+    current_layer = leaves
+    current_lvl   = "leaf"
 
-# ==========================================================
-#              RAPTOR tree-builder (memory-light)
-# ==========================================================
-def build_raptor_tree(leaves: list, fan_out: int = FAN_OUT) -> list:
-    """
-    Build hierarchical summaries until ≤ fan_out roots remain.
-    Uses MiniBatchKMeans to reduce RAM footprint.
-    """
-    layer         = leaves
-    level_names   = {"leaf": "section", "section": "chapter", "chapter": "doc"}
-    current_level = "leaf"
+    while len(current_layer) > fan_out:
+        next_lvl = level_map[current_lvl]
+        k        = ceil(len(current_layer) / fan_out)
 
-    while len(layer) > fan_out:
-        next_level = level_names[current_level]
-        k          = ceil(len(layer) / fan_out)
+        # ---------- ★ change ❶ – batched embeddings ----------
+        vecs = embedding_model.embed_documents([n["text"] for n in current_layer])
 
-        # ---- vectorise in batch to avoid huge list of numpy arrays -----------
-        vectors = [embedding_model.embed_query(n["text"]) for n in layer]
-
-        labels  = KMeans(
+        labels = MiniBatchKMeans(
             n_clusters=k,
-            batch_size=max(100, k * 2),   # ★ smaller working set
-            n_init="auto"
-        ).fit_predict(vectors)
+            batch_size=max(256, k * 2),
+            n_init="auto",
+        ).fit_predict(vecs)
+
+        # ---- group nodes by cluster id
+        clusters: dict[int, list] = {}
+        for node, lbl in zip(current_layer, labels):
+            clusters.setdefault(lbl, []).append(node)
+
+        # ---- summarize each cluster in parallel (★ change ❸)
+        summaries = asyncio.run(
+            summarize_many([" ".join(n["text"] for n in grp)] for grp in clusters.values())
+        )
 
         new_layer = []
-        for lbl in set(labels):
-            cluster      = [n for n, l in zip(layer, labels) if l == lbl]
-            concat_text  = " ".join(n["text"] for n in cluster)
-            summary_text = summarize_document(concat_text)
-
+        for parent_txt, (lbl, grp) in zip(summaries, clusters.items()):
             parent_id = str(uuid.uuid4())
-
-            # update children
-            for child in cluster:
+            for child in grp:
                 child["metadata"]["parent_id"] = parent_id
 
             new_layer.append(
                 {
-                    "text": summary_text,
+                    "text": parent_txt,
                     "metadata": {
-                        **cluster[0]["metadata"],
-                        "level":      next_level,
+                        **grp[0]["metadata"],
+                        "level":      next_lvl,
                         "parent_id":  None,
                         "is_summary": True,
                     },
@@ -203,134 +195,107 @@ def build_raptor_tree(leaves: list, fan_out: int = FAN_OUT) -> list:
                 }
             )
 
-        layer.extend(new_layer)          # keep for storage
-        layer          = new_layer       # next iteration
-        current_level  = next_level
+        current_layer.extend(new_layer)
+        current_layer  = new_layer
+        current_lvl    = next_lvl
 
-        # ---- free RAM --------------------------------------------------------
-        del vectors, labels, new_layer
+        del vecs, labels, clusters
         gc.collect()
 
-    return leaves + layer
+    return leaves + current_layer
 
-
-# ==========================================================
-#                Vector store insertion (batched)
-# ==========================================================
-def _chunk(iterable, n):
-    """Yield successive n-sized chunks from iterable."""
-    for i in range(0, len(iterable), n):
-        yield iterable[i : i + n]
-
+# =========================================================
+#              batched insert → Mongo vector store
+# =========================================================
+def _grouper(seq, size):
+    for i in range(0, len(seq), size):
+        yield seq[i : i + size]
 
 def store_nodes(nodes: list):
-    """Embed & insert nodes in EMBEDDING_BATCH_SIZE chunks to cap RAM."""
-    for batch in _chunk(nodes, EMBEDDING_BATCH_SIZE):
-        texts     = [n["text"] for n in batch]
-        metadatas = [n["metadata"] for n in batch]
+    for batch in _grouper(nodes, EMBEDDING_BATCH_SIZE):
+        texts     = [n["text"]      for n in batch]
+        metadatas = [n["metadata"]  for n in batch]
         MongoDBAtlasVectorSearch.from_texts(
             texts, embedding_model, collection=collection, metadatas=metadatas
         )
-        # allow memory to drop between batches
         gc.collect()
 
-
-# ==========================================================
-#                 Main entry: load_pdf_data
-# ==========================================================
+# =========================================================
+#                        main
+# =========================================================
 def load_pdf_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
-    """
-    1) Pull PDF from S3
-    2) Chunk → maybe RAPTOR → maybe doc summary
-    3) Embed + write to Mongo
-    4) Mark isProcessing = False
-    """
+    # 1. download
     try:
-        response = s3_client.get_object(
+        obj = s3_client.get_object(
             Bucket=os.getenv("AWS_S3_BUCKET_NAME"), Key=s3_key
         )
     except Exception:
-        log.error(f"Error downloading {s3_key} from S3", exc_info=True)
+        log.error("S3 download failed", exc_info=True)
         return
+    if obj["ContentLength"] == 0:
+        log.warning("S3 file is empty");  return
 
-    if response["ContentLength"] == 0:
-        log.warning(f"S3 file {s3_key} is empty")
-        return
-
-    pdf_stream = BytesIO(response["Body"].read())
-    pdf_stream.seek(0)
-
+    pdf_stream = BytesIO(obj["Body"].read());  pdf_stream.seek(0)
     if not main_collection.find_one({"_id": ObjectId(doc_id)}):
-        log.error(f"No document with _id={doc_id}")
-        return
+        log.error(f"No document with id {doc_id}");  return
+    fname = os.path.basename(s3_key)
 
-    file_name = os.path.basename(s3_key)
-
-    # ---------- 1) leaf extraction ----------
+    # 2. leaves
     leaves = process_markdown_with_page_numbers(
-        pdf_stream, user_id, class_name, doc_id, file_name
+        pdf_stream, user_id, class_name, doc_id, fname
     )
 
-    total_tokens = sum(_simple_token_len(c["text"]) for c in leaves)
-    nodes        = leaves[:]  # will append summaries
-    top_children = []
+    token_total = sum(_simple_token_len(c["text"]) for c in leaves)
+    nodes       = leaves[:]
+    top_kids    = []
 
-    # ---------- 2) RAPTOR / summary logic ----------
+    # 3. RAPTOR / summary routing
     if len(leaves) > MAX_LEAF_CHUNKS:
-        nodes        = build_raptor_tree(leaves)
-        top_children = [n for n in nodes if n["metadata"]["level"] == "chapter"]
-        doc_summary_text = summarize_document(" ".join(n["text"] for n in top_children))
-    elif total_tokens > DOC_SUMMARY_THRESHOLD:
-        top_children = leaves
-        doc_summary_text = summarize_document(" ".join(c["text"] for c in leaves))
+        nodes       = build_raptor_tree(leaves)
+        top_kids    = [n for n in nodes if n["metadata"]["level"] == "chapter"]
+        doc_summary = summarize_document(" ".join(n["text"] for n in top_kids))
+    elif token_total > DOC_SUMMARY_THRESHOLD:
+        top_kids    = leaves
+        doc_summary = summarize_document(" ".join(n["text"] for n in leaves))
     else:
-        doc_summary_text = None
+        doc_summary = None
 
-    # ---------- 3) inject doc-level summary ----------
-    if doc_summary_text:
-        doc_node_id = str(uuid.uuid4())
+    # 4. attach doc summary
+    if doc_summary:
+        doc_id_node = str(uuid.uuid4())
         nodes.append(
             {
-                "text": doc_summary_text,
+                "text": doc_summary,
                 "metadata": {
                     **leaves[0]["metadata"],
-                    "level":     "doc",
-                    "parent_id": None,
+                    "level":      "doc",
+                    "parent_id":  None,
                     "is_summary": True,
                 },
-                "_id": doc_node_id,
+                "_id": doc_id_node,
             }
         )
-        for child in top_children:
-            child["metadata"]["parent_id"] = doc_node_id
+        for child in top_kids:
+            child["metadata"]["parent_id"] = doc_id_node
 
-    # ---------- 4) store everything ----------
+    # 5. store
     try:
         store_nodes(nodes)
     except Exception:
-        log.error("Error inserting nodes", exc_info=True)
-        return
+        log.error("Mongo insert failed", exc_info=True);  return
 
-    # ---------- 5) flip isProcessing ----------
-    try:
-        main_collection.update_one(
-            {"_id": ObjectId(doc_id)}, {"$set": {"isProcessing": False}}
-        )
-    except Exception as update_err:
-        log.error(f"Error updating isProcessing for doc {doc_id}: {update_err}")
-
+    # 6. flip isProcessing
+    main_collection.update_one(
+        {"_id": ObjectId(doc_id)}, {"$set": {"isProcessing": False}}
+    )
     log.info(f"[load_data] Stored {len(nodes)} nodes for doc {doc_id}")
 
-
-# ----------------------------------------------------------
-# For local CLI testing
-# ----------------------------------------------------------
+# --- CLI --------------------------------------------------
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--user_id", required=True)
-    parser.add_argument("--class_name", required=True)
-    parser.add_argument("--s3_key", required=True)
-    parser.add_argument("--doc_id", required=True)
-    args = parser.parse_args()
-
+    p = argparse.ArgumentParser()
+    p.add_argument("--user_id", required=True)
+    p.add_argument("--class_name", required=True)
+    p.add_argument("--s3_key", required=True)
+    p.add_argument("--doc_id", required=True)
+    args = p.parse_args()
     load_pdf_data(args.user_id, args.class_name, args.s3_key, args.doc_id)
