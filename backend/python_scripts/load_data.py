@@ -53,7 +53,7 @@ s3_client = boto3.client(
 )
 
 # ─────────────── models ──────────────────────────────────
-llm             = ChatOpenAI(model="gpt-3.5-turbo-0125", temperature=0)
+llm             = ChatOpenAI(model="gpt-4o-2024-08-06", temperature=0)
 embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
 
 # =========================================================
