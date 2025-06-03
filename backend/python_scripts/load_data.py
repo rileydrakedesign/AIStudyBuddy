@@ -78,21 +78,33 @@ prompt_tpl = PromptTemplate.from_template(
 )
 summary_parser = StrOutputParser()
 
+# build once – reused by both helper functions
+summary_chain = prompt_tpl | llm | summary_parser
+
+
 def summarize_document(text: str) -> str:
-    chain = prompt_tpl | llm | summary_parser
-    return chain.invoke({"text": text})
+    """
+    Synchronous helper that returns a single document-level summary.
+    """
+    return summary_chain.invoke({"text": text})
 
-# ---------- ★ change ❸ – async/batched summariser ----------
-async def summarize_many(text_blocks: List[str], concurrency: int = 8) -> List[str]:
-    """Return summaries in parallel to hide LLM latency."""
-    prompts = [{"text": t} for t in text_blocks]
-    chains  = [prompt_tpl | llm | summary_parser for _ in prompts]
+async def summarize_many(text_blocks: List[str], *, concurrency: int = 8) -> List[str]:
+    """
+    Asynchronously summarise many text blocks in parallel.
 
-    log.info(f"▶ LLM abatch starting – {len(prompts)} prompts")
-    out = await llm.abatch(
-        prompts,
-        chains=chains,
-        max_concurrency=concurrency,
+    Args:
+        text_blocks : list of raw strings to summarise.
+        concurrency : maximum number of OpenAI calls allowed in flight.
+
+    Returns:
+        List of summaries in the same order as `text_blocks`.
+    """
+    inputs = [{"text": t} for t in text_blocks]          # matches {text} in the prompt
+
+    log.info(f"▶ LLM abatch starting – {len(inputs)} prompts")
+    out = await summary_chain.abatch(
+        inputs,
+        config={"max_concurrency": concurrency},         # respect rate limits
     )
     log.info("✔ LLM abatch finished")
     return out
