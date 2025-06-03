@@ -21,6 +21,7 @@ from langchain_experimental.text_splitter import SemanticChunker
 from langchain_mongodb import MongoDBAtlasVectorSearch
 from langchain_core.output_parsers import StrOutputParser
 from langchain.prompts import PromptTemplate
+import math, time, asyncio
 
 # ─────────────── vector math / clustering ────────────────
 from sklearn.cluster import MiniBatchKMeans          # ★ change ❷
@@ -88,27 +89,56 @@ def summarize_document(text: str) -> str:
     """
     return summary_chain.invoke({"text": text})
 
-async def summarize_many(text_blocks: List[str], *, concurrency: int = 8) -> List[str]:
+# crude token estimator (words * 0.75 ≈ tokens)
+def _rough_tokens(txt: str) -> int:
+    return int(len(txt.split()) * 0.75) + 1
+
+
+async def summarize_many(
+    text_blocks: List[str],
+    *,
+    batch_size: int = 10,
+    tpm_cap: int = 28_000,            # keep a little head-room below 30 K
+    concurrency: int = 4,             # <=4 keeps per-second burst low on Heroku
+) -> List[str]:
     """
-    Asynchronously summarise many text blocks in parallel.
-
-    Args:
-        text_blocks : list of raw strings to summarise.
-        concurrency : maximum number of OpenAI calls allowed in flight.
-
-    Returns:
-        List of summaries in the same order as `text_blocks`.
+    Summarise many texts without tripping the OpenAI TPM rate-limit.
+    Splits the work into batches; sleeps if a batch would exceed the cap.
     """
-    inputs = [{"text": t} for t in text_blocks]          # matches {text} in the prompt
+    results: list[str] = []
 
-    log.info(f"▶ LLM abatch starting – {len(inputs)} prompts")
-    out = await summary_chain.abatch(
-        inputs,
-        config={"max_concurrency": concurrency},         # respect rate limits
-    )
-    log.info("✔ LLM abatch finished")
-    return out
+    # split into batches of `batch_size`
+    for i in range(0, len(text_blocks), batch_size):
+        batch = text_blocks[i : i + batch_size]
 
+        est_tokens = sum(_rough_tokens(t) for t in batch)
+        if est_tokens > tpm_cap:
+            # split huge batch further (very rare)
+            step = max(1, math.floor(len(batch) * tpm_cap / est_tokens))
+            batch = batch[:step]
+            i -= batch_size - step  # re-use remaining texts next loop
+
+        inputs = [{"text": t} for t in batch]
+
+        log.info(
+            f"▶ LLM abatch: {len(inputs)} prompts "
+            f"(est ~{est_tokens} tokens); concurrency={concurrency}"
+        )
+
+        batch_out = await summary_chain.abatch(
+            inputs,
+            config={"max_concurrency": concurrency},
+        )
+        results.extend(batch_out)
+
+        # simple token-per-minute pacing
+        sleep_time = max(0, est_tokens / tpm_cap * 60 - 2)  # subtract 2 s head-room
+        if sleep_time:
+            log.info(f"⏸  sleeping {sleep_time:.1f}s to respect TPM cap")
+            await asyncio.sleep(sleep_time)
+
+    log.info("✔ LLM throttled abatch finished")
+    return results
 
 # =========================================================
 #            per-page markdown → semantic chunks
