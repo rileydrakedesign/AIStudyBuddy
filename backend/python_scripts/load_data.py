@@ -97,26 +97,26 @@ def _rough_tokens(txt: str) -> int:
 async def summarize_many(
     text_blocks: List[str],
     *,
-    batch_size: int = 10,
-    tpm_cap: int = 28_000,            # keep a little head-room below 30 K
-    concurrency: int = 4,             # <=4 keeps per-second burst low on Heroku
+    batch_size: int = 20,          # ⬅️  bigger batches
+    tpm_cap:     int = 180_000,    # ⬅️  o-mini safety cap
+    concurrency: int = 6,          # ⬅️  modest parallelism
 ) -> List[str]:
     """
     Summarise many texts without tripping the OpenAI TPM rate-limit.
-    Splits the work into batches; sleeps if a batch would exceed the cap.
+    Splits the work into batches; sleeps only if a batch would exceed the cap.
     """
     results: list[str] = []
 
-    # split into batches of `batch_size`
     for i in range(0, len(text_blocks), batch_size):
         batch = text_blocks[i : i + batch_size]
 
         est_tokens = sum(_rough_tokens(t) for t in batch)
+
+        # extremely rare: single batch still > cap  → shrink
         if est_tokens > tpm_cap:
-            # split huge batch further (very rare)
-            step = max(1, math.floor(len(batch) * tpm_cap / est_tokens))
-            batch = batch[:step]
-            i -= batch_size - step  # re-use remaining texts next loop
+            step   = max(1, math.floor(len(batch) * tpm_cap / est_tokens))
+            batch  = batch[:step]
+            i     -= batch_size - step
 
         inputs = [{"text": t} for t in batch]
 
@@ -131,8 +131,8 @@ async def summarize_many(
         )
         results.extend(batch_out)
 
-        # simple token-per-minute pacing
-        sleep_time = max(0, est_tokens / tpm_cap * 60 - 2)  # subtract 2 s head-room
+        # token-per-minute pacing  (usually evaluates to 0 s now)
+        sleep_time = max(0, est_tokens / tpm_cap * 60 - 2)
         if sleep_time:
             log.info(f"⏸  sleeping {sleep_time:.1f}s to respect TPM cap")
             await asyncio.sleep(sleep_time)
