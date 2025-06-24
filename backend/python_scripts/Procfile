@@ -1,2 +1,2 @@
 web: gunicorn semantic_service:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT
-worker: rq worker ingest --url $REDIS_URL --with-scheduler
+worker: rq worker ingest --url "$REDIS_URL?ssl_cert_reqs=none" --with-scheduler
