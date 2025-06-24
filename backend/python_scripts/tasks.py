@@ -15,7 +15,7 @@ redis_conn = Redis.from_url(
 # ------------------------------------------------------------------
 # 2. Queue – name must match Procfile (`rq worker ingest ...`)
 # ------------------------------------------------------------------
-ingest_q: Queue[Any] = Queue(
+ingest_q: Queue = Queue(
     name="ingest",
     connection=redis_conn,
     default_timeout=7200,   # 2-hour max (large textbooks w/ GPT-4.1)
