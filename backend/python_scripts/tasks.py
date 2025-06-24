@@ -6,8 +6,8 @@ from typing import Any
 # ------------------------------------------------------------------
 # 1. Redis connection (Heroku injects REDIS_URL automatically)
 # ------------------------------------------------------------------
-redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-redis_conn = Redis.from_url(redis_url)
+redis_conn = Redis.from_url(os.getenv("REDIS_URL"))
+
 
 # ------------------------------------------------------------------
 # 2. Queue – name must match Procfile (`rq worker ingest ...`)

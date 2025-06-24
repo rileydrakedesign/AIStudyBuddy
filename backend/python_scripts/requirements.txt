@@ -38,5 +38,5 @@ annotated-types==0.7.0
 typing-extensions==4.12.2
 
 rq==1.15
-redis==5.0
+redis>=5.0
 
