@@ -20,18 +20,17 @@ from logger_setup import log
 
 load_dotenv()
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────
 # CONSTANTS & CLIENTS
-# ─────────────────────────────────────────────────────────────────────────────
-CONNECTION_STRING = os.getenv("MONGO_CONNECTION_STRING")
+# ──────────────────────────────────────────────────────────────
+CONNECTION_STRING         = os.getenv("MONGO_CONNECTION_STRING")
+DB_NAME                   = "study_buddy_demo"
+COLLECTION_NAME           = "study_materials2"          # chunk storage
+MAIN_FILE_DB_NAME         = "test"
+MAIN_FILE_COLLECTION_NAME = "documents"                 # main-file metadata
 
-DB_NAME = "study_buddy_demo"
-COLLECTION_NAME = "study_materials2"       # chunk storage
-MAIN_FILE_DB_NAME = "test"
-MAIN_FILE_COLLECTION_NAME = "documents"    # main-file metadata
-
-client = MongoClient(CONNECTION_STRING)
-collection = client[DB_NAME][COLLECTION_NAME]
+client          = MongoClient(CONNECTION_STRING)
+collection      = client[DB_NAME][COLLECTION_NAME]
 main_collection = client[MAIN_FILE_DB_NAME][MAIN_FILE_COLLECTION_NAME]
 
 s3_client = boto3.client(
@@ -41,200 +40,189 @@ s3_client = boto3.client(
     region_name=os.getenv("AWS_REGION"),
 )
 
-# Summariser: GPT-4.1-mini (1 M-token window)
+# GPT-4.1-mini: 1 M-token context
 llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0)
 
-# ─────────────────────────────────────────────────────────────────────────────
-# UTILITIES
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────
+# LLM SUMMARY PROMPT
+# ──────────────────────────────────────────────────────────────
 def summarize_document(text_input: str) -> str:
-    """
-    One-shot summary of an entire document using GPT-4.1-mini.
-    """
-    prompt_text = (
+    prompt = PromptTemplate.from_template(
         "You are an expert study assistant.\n\n"
         "Document below delimited by <doc></doc> tags.\n\n"
         "<doc>\n{context}\n</doc>\n\n"
         "Write a concise yet comprehensive summary capturing all key ideas, "
-        "definitions and results. Limit to ~3-5 paragraphs."
+        "definitions and results. Limit to ~3–5 paragraphs."
     )
-    prompt = PromptTemplate.from_template(prompt_text)
-    parser = StrOutputParser()
-    chain = prompt | llm | parser
+    chain = prompt | llm | StrOutputParser()
     return chain.invoke({"context": text_input})
 
+TOK_PER_CHAR           = 1 / 4           # ≈4 chars ≈1 token
+MAX_TOKENS_PER_REQUEST = 300_000         # hard OpenAI limit
 
-CHAPTER_RE = re.compile(r"^\s*#+\s*Chapter\s+(\d+)\b", re.I)  # “# Chapter 3” etc.
+def est_tokens(text: str) -> int:
+    return int(len(text) * TOK_PER_CHAR)
 
+# ──────────────────────────────────────────────────────────────
+# CHUNKING
+# ──────────────────────────────────────────────────────────────
+CHAPTER_RE = re.compile(r"^\s*#+\s*Chapter\s+(\d+)\b", re.I)
 
 def process_markdown_with_page_numbers(pdf_stream, user_id, class_id, doc_id, file_name):
-    """
-    Extract markdown from each page, split into semantic chunks,
-    and attach metadata including chapter indices.
-    """
-    doc = pymupdf.open(stream=pdf_stream, filetype="pdf")
-    num_pages = len(doc)
+    doc         = pymupdf.open(stream=pdf_stream, filetype="pdf")
+    num_pages   = len(doc)
     current_chapter = None
 
-    headers = [
-        ("#", "H1"),
-        ("##", "H2"),
-        ("###", "H3"),
-        ("####", "H4"),
-        ("#####", "H5"),
-        ("######", "H6"),
-    ]
-    md_splitter = MarkdownHeaderTextSplitter(headers)
+    headers = [("#", "H1"), ("##", "H2"), ("###", "H3"),
+               ("####", "H4"), ("#####", "H5"), ("######", "H6")]
+    md_splitter       = MarkdownHeaderTextSplitter(headers)
     semantic_splitter = SemanticChunker(
         OpenAIEmbeddings(), breakpoint_threshold_type="standard_deviation"
     )
 
-    meta = doc.metadata or {}
-    title = meta.get("title", "Unknown")
+    meta   = doc.metadata or {}
+    title  = meta.get("title",  "Unknown")
     author = meta.get("author", "Unknown")
 
-    all_chunks = []
+    chunks = []
 
     for page_idx in range(num_pages):
         page_md = doc.load_page(page_idx).get_text("markdown")
         if not page_md.strip():
             continue
 
-        # Detect chapter on this page
+        # detect “Chapter N”
         for ln in page_md.splitlines():
             m = CHAPTER_RE.match(ln)
             if m:
-                current_chapter = int(m.group(1))
-                break
+                current_chapter = int(m.group(1)); break
 
-        # Split markdown
-        documents = md_splitter.split_text(page_md) or RecursiveCharacterTextSplitter(
-            chunk_size=1500, chunk_overlap=200
-        ).create_documents(page_md)
+        docs = md_splitter.split_text(page_md) or \
+               RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200).create_documents(page_md)
 
-        for d in documents:
-            chunk_text = d.page_content.strip()
-            if not chunk_text:
+        for d in docs:
+            text = d.page_content.strip()
+            if not text:
                 continue
 
-            sub_texts = (
-                semantic_splitter.split_text(chunk_text)
-                if len(chunk_text) > 1000
-                else [chunk_text]
-            )
+            pieces = semantic_splitter.split_text(text) if len(text) > 1000 else [text]
+            for p in pieces:
+                chunks.append({
+                    "text": p,
+                    "metadata": {
+                        "file_name"  : file_name,
+                        "title"      : title,
+                        "author"     : author,
+                        "user_id"    : user_id,
+                        "class_id"   : class_id,
+                        "doc_id"     : doc_id,
+                        "is_summary" : False,
+                        "page_number": page_idx + 1,
+                        "chapter_idx": current_chapter,
+                    },
+                })
+    return chunks
 
-            for sub in sub_texts:
-                all_chunks.append(
-                    {
-                        "text": sub,
-                        "metadata": {
-                            "file_name": file_name,
-                            "title": title,
-                            "author": author,
-                            "user_id": user_id,
-                            "class_id": class_id,
-                            "doc_id": doc_id,
-                            "is_summary": False,
-                            "page_number": page_idx + 1,
-                            "chapter_idx": current_chapter,
-                        },
-                    }
-                )
-
-    return all_chunks
-
-
-def store_embeddings(chunks):
+# ──────────────────────────────────────────────────────────────
+# BATCHED EMBEDDINGS  (NEW)
+# ──────────────────────────────────────────────────────────────
+def store_embeddings(chunks, batch_chars: int = 20_000):
+    """
+    Embed chunks in batches small enough to stay under the 300 k-token
+    request ceiling. 20 000 chars ≈ 50 000 tokens.
+    """
     embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-    texts = [c["text"] for c in chunks]
-    metadatas = [c["metadata"] for c in chunks]
-    MongoDBAtlasVectorSearch.from_texts(
-        texts, embeddings, collection=collection, metadatas=metadatas
-    )
+    texts, metas, char_sum = [], [], 0
 
+    def flush():
+        if texts:
+            MongoDBAtlasVectorSearch.from_texts(texts, embeddings,
+                                                collection=collection,
+                                                metadatas=metas)
+            texts.clear(); metas.clear()
 
+    for c in chunks:
+        texts.append(c["text"])
+        metas.append(c["metadata"])
+        char_sum += len(c["text"])
+        if char_sum >= batch_chars:
+            flush(); char_sum = 0
+    flush()
+
+# ──────────────────────────────────────────────────────────────
+# MAIN INGEST
+# ──────────────────────────────────────────────────────────────
 def load_pdf_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
-    """
-    Main entry point—called by FastAPI.
-    """
+
     try:
-        res = s3_client.get_object(
-            Bucket=os.getenv("AWS_S3_BUCKET_NAME"), Key=s3_key
-        )
+        obj = s3_client.get_object(Bucket=os.getenv("AWS_S3_BUCKET_NAME"), Key=s3_key)
     except Exception:
-        log.error(f"Error downloading {s3_key} from S3", exc_info=True)
-        return
-    if res["ContentLength"] == 0:
-        log.warning(f"S3 file {s3_key} is empty")
-        return
+        log.error(f"Error downloading {s3_key} from S3", exc_info=True); return
+    if obj["ContentLength"] == 0:
+        log.warning(f"S3 file {s3_key} is empty"); return
 
-    pdf_stream = BytesIO(res["Body"].read())
-    pdf_stream.seek(0)
-
+    pdf_stream = BytesIO(obj["Body"].read()); pdf_stream.seek(0)
     if not main_collection.find_one({"_id": ObjectId(doc_id)}):
-        log.error(f"No document with _id={doc_id}")
-        return
+        log.error(f"No document with _id={doc_id}"); return
 
     file_name = os.path.basename(s3_key)
-    chunks = process_markdown_with_page_numbers(
-        pdf_stream, user_id, class_name, doc_id, file_name
-    )
+    chunks    = process_markdown_with_page_numbers(pdf_stream, user_id, class_name, doc_id, file_name)
 
-    # ── Full-doc summary (GPT-4.1-mini) ────────────────────────────────────
+    # ── Smart summary guard-rails  (NEW) ─────────────────────────────────
     full_doc_text = " ".join(c["text"] for c in chunks)
-    MAX_CTX_TOKENS = 950_000                  # leave 50k for prompt/answer
-    est_tokens = len(full_doc_text) // 4      # ≈4 chars ≈1 token
+    summary_text  = None
 
-    if est_tokens > MAX_CTX_TOKENS:
-        log.warning(
-            f"Doc {doc_id} too large for single-shot summary "
-            f"({est_tokens} > {MAX_CTX_TOKENS} tokens); skipping abstract."
-        )
-    else:
-        try:
-            summary_text = summarize_document(full_doc_text)
-            chunks.append(
-                {
-                    "text": summary_text,
-                    "metadata": {
-                        "file_name": file_name,
-                        "title": chunks[0]["metadata"]["title"] if chunks else file_name,
-                        "author": chunks[0]["metadata"]["author"] if chunks else "Unknown",
-                        "user_id": user_id,
-                        "class_id": class_name,
-                        "doc_id": doc_id,
-                        "is_summary": True,
-                        "page_number": None,
-                        "chapter_idx": None,
-                    },
-                }
-            )
-        except Exception as e:
-            log.error(f"Summary generation failed for {doc_id}: {e}")
+    def safe_sum(txt: str):
+        return summarize_document(txt) if est_tokens(txt) <= MAX_TOKENS_PER_REQUEST else None
 
-    # ── Store embeddings (summary included if present) ────────────────────
+    summary_text = safe_sum(full_doc_text)
+
+    if summary_text is None:            # split by page midpoint
+        max_page = max(c["metadata"]["page_number"] or 0 for c in chunks)
+        mid_page = max_page // 2 or 1
+        first_txt  = " ".join(c["text"] for c in chunks if (c["metadata"]["page_number"] or 0) <= mid_page)
+        second_txt = " ".join(c["text"] for c in chunks if (c["metadata"]["page_number"] or 0) > mid_page)
+        s1, s2 = safe_sum(first_txt), safe_sum(second_txt)
+        if s1 and s2:
+            summary_text = f"{s1}\n\n---\n\n{s2}"
+        else:
+            log.warning(f"Summary skipped for doc {doc_id}: context too large.")
+
+    if summary_text:
+        chunks.append({
+            "text": summary_text,
+            "metadata": {
+                "file_name" : file_name,
+                "title"     : chunks[0]["metadata"]["title"] if chunks else file_name,
+                "author"    : chunks[0]["metadata"]["author"] if chunks else "Unknown",
+                "user_id"   : user_id,
+                "class_id"  : class_name,
+                "doc_id"    : doc_id,
+                "is_summary": True,
+                "page_number": None,
+                "chapter_idx": None,
+            },
+        })
+    # ────────────────────────────────────────────────────────────────────
+
     store_embeddings(chunks)
 
     try:
-        main_collection.update_one(
-            {"_id": ObjectId(doc_id)}, {"$set": {"isProcessing": False}}
-        )
+        main_collection.update_one({"_id": ObjectId(doc_id)}, {"$set": {"isProcessing": False}})
         log.info("set isProcessing False", doc_id)
     except Exception as e:
         log.error(f"Error updating isProcessing for doc {doc_id}: {e}")
 
     log.info(f"Processed and stored embeddings for doc {doc_id}.")
 
-
-# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------
 # CLI for local testing
-# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------
 if __name__ == "__main__":
-    p = argparse.ArgumentParser()
-    p.add_argument("--user_id", required=True)
-    p.add_argument("--class_name", required=True)
-    p.add_argument("--s3_key", required=True)
-    p.add_argument("--doc_id", required=True)
-    args = p.parse_args()
-
-    load_pdf_data(args.user_id, args.class_name, args.s3_key, args.doc_id)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--user_id", required=True)
+    ap.add_argument("--class_name", required=True)
+    ap.add_argument("--s3_key", required=True)
+    ap.add_argument("--doc_id", required=True)
+    a = ap.parse_args()
+    load_pdf_data(a.user_id, a.class_name, a.s3_key, a.doc_id)
