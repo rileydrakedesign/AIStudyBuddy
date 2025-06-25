@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Tuple
 
 import boto3
+from urllib.parse import quote
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 from langchain.chains import create_history_aware_retriever
@@ -151,7 +152,7 @@ def get_file_citation(search_results):
 
         if s3_key and s3_key not in seen_files:
             seen_files.add(s3_key)
-            encoded_s3_key = boto3.utils.quote(s3_key, safe="")
+            encoded_s3_key = quote(s3_key, safe="")
             download_url = f"{backend_url}/download?s3_key={encoded_s3_key}"
             citations.append(
                 {"href": download_url, "text": file_title, "docId": doc_id}
