@@ -233,6 +233,26 @@ def fetch_chapter_text(
     return full_text, chunk_arr
 
 
+def condense_summary(summary_text: str) -> str:
+    """
+    Run the stored, potentially long summary through an LLM to create a
+    concise digest that keeps only the key points, definitions, and results.
+    Target length ≈200-250 words.
+    """
+    condenser_prompt = PromptTemplate.from_template(
+        "You are an expert study assistant.\n\n"
+        "Below is a detailed document summary delimited by <summary></summary> tags.\n\n"
+        "<summary>\n{context}\n</summary>\n\n"
+        "Condense this summary into a succinct, self-contained brief that captures "
+        "the main concepts, definitions, and results. Limit your answer to about "
+        "200–250 words."
+    )
+    return (condenser_prompt | llm | StrOutputParser()).invoke(
+        {"context": summary_text}
+    )
+
+
+
 # --------------------------- PROMPT LOADING -----------------------------
 
 
@@ -352,23 +372,46 @@ def process_semantic_search(
                 )
             mode = "follow_up"  # Treat as no new retrieval
     # ----------------------------------------------------------------
+        # ----------------------------------------------------------------
+    # WHOLE-DOCUMENT SUMMARY MODE  (returns condensed version)
+    # ----------------------------------------------------------------
     if mode == "full":
-        # Retrieve pre-computed summary chunk
         summary_doc = fetch_summary_chunk(user_id, class_name, doc_id)
         if not summary_doc:
             log.warning("No stored summary found; falling back to specific search")
             mode = "specific"
         else:
-            chunk_array.append(
+            # 1. Condense the long stored summary
+            condensed_text = condense_summary(summary_doc["text"])
+
+            # 2. Build minimal chunk/citation info so the front-end can still
+            #    show “chunk 1” if desired.
+            chunk_array = [
                 {
                     "_id": str(summary_doc["_id"]),
                     "chunkNumber": 1,
-                    "text": summary_doc["text"],
+                    "text": summary_doc["text"],   # original full text
                     "pageNumber": None,
                     "docId": summary_doc["doc_id"],
                 }
+            ]
+            citation = get_file_citation([summary_doc])
+            chunk_refs = [
+                {"chunkId": chunk_array[0]["_id"], "displayNumber": 1, "pageNumber": None}
+            ]
+
+            # 3. Append to chat_history and RETURN immediately
+            chat_history.append(
+                {"role": "assistant", "content": condensed_text, "chunkReferences": chunk_refs}
             )
-            similarity_results = [summary_doc]
+            return {
+                "message": condensed_text,
+                "citation": citation,
+                "chats": chat_history,
+                "chunks": chunk_array,
+                "chunkReferences": chunk_refs,
+            }
+
 
     if mode == "scope-summary":
         chap_text, chunk_array = fetch_chapter_text(user_id, class_name, doc_id, chap_list)
