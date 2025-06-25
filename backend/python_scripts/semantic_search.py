@@ -34,7 +34,7 @@ collection_name = "study_materials2"
 collection = client[db_name][collection_name]
 
 embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
-llm = ChatOpenAI(model="gpt-3.5-turbo-0125", temperature=0.5)
+llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0.5)
 
 backend_url = os.getenv("BACKEND_URL", "https://localhost:3000/api/v1")
 
@@ -243,12 +243,16 @@ def condense_summary(summary_text: str, user_query: str) -> str:
         f"[CONDESNER] input length={len(summary_text)} | preview={summary_text[:400]!r}"
     )
 
+    log.info(
+        f"[USER QUERY] ={user_query}"
+    )
+
     condenser_prompt = PromptTemplate.from_template(
         "You are an expert study assistant.\n\n"
         "Below is a detailed document summary delimited by <summary></summary> tags.\n"
         "<summary>\n{context}\n</summary>\n\n"
         "The user has asked: \"{user_query}\"\n\n"
-        "Rewrite the summary so it is concise (≈200–250 words) **while following any "
+        "Rewrite the summary so it is concise **while following any "
         "formatting or stylistic instructions implicit in the user's query**. "
         "Preserve key concepts, definitions, and results."
     )
