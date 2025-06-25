@@ -233,27 +233,28 @@ def fetch_chapter_text(
     return full_text, chunk_arr
 
 
-def condense_summary(summary_text: str) -> str:
+def condense_summary(summary_text: str, user_query: str) -> str:
     """
-    Run the stored, potentially long summary through an LLM to create a
-    concise digest that keeps only the key points, definitions, and results.
-    Target length ≈200-250 words.
+    Condense a long stored summary while taking into account the user's
+    own instructions (e.g. 'bullet points', 'glossary', etc.).
+    Logs the first 400 characters being condensed.
     """
-
     log.info(
-        f"[CONDESNER] input length={len(summary_text)} chars | preview={summary_text[:400]!r}"
+        f"[CONDESNER] input length={len(summary_text)} | preview={summary_text[:400]!r}"
     )
 
     condenser_prompt = PromptTemplate.from_template(
         "You are an expert study assistant.\n\n"
-        "Below is a detailed document summary delimited by <summary></summary> tags.\n\n"
+        "Below is a detailed document summary delimited by <summary></summary> tags.\n"
         "<summary>\n{context}\n</summary>\n\n"
-        "Condense this summary into a succinct, self-contained brief that captures "
-        "the main concepts, definitions, and results. Limit your answer to about "
-        "200–250 words."
+        "The user has asked: \"{user_query}\"\n\n"
+        "Rewrite the summary so it is concise (≈200–250 words) **while following any "
+        "formatting or stylistic instructions implicit in the user's query**. "
+        "Preserve key concepts, definitions, and results."
     )
+
     return (condenser_prompt | llm | StrOutputParser()).invoke(
-        {"context": summary_text}
+        {"context": summary_text, "user_query": user_query}
     )
 
 
