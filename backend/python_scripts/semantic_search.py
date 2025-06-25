@@ -240,7 +240,7 @@ def condense_summary(summary_text: str) -> str:
     Target length ≈200-250 words.
     """
 
-    log.debug(
+    log.info(
         f"[CONDESNER] input length={len(summary_text)} chars | preview={summary_text[:400]!r}"
     )
 
@@ -387,8 +387,8 @@ def process_semantic_search(
             mode = "specific"
         else:
             # 1. Condense the long stored summary
-            log.debug(f"[FULL-MODE] passing stored summary (len={len(summary_doc['text'])}) to condenser")
-            
+            log.info(f"[FULL-MODE] passing stored summary (len={len(summary_doc['text'])}) to condenser")
+
             condensed_text = condense_summary(summary_doc["text"])
 
             # 2. Build minimal chunk/citation info so the front-end can still
@@ -474,7 +474,7 @@ def process_semantic_search(
         # Add chapter filter for scope-question
         if mode == "scope-question" and chap_list:
             filters["chapter_idx"] = {"$in": chap_list}
-        log.debug(f"VectorSearch filters: {filters}")
+        log.info(f"VectorSearch filters: {filters}")
 
         # 3) Vector search
         similarity_results = list(perform_semantic_search(query_vector, filters))
