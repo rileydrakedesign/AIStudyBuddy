@@ -394,7 +394,7 @@ def process_semantic_search(
             # 1. Condense the long stored summary
             log.info(f"[FULL-MODE] passing stored summary (len={len(summary_doc['text'])}) to condenser")
 
-            condensed_text = condense_summary(summary_doc["text"])
+            condensed_text = condense_summary(summary_doc["text"], user_query)
 
             # 2. Build minimal chunk/citation info so the front-end can still
             #    show “chunk 1” if desired.
