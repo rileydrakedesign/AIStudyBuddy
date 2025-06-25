@@ -239,6 +239,11 @@ def condense_summary(summary_text: str) -> str:
     concise digest that keeps only the key points, definitions, and results.
     Target length ≈200-250 words.
     """
+
+    log.debug(
+        f"[CONDESNER] input length={len(summary_text)} chars | preview={summary_text[:400]!r}"
+    )
+
     condenser_prompt = PromptTemplate.from_template(
         "You are an expert study assistant.\n\n"
         "Below is a detailed document summary delimited by <summary></summary> tags.\n\n"
@@ -382,6 +387,8 @@ def process_semantic_search(
             mode = "specific"
         else:
             # 1. Condense the long stored summary
+            log.debug(f"[FULL-MODE] passing stored summary (len={len(summary_doc['text'])}) to condenser")
+            
             condensed_text = condense_summary(summary_doc["text"])
 
             # 2. Build minimal chunk/citation info so the front-end can still
