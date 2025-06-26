@@ -41,43 +41,16 @@ backend_url = os.getenv("BACKEND_URL", "https://localhost:3000/api/v1")
 # ──────────────────────────────────────────────────────────────
 # ────────────────  NEW MODE-DETECTION HELPERS  ───────────────
 # ──────────────────────────────────────────────────────────────
+# add after SUMMARY_RE
 SUMMARY_RE = re.compile(r"\bsummar(?:y|ize|ise)\b", re.I)  # summary keyword
 
-
-def extract_chapters(query: str) -> List[int]:
+def detect_query_mode(query: str) -> str:
     """
-    Parse chapter numbers from the user query.
-    Supports:
-      • “chapter 3”                    → [3]
-      • “chapters 3, 5, 7”             → [3,5,7]
-      • “chapters 2-4”                 → [2,3,4]
+    Return 'summary' when the user is asking for ANY summary; else 'specific'.
+    The exact target (doc vs class) is decided later.
     """
-    chapters = set()
+    return "summary" if SUMMARY_RE.search(query) else "specific"
 
-    # range: “chapters 2-5”
-    for m in re.finditer(r"chapters?\s+(\d+)\s*-\s*(\d+)", query, re.I):
-        start, end = int(m.group(1)), int(m.group(2))
-        chapters.update(range(min(start, end), max(start, end) + 1))
-
-    # comma-separated list: “chapters 2, 4, 6”
-    for m in re.finditer(r"chapters?\s+((?:\d+\s*,\s*)+\d+)", query, re.I):
-        nums = [int(n.strip()) for n in m.group(1).split(",")]
-        chapters.update(nums)
-
-    # single: “chapter 3”
-    for m in re.finditer(r"chapter\s+(\d+)", query, re.I):
-        chapters.add(int(m.group(1)))
-
-    return sorted(chapters)
-
-
-def detect_query_mode(query: str) -> Tuple[str, List[int]]:
-    """
-    Decide between four modes:
-        • specific        – default top-K search
-        • full            – whole-document summary
-    """
-    return "full" if SUMMARY_RE.search(query) else "specific"
 
 
 # ──────────────────────────────────────────────────────────────
@@ -247,6 +220,31 @@ def condense_summary(summary_text: str, user_query: str) -> str:
         {"context": summary_text, "user_query": user_query}
     )
 
+def fetch_class_summaries(user_id: str, class_name: str):
+    """Return every stored doc-level summary chunk for the class."""
+    if class_name in (None, "", "null"):
+        return []
+    return list(collection.find({
+        "user_id":  user_id,
+        "class_id": class_name,
+        "is_summary": True
+    }).sort("file_name", 1))
+
+def condense_class_summaries(text: str, user_query: str) -> str:
+    prompt = PromptTemplate.from_template(
+        "You are an expert study assistant.\n\n"
+        "Below are multiple document summaries for one class, delimited by "
+        "<summary></summary> tags.\n<summary>\n{context}\n</summary>\n\n"
+        "The user asked: \"{user_query}\"\n\n"
+        "Write a single, coherent overview (≈200–250 words) that captures the key "
+        "points, concepts, and definitions across all documents, following any "
+        "formatting instructions in the user's query."
+    )
+    return (prompt | llm | StrOutputParser()).invoke(
+        {"context": text, "user_query": user_query}
+    )
+
+
 
 
 # --------------------------- PROMPT LOADING -----------------------------
@@ -280,6 +278,17 @@ def process_semantic_search(
     """
     # 0) Detect mode + chapters
     mode = detect_query_mode(user_query)
+    if mode == "summary":
+        if doc_id and doc_id != "null":
+            mode = "doc_summary"       # summarise the single document
+        elif class_name and class_name != "null":
+            mode = "class_summary"     # summarise all docs in this class
+        else:  # user is in the "all classes" view
+            return {
+                "message": "Please select a class or document to summarise.",
+                "citation": [], "chats": chat_history,
+                "chunks": [], "chunkReferences": []
+            }
     log.debug(f"Mode: {mode}")
 
     # Existing router (kept intact for prompt selection)
@@ -371,7 +380,7 @@ def process_semantic_search(
         # ----------------------------------------------------------------
     # WHOLE-DOCUMENT SUMMARY MODE  (returns condensed version)
     # ----------------------------------------------------------------
-    if mode == "full":
+    if mode == "doc_summary":
         summary_doc = fetch_summary_chunk(user_id, class_name, doc_id)
         if not summary_doc:
             log.warning("No stored summary found; falling back to specific search")
@@ -409,6 +418,47 @@ def process_semantic_search(
                 "chunks": chunk_array,
                 "chunkReferences": chunk_refs,
             }
+            # ----------------------------------------------------------------
+    # CLASS-LEVEL SUMMARY (aggregate doc summaries for the class)
+    # ----------------------------------------------------------------
+    if mode == "class_summary":
+        docs = fetch_class_summaries(user_id, class_name)
+        if not docs:
+            log.warning("No summaries found for this class; falling back to specific search.")
+            mode = "specific"            # fall through to normal retrieval
+        else:
+            combined = "\n\n---\n\n".join(d["text"] for d in docs)
+            condensed_text = condense_class_summaries(combined, user_query)
+
+            chunk_array = [
+                {
+                    "_id": str(d["_id"]),
+                    "chunkNumber": i + 1,
+                    "text": d["text"],
+                    "pageNumber": None,
+                    "docId": d["doc_id"],
+                }
+                for i, d in enumerate(docs)
+            ]
+            citation = get_file_citation(docs)
+            chunk_refs = [
+                {"chunkId": c["_id"], "displayNumber": c["chunkNumber"], "pageNumber": None}
+                for c in chunk_array
+            ]
+
+            chat_history.append({
+                "role": "assistant",
+                "content": condensed_text,
+                "chunkReferences": chunk_refs
+            })
+            return {
+                "message": condensed_text,
+                "citation": citation,
+                "chats": chat_history,
+                "chunks": chunk_array,
+                "chunkReferences": chunk_refs,
+            }
+
 
 
     # -------------------- PROMPT SELECTION --------------------
