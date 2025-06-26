@@ -205,7 +205,7 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
           setPartialAssistantMessage("");
           setIsGenerating(false);
         }
-      }, 20);
+      }, 2);
     } catch (err) {
       console.error("Error sending doc-based chat message:", err);
       toast.error("Failed to send message");
