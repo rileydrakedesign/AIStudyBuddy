@@ -75,23 +75,9 @@ def detect_query_mode(query: str) -> Tuple[str, List[int]]:
     """
     Decide between four modes:
         • specific        – default top-K search
-        • scope-question  – top-K restricted to selected chapters
-        • scope-summary   – summarise selected chapters
         • full            – whole-document summary
-    Returns (mode, chapter_idx_list).
     """
-    chapters = extract_chapters(query)
-    wants_summary = bool(SUMMARY_RE.search(query))
-
-    if wants_summary:
-        if chapters:
-            return "scope-summary", chapters
-        return "full", []
-
-    if chapters:
-        return "scope-question", chapters
-
-    return "specific", []
+    return "full" if SUMMARY_RE.search(query) else "specific"
 
 
 # ──────────────────────────────────────────────────────────────
@@ -293,8 +279,8 @@ def process_semantic_search(
     Core search / generation pipeline with new query-mode handling.
     """
     # 0) Detect mode + chapters
-    mode, chap_list = detect_query_mode(user_query)
-    log.debug(f"Mode: {mode}, Chapters: {chap_list}")
+    mode = detect_query_mode(user_query)
+    log.debug(f"Mode: {mode}")
 
     # Existing router (kept intact for prompt selection)
     from semantic_router import Route, RouteLayer
@@ -424,77 +410,6 @@ def process_semantic_search(
                 "chunkReferences": chunk_refs,
             }
 
-
-    if mode == "scope-summary":
-        chap_text, chunk_array = fetch_chapter_text(user_id, class_name, doc_id, chap_list)
-        if not chap_text:
-            log.warning("Requested chapters not found; falling back to specific search")
-            mode = "specific"
-        else:
-            # One-shot summarisation of concatenated chapters
-            sum_template = PromptTemplate.from_template(
-                "You are an expert study assistant.\n\nBelow is material from chapters {chapters} "
-                "delimited by <doc> </doc> tags.\n<doc>\n{context}\n</doc>\n\n"
-                "Write a clear, concise summary capturing all key concepts, definitions, and results. "
-                "Limit to 3–5 paragraphs."
-            )
-            summary_text = (sum_template | llm | StrOutputParser()).invoke(
-                {"chapters": ", ".join(map(str, chap_list)), "context": chap_text}
-            )
-            # Treat summary_text as the answer; no further prompt formatting needed
-            citation = get_file_citation(chunk_array)
-            chunk_refs = [
-                {"chunkId": item["_id"], "displayNumber": item["chunkNumber"], "pageNumber": item.get("pageNumber")}
-                for item in chunk_array
-            ]
-            chat_history.append(
-                {"role": "assistant", "content": summary_text, "chunkReferences": chunk_refs}
-            )
-            return {
-                "message": summary_text,
-                "citation": citation,
-                "chats": chat_history,
-                "chunks": chunk_array,
-                "chunkReferences": chunk_refs,
-            }
-
-    # ----------------------------------------------------------------
-    if mode in ("specific", "scope-question"):
-        # 1) Rephrase query for retrieval
-        reprompt = PromptTemplate.from_template(
-            "You are an assistant tasked with taking a natural language query from a user "
-            "and converting it into a query for a vectorstore. Strip out all irrelevant detail. "
-            "Return ONLY the refined query.\n\nuser query: {input}"
-        )
-        semantic_query = construct_chain(reprompt, user_query, chat_history_cleaned)
-        query_vector = create_embedding(semantic_query)
-
-        # 2) Build base filters
-        filters = {"user_id": {"$eq": user_id}}
-        if doc_id != "null":
-            filters["doc_id"] = {"$eq": doc_id}
-        elif class_name and class_name != "null":
-            filters["class_id"] = {"$eq": class_name}
-
-        # Add chapter filter for scope-question
-        if mode == "scope-question" and chap_list:
-            filters["chapter_idx"] = {"$in": chap_list}
-        log.info(f"VectorSearch filters: {filters}")
-
-        # 3) Vector search
-        similarity_results = list(perform_semantic_search(query_vector, filters))
-        filtered_results = [d for d in similarity_results if d["score"] > 0.35]
-
-        for idx, doc in enumerate(filtered_results):
-            chunk_array.append(
-                {
-                    "_id": str(doc["_id"]),
-                    "chunkNumber": idx + 1,
-                    "text": doc["text"],
-                    "pageNumber": doc.get("page_number"),
-                    "docId": doc.get("doc_id"),
-                }
-            )
 
     # -------------------- PROMPT SELECTION --------------------
     prompts = load_prompts()
