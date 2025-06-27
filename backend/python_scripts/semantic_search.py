@@ -154,7 +154,7 @@ def refine_key_terms(raw_terms: List[str], summary_text: str) -> List[str]:
         "{terms}\n\n"
         "And here is the document's summary for context:\n"
         "{summary}\n\n"
-        "Return a *refined* key-term list (capped at 20 keywords maximum ranked by importance), one term per line, **no numbering**, "
+        "Return a *refined* key-term list (capped at 10 keywords maximum ranked by importance), one term per line, **no numbering**, "
         "removing any irrelevant words (e.g., 'page', 'figure') and adding any "
         "important missing concepts explicitly mentioned in the summary. "
         "Lastly, it very important that your response only contains the terms formatted as requested (one term per line, **no numbering**)."
