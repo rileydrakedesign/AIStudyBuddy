@@ -76,11 +76,17 @@ def fetch_full_doc_text_and_chunks(user_id: str, doc_id: str) -> Tuple[str, List
          "clusterId": r.get("cluster_id")}
         for i, r in enumerate(results)
     ]
+
+    log.info(f"[FETCH DOC] user={user_id} doc={doc_id} → chunks={len(results)} "
+         f"chars={len(full_text)}")
+
     return full_text, chunk_arr
 
 
 def vector_search_for_term(query_vec, doc_id: str, limit: int = 2):
     """Return *limit* best chunks for a term embedding."""
+    log.info(f"[TERM SEARCH] doc={doc_id} | limit={limit}")
+
     pipeline = [
         {"$vectorSearch": {
             "index": "PlotSemanticSearch",
@@ -114,6 +120,9 @@ def build_small_doc_study_guide(full_text: str) -> str:
         "<doc>\n{context}\n</doc>\n\n"
         "Generate a study guide: for each key idea create a Q & A flashcard."
     )
+
+    log.info(f"[SMALL GUIDE] context_tokens≈{est_tokens(full_text)}")
+
     return (prompt | llm | StrOutputParser()).invoke({"context": full_text})
 
 
@@ -123,6 +132,8 @@ def build_large_doc_study_guide(key_terms: List[str], chunks: List[dict]) -> str
         "Key terms:\n{terms}\n\nContext passages:\n{context}\n\n"
         "For **each** term write a flashcard (**Q:** / **A:**) using ONLY the context."
     )
+    log.info(f"[LARGE GUIDE] terms={len(key_terms)} | ctx_chunks={len(chunks)}")
+
     return (prompt | llm | StrOutputParser()).invoke({
         "terms": "\n".join(f"- {t}" for t in key_terms),
         "context": "\n\n".join(f"Chunk {i+1}: {c['text']}" for i, c in enumerate(chunks)),
@@ -367,7 +378,7 @@ def process_semantic_search(
                 "citation": [], "chats": chat_history,
                 "chunks": [], "chunkReferences": []
             }
-    log.debug(f"Mode: {mode}")
+    log.info(f"Mode: {mode}")
 
     # ---------------- Router initialisation ----------------
     from semantic_router import Route, RouteLayer
@@ -409,7 +420,7 @@ def process_semantic_search(
         routes=[general_qa, generate_study_guide, generate_notes, follow_up],
     )
     route = rl(user_query).name or "general_qa"
-    log.debug(f"Prompt route: {route}")
+    log.info(f"Prompt route: {route}")
 
     # -------------------- History sanitisation --------------------
     chat_history_cleaned = []
@@ -439,6 +450,12 @@ def process_semantic_search(
 
         # 1) retrieve full text & base chunks
         full_text, all_chunks = fetch_full_doc_text_and_chunks(user_id, doc_id)
+
+        # ── DEBUG 8A ────────────────────────────────────────────────
+        log.info(f"[GUIDE] doc={doc_id} | total_tokens≈{est_tokens(full_text)} "
+         f"(limit={MAX_CONTEXT_TOKENS}) | base_chunks={len(all_chunks)}")
+        # ────────────────────────────────────────────────────────────
+
 
         # 2) small vs large doc decision
         if est_tokens(full_text) <= MAX_CONTEXT_TOKENS:
@@ -471,6 +488,9 @@ def process_semantic_search(
                 ]
                 div_chunks = diversify_by_cluster(cands)
                 answer     = build_large_doc_study_guide(key_terms, div_chunks)
+
+                log.info(f"[GUIDE PATH] LARGE | terms={len(key_terms)} | "
+                f"diversified_chunks={len(div_chunks)} | answer_chars={len(answer)}")
 
                 chunk_array = [{
                     "_id": str(c["_id"]), "chunkNumber": i+1, "text": c["text"],
