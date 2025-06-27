@@ -40,3 +40,6 @@ typing-extensions==4.12.2
 rq==1.15
 redis>=5.0
 
+scikit-learn==1.5.0
+scipy==1.13.0
+numpy==1.26.4 

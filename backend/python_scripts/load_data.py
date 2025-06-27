@@ -1,4 +1,4 @@
-import os, re, argparse
+import os, re, argparse, math
 from io import BytesIO
 from collections import Counter, defaultdict
 from bson import ObjectId
@@ -15,6 +15,10 @@ from langchain.prompts import PromptTemplate
 from langchain_mongodb import MongoDBAtlasVectorSearch
 import boto3, pymupdf
 from logger_setup import log
+import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.decomposition import TruncatedSVD
+from sklearn.cluster import MiniBatchKMeans
 
 load_dotenv()
 
@@ -56,6 +60,62 @@ def summarize_document(text_input: str) -> str:
 TOK_PER_CHAR           = 1 / 4
 MAX_TOKENS_PER_REQUEST = 300_000
 est_tokens = lambda txt: int(len(txt) * TOK_PER_CHAR)
+
+# ──────────────────────────────────────────────────────────────
+# NEW –  TF‑IDF + SVD term extractor
+# ──────────────────────────────────────────────────────────────
+
+def compute_key_terms(chunks, top_n: int = 25):
+    """Return up to *top_n* salient terms/phrases across the given chunks."""
+    texts = [c["text"] for c in chunks if not c["metadata"].get("is_summary")]
+    if not texts:
+        return []
+
+    # 1) TF‑IDF (uni‐ to tri‑grams)
+    vec = TfidfVectorizer(stop_words="english", ngram_range=(1, 3), min_df=2)
+    X = vec.fit_transform(texts)
+    if X.shape[1] == 0:
+        return []
+
+    # 2) Truncated SVD (latent concepts)
+    k = min(100, X.shape[1] - 1)
+    svd = TruncatedSVD(n_components=k, random_state=42)
+    X_svd = svd.fit_transform(X)
+
+    # 3) Rank terms by maximum loading across components
+    comp_loadings = np.abs(svd.components_)
+    top_indices = np.argsort(-comp_loadings, axis=1)[:, :10]  # 10 per comp
+    term_ids = []
+    for row in top_indices:
+        term_ids.extend(row)
+    # unique while preserving order
+    seen = set(); ordered = []
+    for idx in term_ids:
+        if idx not in seen:
+            seen.add(idx)
+            ordered.append(idx)
+        if len(ordered) >= top_n:
+            break
+    terms = [vec.get_feature_names_out()[i] for i in ordered]
+    return terms
+
+# ──────────────────────────────────────────────────────────────
+# NEW –  MiniBatch‑KMeans for embedding clusters (optional)
+# ──────────────────────────────────────────────────────────────
+
+def cluster_embeddings(vectors, min_k: int = 2):
+    """Return cluster_id list (len == len(vectors)). k ≈ sqrt(n)."""
+    n = len(vectors)
+    if n < 20:
+        return [None] * n
+    # ensure k is valid and < n
+    k = max(min_k, int(math.sqrt(n)))
+    k = min(k, n - 1)
+    if k < 2:
+        return [None] * n
+    km = MiniBatchKMeans(n_clusters=k, random_state=42, batch_size=256)
+    labels = km.fit_predict(vectors)
+    return labels.tolist()
 
 # ──────────────────────────────────────────────────────────────
 # 1) TABLE-OF-CONTENTS SCRAPER
@@ -194,6 +254,7 @@ def process_markdown_with_page_numbers(pdf_stream, user_id, class_id, doc_id, fi
                         "is_summary": False,
                         "page_number": page_idx + 1,
                         "chapter_idx": current_chap,
+                        "cluster_id": None,
                     },
                 })
     return chunks
@@ -277,9 +338,33 @@ def load_pdf_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
                 "is_summary": True,
                 "page_number": None,
                 "chapter_idx": None,
+                "cluster_id": None,
             },
         })
-    # ────────────────────────────────────────────────────────────────────
+    
+    # ────────────────────────────────────────────────────────────
+    # NEW – analytics (key terms + clustering)
+    # ────────────────────────────────────────────────────────────
+    log.debug("Computing key terms via TF‑IDF + SVD …")
+    key_terms = compute_key_terms(chunks)
+    try:
+        main_collection.update_one({"_id": ObjectId(doc_id)}, {"$set": {"key_terms": key_terms}})
+    except Exception as e:
+        log.error(f"Error saving key_terms for doc {doc_id}: {e}")
+
+    log.debug("Embedding locally for clustering …")
+    embeddings_model = OpenAIEmbeddings(model="text-embedding-3-small")
+    try:
+        vectors = embeddings_model.embed_documents([c["text"] for c in chunks])
+    except Exception as e:
+        log.error("Embedding failed for clustering; proceeding without clusters", exc_info=True)
+        vectors = None
+
+    if vectors:
+        labels = cluster_embeddings(vectors)
+        for c, lbl in zip(chunks, labels):
+            c["metadata"]["cluster_id"] = lbl
+   
 
     store_embeddings(chunks)
 
