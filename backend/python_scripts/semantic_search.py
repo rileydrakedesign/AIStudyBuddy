@@ -139,6 +139,32 @@ def build_large_doc_study_guide(key_terms: List[str], chunks: List[dict]) -> str
         "context": "\n\n".join(f"Chunk {i+1}: {c['text']}" for i, c in enumerate(chunks)),
     })
 
+# ──────────────────────────────────────────────────────────────
+# Key-term refinement agent  (filters noise, may add missing ones)
+# ──────────────────────────────────────────────────────────────
+def refine_key_terms(raw_terms: List[str], summary_text: str) -> List[str]:
+    """
+    Pass the raw TF-IDF terms + the doc summary to an LLM that returns a
+    newline-separated list of **only** the relevant study terms. It may add
+    obvious missing key concepts.  The output must remain a plain list of words.
+    """
+    prompt = PromptTemplate.from_template(
+        "You are an expert study assistant.\n\n"
+        "Here is the current list of extracted key terms (one per line):\n"
+        "{terms}\n\n"
+        "And here is the document's summary for context:\n"
+        "{summary}\n\n"
+        "Return a *refined* key-term list, one term per line, **no numbering**, "
+        "removing any irrelevant words (e.g., 'page', 'figure') and adding any "
+        "important missing concepts explicitly mentioned in the summary. "
+        "Lastly, it very important that your response only contains the terms formatted as requested (one term per line, **no numbering**)."
+    )
+    response = (prompt | llm | StrOutputParser()).invoke(
+        {"terms": "\n".join(raw_terms), "summary": summary_text}
+    )
+    cleaned = [t.strip() for t in response.splitlines() if t.strip()]
+    log.info(f"[REFINE TERMS] in={len(raw_terms)} out={len(cleaned)}")
+    return cleaned or raw_terms  # fallback to original if parsing failed
 
 
 
@@ -475,6 +501,14 @@ def process_semantic_search(
             # —— LARGE DOC PATH ——
             doc_meta  = main_collection.find_one({"_id": ObjectId(doc_id)}, {"key_terms": 1})
             key_terms = doc_meta.get("key_terms", []) if doc_meta else []
+
+            # fetch stored summary text for refinement context
+            summary_doc = fetch_summary_chunk(user_id, None, doc_id)
+            summary_txt = summary_doc["text"] if summary_doc else ""
+
+            if key_terms:
+                key_terms = refine_key_terms(key_terms, summary_txt)
+
             if not key_terms:
                 # graceful fallback
                 answer, chunk_array, citation, chunk_refs = (
