@@ -106,15 +106,18 @@ def compute_key_terms(chunks, top_n: int = 25):
 def cluster_embeddings(vectors, min_k: int = 2):
     """Return cluster_id list (len == len(vectors)). k ≈ sqrt(n)."""
     n = len(vectors)
+    log.info(f"Clustering embeddings: n_vectors={n}")
     if n < 20:
         return [None] * n
     # ensure k is valid and < n
     k = max(min_k, int(math.sqrt(n)))
     k = min(k, n - 1)
+    log.info(f"Running MiniBatchKMeans with k={k}")  
     if k < 2:
         return [None] * n
     km = MiniBatchKMeans(n_clusters=k, random_state=42, batch_size=256)
     labels = km.fit_predict(vectors)
+    log.info(f"Cluster labels (first 10): {labels[:10]}") 
     return labels.tolist()
 
 # ──────────────────────────────────────────────────────────────
@@ -345,25 +348,27 @@ def load_pdf_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
     # ────────────────────────────────────────────────────────────
     # NEW – analytics (key terms + clustering)
     # ────────────────────────────────────────────────────────────
-    log.debug("Computing key terms via TF‑IDF + SVD …")
+    log.info("Computing key terms via TF‑IDF + SVD …")
     key_terms = compute_key_terms(chunks)
     try:
         main_collection.update_one({"_id": ObjectId(doc_id)}, {"$set": {"key_terms": key_terms}})
     except Exception as e:
         log.error(f"Error saving key_terms for doc {doc_id}: {e}")
 
-    log.debug("Embedding locally for clustering …")
+    log.info("Embedding locally for clustering …")
     embeddings_model = OpenAIEmbeddings(model="text-embedding-3-small")
     try:
+        log.info(f"Embedding {len(chunks)} chunks locally for clustering …")
         vectors = embeddings_model.embed_documents([c["text"] for c in chunks])
     except Exception as e:
-        log.error("Embedding failed for clustering; proceeding without clusters", exc_info=True)
+        log.info("Embedding failed for clustering; proceeding without clusters", exc_info=True)
         vectors = None
 
     if vectors:
         labels = cluster_embeddings(vectors)
         for c, lbl in zip(chunks, labels):
             c["metadata"]["cluster_id"] = lbl
+        log.info(f"Assigned cluster_id to {len(chunks)} chunks.") 
    
 
     store_embeddings(chunks)
