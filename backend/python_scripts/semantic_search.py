@@ -3,8 +3,9 @@ import re                # NEW – for chapter / summary detection
 import json
 import sys
 from pathlib import Path
-from typing import List, Tuple
-
+from typing import List, Tuple, Dict, Any
+import math 
+from bson import ObjectId    
 import boto3
 from urllib.parse import quote
 from botocore.exceptions import ClientError
@@ -33,8 +34,16 @@ db_name = "study_buddy_demo"
 collection_name = "study_materials2"
 collection = client[db_name][collection_name]
 
+MAIN_FILE_DB_NAME         = "test"             # NEW
+MAIN_FILE_COLLECTION_NAME = "documents"        # NEW
+main_collection = client[MAIN_FILE_DB_NAME][MAIN_FILE_COLLECTION_NAME]   # NEW
+
 embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
 llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0.5)
+
+TOK_PER_CHAR       = 1 / 4          # NEW –  ≈4 chars/token
+MAX_CONTEXT_TOKENS = 8_000          # NEW –  safe GPT-4-mini window
+est_tokens = lambda txt: int(len(txt) * TOK_PER_CHAR)   # NEW
 
 backend_url = os.getenv("BACKEND_URL", "https://localhost:3000/api/v1")
 
@@ -50,6 +59,75 @@ def detect_query_mode(query: str) -> str:
     The exact target (doc vs class) is decided later.
     """
     return "summary" if SUMMARY_RE.search(query) else "specific"
+
+# New
+def fetch_full_doc_text_and_chunks(user_id: str, doc_id: str) -> Tuple[str, List[Dict[str, Any]]]:
+    """Return concatenated text + chunk metadata (non-summary)."""
+    pipeline = [
+        {"$match": {"user_id": user_id, "doc_id": doc_id, "is_summary": False}},
+        {"$sort": {"page_number": 1}},
+        {"$project": {"_id": 1, "text": 1, "page_number": 1, "doc_id": 1, "cluster_id": 1}},
+    ]
+    results = list(collection.aggregate(pipeline))
+    full_text = " ".join(r["text"] for r in results)
+    chunk_arr = [
+        {"_id": str(r["_id"]), "chunkNumber": i+1, "text": r["text"],
+         "pageNumber": r.get("page_number"), "docId": r.get("doc_id"),
+         "clusterId": r.get("cluster_id")}
+        for i, r in enumerate(results)
+    ]
+    return full_text, chunk_arr
+
+
+def vector_search_for_term(query_vec, doc_id: str, limit: int = 2):
+    """Return *limit* best chunks for a term embedding."""
+    pipeline = [
+        {"$vectorSearch": {
+            "index": "PlotSemanticSearch",
+            "path": "embedding",
+            "queryVector": query_vec,
+            "numCandidates": 500,
+            "limit": limit,
+            "filter": {"doc_id": doc_id, "is_summary": False},
+        }},
+        {"$project": {"_id": 1, "text": 1, "page_number": 1, "doc_id": 1,
+                      "cluster_id": 1, "score": {"$meta": "vectorSearchScore"}}},
+    ]
+    return list(collection.aggregate(pipeline))
+
+
+def diversify_by_cluster(candidates: List[dict]) -> List[dict]:
+    """Keep ≤1 chunk per cluster_id."""
+    out, seen = [], set()
+    for c in candidates:
+        cid = c.get("cluster_id")
+        if cid is None or cid not in seen:
+            out.append(c)
+            if cid is not None:
+                seen.add(cid)
+    return out
+
+
+def build_small_doc_study_guide(full_text: str) -> str:
+    prompt = PromptTemplate.from_template(
+        "You are an expert study assistant.\n\n"
+        "<doc>\n{context}\n</doc>\n\n"
+        "Generate a study guide: for each key idea create a Q & A flashcard."
+    )
+    return (prompt | llm | StrOutputParser()).invoke({"context": full_text})
+
+
+def build_large_doc_study_guide(key_terms: List[str], chunks: List[dict]) -> str:
+    prompt = PromptTemplate.from_template(
+        "You are an expert study assistant.\n\n"
+        "Key terms:\n{terms}\n\nContext passages:\n{context}\n\n"
+        "For **each** term write a flashcard (**Q:** / **A:**) using ONLY the context."
+    )
+    return (prompt | llm | StrOutputParser()).invoke({
+        "terms": "\n".join(f"- {t}" for t in key_terms),
+        "context": "\n\n".join(f"Chunk {i+1}: {c['text']}" for i, c in enumerate(chunks)),
+    })
+
 
 
 
@@ -274,7 +352,7 @@ def process_semantic_search(
     source: str,
 ):
     """
-    Core search / generation pipeline with new query-mode handling.
+    Core search / generation pipeline (now includes study-guide flow).
     """
     # 0) Detect mode + chapters
     mode = detect_query_mode(user_query)
@@ -291,55 +369,45 @@ def process_semantic_search(
             }
     log.debug(f"Mode: {mode}")
 
-    # Existing router (kept intact for prompt selection)
+    # ---------------- Router initialisation ----------------
     from semantic_router import Route, RouteLayer
     from semantic_router.encoders import OpenAIEncoder
 
-    # --- Router definition (unchanged) ---
     general_qa = Route(
         name="general_qa",
         utterances=[
             "Define the term 'mitosis'",
             "When did the Civil War start?",
-            "What is the theory of relativity?",
             "Explain the concept of supply and demand",
-            "Who discovered penicillin?",
-            "How does photosynthesis work?",
         ],
     )
     generate_study_guide = Route(
         name="generate_study_guide",
         utterances=[
-            "Create a study guide for biology",
-            "Generate a study guide on World War II",
-            "Make a study guide for my chemistry class",
-            "Study guide for this chapter on genetics",
-            "Prepare a study guide for algebra",
+            "Create a study guide",
+            "Generate a study guide",
+            "Study guide for this chapter",
         ],
     )
     generate_notes = Route(
         name="generate_notes",
         utterances=[
-            "Write notes on the French Revolution",
-            "Generate notes for my physics lecture",
-            "Take notes for this chapter on cell biology",
-            "Notes for this topic on climate change",
-            "Summarize notes for my economics class",
+            "Write notes on",
+            "Generate notes for",
         ],
     )
     follow_up = Route(
         name="follow_up",
         utterances=[
             "elaborate more on this",
-            "tell me more about that",
-            "expand on that",
-            "what do you mean by that",
-            "explain that again",
-            "what was that again",
             "go on",
         ],
     )
-    rl = RouteLayer(encoder=OpenAIEncoder(), routes=[general_qa, generate_study_guide, generate_notes, follow_up])
+
+    rl = RouteLayer(
+        encoder=OpenAIEncoder(),
+        routes=[general_qa, generate_study_guide, generate_notes, follow_up],
+    )
     route = rl(user_query).name or "general_qa"
     log.debug(f"Prompt route: {route}")
 
@@ -354,11 +422,82 @@ def process_semantic_search(
             item["chunkReferences"] = c["chunkReferences"]
         chat_history_cleaned.append(item)
 
+    # ──────────────────────────────────────────────────────────────
+    # NEW  ➜  DOC-LEVEL STUDY-GUIDE HANDLER
+    # ──────────────────────────────────────────────────────────────
+    if route == "generate_study_guide":
+        if not doc_id or doc_id == "null":
+            msg = "Please open a specific document first to generate a study guide."
+            chat_history.append({"role": "assistant", "content": msg})
+            return {
+                "message": msg,
+                "citation": [],
+                "chats": chat_history,
+                "chunks": [],
+                "chunkReferences": [],
+            }
+
+        # 1) retrieve full text & base chunks
+        full_text, all_chunks = fetch_full_doc_text_and_chunks(user_id, doc_id)
+
+        # 2) small vs large doc decision
+        if est_tokens(full_text) <= MAX_CONTEXT_TOKENS:
+            # —— SMALL DOC PATH ——
+            answer = build_small_doc_study_guide(full_text)
+            chunk_array = [{
+                "_id": all_chunks[0]["_id"] if all_chunks else "N/A",
+                "chunkNumber": 1,
+                "text": all_chunks[0]["text"] if all_chunks else full_text[:200],
+                "pageNumber": all_chunks[0].get("pageNumber") if all_chunks else None,
+                "docId": doc_id,
+            }]
+            citation   = get_file_citation(all_chunks[:1]) if all_chunks else []
+            chunk_refs = [{"chunkId": chunk_array[0]["_id"], "displayNumber": 1,
+                           "pageNumber": chunk_array[0]["pageNumber"]}]
+        else:
+            # —— LARGE DOC PATH ——
+            doc_meta  = main_collection.find_one({"_id": ObjectId(doc_id)}, {"key_terms": 1})
+            key_terms = doc_meta.get("key_terms", []) if doc_meta else []
+            if not key_terms:
+                # graceful fallback
+                answer, chunk_array, citation, chunk_refs = (
+                    build_small_doc_study_guide(full_text[:20_000]),
+                    [], [], []
+                )
+            else:
+                term_vecs  = embedding_model.embed_documents(key_terms)
+                cands      = [
+                    c for v in term_vecs for c in vector_search_for_term(v, doc_id, 2)
+                ]
+                div_chunks = diversify_by_cluster(cands)
+                answer     = build_large_doc_study_guide(key_terms, div_chunks)
+
+                chunk_array = [{
+                    "_id": str(c["_id"]), "chunkNumber": i+1, "text": c["text"],
+                    "pageNumber": c.get("page_number"), "docId": c.get("doc_id"),
+                } for i, c in enumerate(div_chunks)]
+                citation   = get_file_citation(div_chunks)
+                chunk_refs = [{
+                    "chunkId": c["_id"], "displayNumber": c["chunkNumber"],
+                    "pageNumber": c["pageNumber"]
+                } for c in chunk_array]
+
+        chat_history.append(
+            {"role": "assistant", "content": answer, "chunkReferences": chunk_refs}
+        )
+        return {
+            "message": answer,
+            "citation": citation,
+            "chats": chat_history,
+            "chunks": chunk_array,
+            "chunkReferences": chunk_refs,
+        }
+
     # -------------------- MODE-SPECIFIC PATHS --------------------
     chunk_array = []
     similarity_results = []
 
-    # Reuse previous chunks for follow-up
+    # (existing follow-up reuse)
     if route == "follow_up":
         last_refs = next(
             (m.get("chunkReferences") for m in reversed(chat_history_cleaned) if m["role"] == "assistant"), []
@@ -376,9 +515,9 @@ def process_semantic_search(
                     }
                 )
             mode = "follow_up"  # Treat as no new retrieval
+
     # ----------------------------------------------------------------
-        # ----------------------------------------------------------------
-    # WHOLE-DOCUMENT SUMMARY MODE  (returns condensed version)
+    # WHOLE-DOCUMENT SUMMARY MODE
     # ----------------------------------------------------------------
     if mode == "doc_summary":
         summary_doc = fetch_summary_chunk(user_id, class_name, doc_id)
@@ -386,31 +525,18 @@ def process_semantic_search(
             log.warning("No stored summary found; falling back to specific search")
             mode = "specific"
         else:
-            # 1. Condense the long stored summary
-            log.info(f"[FULL-MODE] passing stored summary (len={len(summary_doc['text'])}) to condenser")
-
             condensed_text = condense_summary(summary_doc["text"], user_query)
-
-            # 2. Build minimal chunk/citation info so the front-end can still
-            #    show “chunk 1” if desired.
-            chunk_array = [
-                {
-                    "_id": str(summary_doc["_id"]),
-                    "chunkNumber": 1,
-                    "text": summary_doc["text"],   # original full text
-                    "pageNumber": None,
-                    "docId": summary_doc["doc_id"],
-                }
-            ]
+            chunk_array = [{
+                "_id": str(summary_doc["_id"]), "chunkNumber": 1,
+                "text": summary_doc["text"], "pageNumber": None,
+                "docId": summary_doc["doc_id"],
+            }]
             citation = get_file_citation([summary_doc])
-            chunk_refs = [
-                {"chunkId": chunk_array[0]["_id"], "displayNumber": 1, "pageNumber": None}
-            ]
-
-            # 3. Append to chat_history and RETURN immediately
-            chat_history.append(
-                {"role": "assistant", "content": condensed_text, "chunkReferences": chunk_refs}
-            )
+            chunk_refs = [{"chunkId": chunk_array[0]["_id"], "displayNumber": 1,
+                           "pageNumber": None}]
+            chat_history.append({
+                "role": "assistant", "content": condensed_text, "chunkReferences": chunk_refs
+            })
             return {
                 "message": condensed_text,
                 "citation": citation,
@@ -418,37 +544,29 @@ def process_semantic_search(
                 "chunks": chunk_array,
                 "chunkReferences": chunk_refs,
             }
-            # ----------------------------------------------------------------
-    # CLASS-LEVEL SUMMARY (aggregate doc summaries for the class)
+
+    # ----------------------------------------------------------------
+    # CLASS-LEVEL SUMMARY MODE
     # ----------------------------------------------------------------
     if mode == "class_summary":
         docs = fetch_class_summaries(user_id, class_name)
         if not docs:
             log.warning("No summaries found for this class; falling back to specific search.")
-            mode = "specific"            # fall through to normal retrieval
+            mode = "specific"
         else:
             combined = "\n\n---\n\n".join(d["text"] for d in docs)
             condensed_text = condense_class_summaries(combined, user_query)
-
-            chunk_array = [
-                {
-                    "_id": str(d["_id"]),
-                    "chunkNumber": i + 1,
-                    "text": d["text"],
-                    "pageNumber": None,
-                    "docId": d["doc_id"],
-                }
-                for i, d in enumerate(docs)
-            ]
+            chunk_array = [{
+                "_id": str(d["_id"]), "chunkNumber": i+1,
+                "text": d["text"], "pageNumber": None,
+                "docId": d["doc_id"],
+            } for i, d in enumerate(docs)]
             citation = get_file_citation(docs)
-            chunk_refs = [
-                {"chunkId": c["_id"], "displayNumber": c["chunkNumber"], "pageNumber": None}
-                for c in chunk_array
-            ]
-
+            chunk_refs = [{
+                "chunkId": c["_id"], "displayNumber": c["chunkNumber"],
+                "pageNumber": None} for c in chunk_array]
             chat_history.append({
-                "role": "assistant",
-                "content": condensed_text,
+                "role": "assistant", "content": condensed_text,
                 "chunkReferences": chunk_refs
             })
             return {
@@ -459,31 +577,21 @@ def process_semantic_search(
                 "chunkReferences": chunk_refs,
             }
 
-
-
-    # -------------------- PROMPT SELECTION --------------------
+    # -------------------- PROMPT SELECTION (unchanged) --------------------
     prompts = load_prompts()
-    if source == "chrome_extension":
-        base_prompt = prompts.get("chrome_extension")
-    else:
-        base_prompt = prompts.get(route)
+    base_prompt = prompts.get("chrome_extension") if source == "chrome_extension" else prompts.get(route)
     if not base_prompt:
         raise ValueError(f"Prompt for route '{route}' not found in prompts.json")
 
     referencing_instruction = (
         "Whenever you use content from a given chunk in your final answer, "
         "place a bracketed reference [1], [2], [3], etc. at the end of the relevant sentence.\n\n"
-        "Please format your answer using Markdown. Write all mathematical expressions in LaTeX using '$' for "
-        "inline math and '$$' for display math. Ensure code is in triple backticks.\n\n"
+        "Please format your answer using Markdown."
     )
     enhanced_prompt = referencing_instruction + base_prompt
 
     # Build context from chunk_array
-    context = (
-        "\n\n".join(f"Chunk {idx+1}: {c['text']}" for idx, c in enumerate(chunk_array))
-        if chunk_array
-        else ""
-    )
+    context = "\n\n".join(f"Chunk {idx+1}: {c['text']}" for idx, c in enumerate(chunk_array)) if chunk_array else ""
     formatted_prompt = PromptTemplate.from_template(enhanced_prompt).format(
         context=escape_curly_braces(context)
     )
@@ -497,12 +605,15 @@ def process_semantic_search(
     # Citations & references
     citation = get_file_citation(similarity_results)
     chunk_refs = [
-        {"chunkId": item["_id"], "displayNumber": item["chunkNumber"], "pageNumber": item.get("pageNumber")}
+        {"chunkId": item["_id"], "displayNumber": item["chunkNumber"],
+         "pageNumber": item.get("pageNumber")}
         for item in chunk_array
     ]
 
-    # Append assistant turn to history for future follow-ups
-    chat_history.append({"role": "assistant", "content": answer, "chunkReferences": chunk_refs})
+    # Append assistant turn to history
+    chat_history.append(
+        {"role": "assistant", "content": answer, "chunkReferences": chunk_refs}
+    )
 
     return {
         "message": answer,
@@ -511,6 +622,7 @@ def process_semantic_search(
         "chunks": chunk_array,
         "chunkReferences": chunk_refs,
     }
+
 
 
 # ---------------- CLI entry (unchanged) ----------------
