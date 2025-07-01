@@ -1,7 +1,4 @@
-import os
-import re                # NEW – for chapter / summary detection
-import json
-import sys
+import os, re, json, sys, math
 from pathlib import Path
 from typing import List, Tuple
 
@@ -38,18 +35,30 @@ llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0.5)
 
 backend_url = os.getenv("BACKEND_URL", "https://localhost:3000/api/v1")
 
+# ------------------------------------------------------------------
+# Context-window guard-rails
+# ------------------------------------------------------------------
+MAX_PROMPT_TOKENS = 8_000          # safe ceiling for gpt-4-mini
+TOK_PER_CHAR      = 1 / 4          # heuristic ≈ 4 chars/token
+est_tokens        = lambda txt: int(len(txt) * TOK_PER_CHAR)
+
+
 # ──────────────────────────────────────────────────────────────
 # ────────────────  NEW MODE-DETECTION HELPERS  ───────────────
 # ──────────────────────────────────────────────────────────────
-# add after SUMMARY_RE
-SUMMARY_RE = re.compile(r"\bsummar(?:y|ize|ise)\b", re.I)  # summary keyword
+SUMMARY_RE    = re.compile(r"\bsummar(?:y|ize|ise)\b", re.I)
+STUDYGUIDE_RE = re.compile(r"\b(study[-\s]?guide|make\s+me\s+a\s+guide)\b", re.I)
 
 def detect_query_mode(query: str) -> str:
     """
-    Return 'summary' when the user is asking for ANY summary; else 'specific'.
-    The exact target (doc vs class) is decided later.
+    Return 'study_guide', 'summary', or 'specific'.
     """
-    return "summary" if SUMMARY_RE.search(query) else "specific"
+    if STUDYGUIDE_RE.search(query):
+        return "study_guide"
+    if SUMMARY_RE.search(query):
+        return "summary"
+    return "specific"
+
 
 
 
@@ -244,6 +253,28 @@ def condense_class_summaries(text: str, user_query: str) -> str:
         {"context": text, "user_query": user_query}
     )
 
+# ------------ NEW  study-guide generation helper ------------
+def generate_study_guide(context_text: str, user_query: str) -> str:
+    """
+    Build a markdown study guide with fixed sections.
+    """
+    sg_prompt = PromptTemplate.from_template(
+        "You are an expert tutor creating a clear, well-structured study guide.\n\n"
+        "<context>\n{context}\n</context>\n\n"
+        "User request: \"{user_query}\"\n\n"
+        "Return a markdown study guide with **exactly** these headings:\n"
+        "1. # Study Guide\n"
+        "2. ## Key Concepts\n"
+        "3. ## Important Definitions\n"
+        "4. ## Essential Formulas / Diagrams (omit if N/A)\n"
+        "5. ## Practice Questions\n\n"
+        "Follow any extra formatting the user asked for and keep it under ~1 200 words."
+    )
+    return (sg_prompt | llm | StrOutputParser()).invoke(
+        {"context": context_text, "user_query": user_query}
+    )
+
+
 
 
 
@@ -307,7 +338,7 @@ def process_semantic_search(
             "How does photosynthesis work?",
         ],
     )
-    generate_study_guide = Route(
+    generate_study_guide_route = Route(
         name="generate_study_guide",
         utterances=[
             "Create a study guide for biology",
@@ -339,11 +370,60 @@ def process_semantic_search(
             "go on",
         ],
     )
-    rl = RouteLayer(encoder=OpenAIEncoder(), routes=[general_qa, generate_study_guide, generate_notes, follow_up])
+    rl = RouteLayer(encoder=OpenAIEncoder(), routes=[general_qa, generate_study_guide_route, generate_notes, follow_up])
     route = rl(user_query).name or "general_qa"
     log.debug(f"Prompt route: {route}")
 
     # -------------------- History sanitisation --------------------
+    # -----------------------------------------------------------
+    #  Study-guide pipeline (executes before generic retrieval)
+    # -----------------------------------------------------------
+    if route == "generate_study_guide" or mode == "study_guide":
+        # -------- Single-document study guide --------
+        if doc_id and doc_id != "null":
+            summary_doc = fetch_summary_chunk(user_id, class_name, doc_id)
+            if summary_doc:
+                context_txt = summary_doc["text"]
+                if est_tokens(context_txt) > MAX_PROMPT_TOKENS:
+                    context_txt = condense_summary(context_txt, user_query)
+                guide = generate_study_guide(context_txt, user_query)
+
+                chunk_array = [{
+                    "_id": str(summary_doc["_id"]), "chunkNumber": 1,
+                    "text": summary_doc["text"], "pageNumber": None,
+                    "docId": summary_doc["doc_id"],
+                }]
+                citation   = get_file_citation([summary_doc])
+                chunk_refs = [{"chunkId": chunk_array[0]["_id"], "displayNumber": 1, "pageNumber": None}]
+                chat_history.append({"role": "assistant", "content": guide, "chunkReferences": chunk_refs})
+                return {
+                    "message": guide, "citation": citation, "chats": chat_history,
+                    "chunks": chunk_array, "chunkReferences": chunk_refs,
+                }
+
+        # -------- Class-level study guide --------
+        if class_name and class_name != "null":
+            docs = fetch_class_summaries(user_id, class_name)
+            if docs:
+                combined = "\n\n---\n\n".join(d["text"] for d in docs)
+                if est_tokens(combined) > MAX_PROMPT_TOKENS:
+                    combined = condense_class_summaries(combined, user_query)
+                guide = generate_study_guide(combined, user_query)
+
+                chunk_array = [{
+                    "_id": str(d["_id"]), "chunkNumber": i+1,
+                    "text": d["text"], "pageNumber": None, "docId": d["doc_id"],
+                } for i, d in enumerate(docs)]
+                citation   = get_file_citation(docs)
+                chunk_refs = [{"chunkId": c["_id"], "displayNumber": c["chunkNumber"], "pageNumber": None}
+                            for c in chunk_array]
+                chat_history.append({"role": "assistant", "content": guide, "chunkReferences": chunk_refs})
+                return {
+                    "message": guide, "citation": citation, "chats": chat_history,
+                    "chunks": chunk_array, "chunkReferences": chunk_refs,
+                }
+        #  ↳ If no summary found or no doc/class chosen, fall through to normal pipeline
+
     chat_history_cleaned = []
     for c in chat_history:
         item = {
