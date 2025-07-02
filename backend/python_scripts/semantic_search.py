@@ -307,6 +307,12 @@ def process_semantic_search(
     """
     Core search / generation pipeline with new query-mode handling.
     """
+    log.info(
+        "[PROC] START | user=%s class=%s doc=%s | raw_query=%s",
+        user_id, class_name, doc_id, (user_query[:120] + "…") if len(user_query) > 120 else user_query,
+    )
+
+        # --- NEW: trace inbound request ---
     # 0) Detect mode + chapters
     mode = detect_query_mode(user_query)
     if mode == "summary":
@@ -386,6 +392,13 @@ def process_semantic_search(
                 context_txt = summary_doc["text"]
                 if est_tokens(context_txt) > MAX_PROMPT_TOKENS:
                     context_txt = condense_summary(context_txt, user_query)
+                    # ── NEW LOG ───────────────────────────────────────────
+                log.info(
+                    "[PROC] Study-guide (doc) | summary_tokens=%d | will_condense=%s",
+                    est_tokens(context_txt),
+                    "YES" if est_tokens(context_txt) > MAX_PROMPT_TOKENS else "NO",
+                )
+                # ──────────────────────────────────────────────────────
                 guide = generate_study_guide(context_txt, user_query)
 
                 chunk_array = [{
@@ -408,6 +421,16 @@ def process_semantic_search(
                 combined = "\n\n---\n\n".join(d["text"] for d in docs)
                 if est_tokens(combined) > MAX_PROMPT_TOKENS:
                     combined = condense_class_summaries(combined, user_query)
+                    
+                # ── NEW LOG ───────────────────────────────────────────
+                log.info(
+                    "[PROC] Study-guide (class) | combined_tokens=%d | will_condense=%s | n_docs=%d",
+                    est_tokens(combined),
+                    "YES" if est_tokens(combined) > MAX_PROMPT_TOKENS else "NO",
+                    len(docs),
+                )
+                # ──────────────────────────────────────────────────────
+
                 guide = generate_study_guide(combined, user_query)
 
                 chunk_array = [{
