@@ -1,2 +1,10 @@
-web: gunicorn semantic_service:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT
+# ── Web dyno: raise gunicorn time-outs ─────────────────────────────
+web: gunicorn semantic_service:app \
+     -k uvicorn.workers.UvicornWorker \
+     --bind 0.0.0.0:$PORT \
+     --timeout 60 \            # hard-kill worker if no response in 60 s
+     --graceful-timeout 60 \   # give worker 60 s to finish after SIGTERM
+     --keep-alive 5            # keep-alive on TCP connections (optional)
+
+# ── Background ingest worker (unchanged) ──────────────────────────
 worker: rq worker ingest --url "$REDIS_URL?ssl_cert_reqs=none" --with-scheduler
