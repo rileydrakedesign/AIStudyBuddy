@@ -1,8 +1,10 @@
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional
 import uuid
+import asyncio
+import json
 
 from semantic_search import process_semantic_search
 from tasks import enqueue_ingest
@@ -33,7 +35,8 @@ async def add_req_id(request: Request, call_next):
         return response
 
 # ──────────────────────────────────────────────────────────────────────────
-# /api/v1/semantic_search  (unchanged)
+# /api/v1/semantic_search
+#   ‣ Streams keep‑alive bytes every ~10 s until processing completes
 # ──────────────────────────────────────────────────────────────────────────
 class SearchRequest(BaseModel):
     user_id: str
@@ -43,10 +46,21 @@ class SearchRequest(BaseModel):
     chat_history: List[dict]
     source: str
 
+KEEPALIVE_INTERVAL = 10  # seconds – send a byte every 10 s to reset Heroku timer
+
 @app.post("/api/v1/semantic_search")
 async def semantic_search(req: SearchRequest):
-    try:
-        return process_semantic_search(
+    """Route is now *streamed* so Heroku’s 30 s idle‑timeout is never hit.
+    We first drip whitespace every KEEPALIVE_INTERVAL seconds, 
+    then emit the final JSON once the heavy search finishes.
+    """
+
+    async def body_generator():
+        loop = asyncio.get_running_loop()
+        # Off‑load the blocking search to a default thread‑pool executor
+        search_task = loop.run_in_executor(
+            None,
+            process_semantic_search,
             req.user_id,
             req.class_name or "null",
             req.doc_id or "null",
@@ -54,11 +68,26 @@ async def semantic_search(req: SearchRequest):
             req.chat_history,
             req.source,
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+
+        # While the task is running, yield a single space + newline periodically
+        while not search_task.done():
+            yield b" \n"  # any byte resets Heroku router timer
+            await asyncio.sleep(KEEPALIVE_INTERVAL)
+
+        # Task finished – stream the real JSON payload
+        try:
+            result = await search_task
+            yield json.dumps(result).encode()
+        except Exception as e:
+            # Convert exceptions into a JSON error so caller still receives valid JSON
+            log.exception(e)
+            err_payload = json.dumps({"error": str(e)})
+            yield err_payload.encode()
+
+    return StreamingResponse(body_generator(), media_type="application/json")
 
 # ──────────────────────────────────────────────────────────────────────────
-# /api/v1/process_upload  (enqueue job, return 202 Accepted)
+# /api/v1/process_upload  (unchanged – still enqueues ingest job)
 # ──────────────────────────────────────────────────────────────────────────
 class ProcessUploadRequest(BaseModel):
     user_id: str
@@ -68,10 +97,7 @@ class ProcessUploadRequest(BaseModel):
 
 @app.post("/api/v1/process_upload", status_code=202)
 def process_upload(request: ProcessUploadRequest):
-    """
-    Enqueue an ingest job onto the RQ "ingest" queue and return immediately.
-    Worker dynos will execute load_pdf_data(user_id, ...).
-    """
+    """Enqueue an ingest job onto the RQ "ingest" queue and return immediately."""
     try:
         job = enqueue_ingest(
             user_id=request.user_id,
