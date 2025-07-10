@@ -31,7 +31,7 @@ collection_name = "study_materials2"
 collection = client[db_name][collection_name]
 
 embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
-llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0.5)
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.5)
 
 backend_url = os.getenv("BACKEND_URL", "https://localhost:3000/api/v1")
 
