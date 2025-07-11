@@ -42,6 +42,8 @@ MAX_PROMPT_TOKENS = 8_000          # safe ceiling for gpt-4-mini
 TOK_PER_CHAR      = 1 / 4          # heuristic ≈ 4 chars/token
 est_tokens        = lambda txt: int(len(txt) * TOK_PER_CHAR)
 
+SIMILARITY_THRESHOLD = 0.5
+
 
 # ──────────────────────────────────────────────────────────────
 # ────────────────  NEW MODE-DETECTION HELPERS  ───────────────
@@ -60,6 +62,17 @@ def detect_query_mode(query: str) -> str:
     return "specific"
 
 
+# ───────────────────────── NEW helper (place near other helpers) ─────────────────────────
+def suggest_refine_queries() -> List[str]:
+    """
+    Return a few generic follow-up hints the UI can show when no chunks meet
+    the similarity threshold.
+    """
+    return [
+        "Ask about a specific key term, e.g. “Define entropy in Chapter 2”.",
+        "Refer to a section number, e.g. “Summarise Section 3.4”.",
+        "Break the question into a smaller part, e.g. “List the main theorems first”.",
+    ]
 
 
 # ──────────────────────────────────────────────────────────────
@@ -457,9 +470,65 @@ def process_semantic_search(
             item["chunkReferences"] = c["chunkReferences"]
         chat_history_cleaned.append(item)
 
-    # -------------------- MODE-SPECIFIC PATHS --------------------
+        # ------------------- SIMILARITY RETRIEVAL -------------------
     chunk_array = []
     similarity_results = []
+
+    if mode not in ("follow_up", "doc_summary", "class_summary"):
+        # 1) Embed the user query
+        query_vec = create_embedding(user_query)
+
+        # 2) Build Mongo search filter to scope by user / class / doc
+        filters = {"user_id": user_id}
+        if doc_id and doc_id != "null":
+            filters["doc_id"] = doc_id
+        elif class_name not in (None, "", "null"):
+            filters["class_id"] = class_name
+
+        # 3) Run vector search
+        search_cursor = perform_semantic_search(query_vec, filters)
+
+        # 4) Keep only hits ≥ threshold
+        similarity_results = [
+            r for r in search_cursor if r.get("score", 0) >= SIMILARITY_THRESHOLD
+        ]
+
+        # 5) Build chunk_array for later prompt context
+        for idx, r in enumerate(similarity_results):
+            chunk_array.append(
+                {
+                    "_id": str(r["_id"]),
+                    "chunkNumber": idx + 1,
+                    "text": r["text"],
+                    "pageNumber": r.get("page_number"),
+                    "docId": r.get("doc_id"),
+                }
+            )
+
+        # ---------- Graceful “no-hit” handling ----------
+        if not chunk_array:
+            refine_message = (
+                "I couldn’t find anything relevant for that question. "
+                "Make sure you’re on the correct class or document and try asking a more specific question."
+            )
+            suggestions = suggest_refine_queries()
+            chat_history.append(
+                {
+                    "role": "assistant",
+                    "content": refine_message,
+                    "suggestions": suggestions,
+                }
+            )
+            return {
+                "message": refine_message,
+                "suggestions": suggestions,
+                "status": "no_hit",
+                "citation": [],
+                "chats": chat_history,
+                "chunks": [],
+                "chunkReferences": [],
+            }
+# ─────────────────────────────────────────────────────────
 
     # Reuse previous chunks for follow-up
     if route == "follow_up":
