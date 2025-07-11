@@ -18,14 +18,21 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from pymongo import MongoClient
 
 from logger_setup import log
+import openai
 
 try:
-    # v1-style
-    from openai.error import BadRequestError, InvalidRequestError
-except ImportError:                      # older client
-    from openai import error as _oe
-    BadRequestError = _oe.InvalidRequestError  # type: ignore
-    InvalidRequestError = _oe.InvalidRequestError  # alias for consistency
+    # ≥ v1.0 – exceptions live in openai._exceptions
+    from openai._exceptions import InvalidRequestError, BadRequestError         # type: ignore
+except ImportError:
+    try:
+        # ≤ v0.28 – exceptions live in openai.error
+        from openai.error import InvalidRequestError as InvalidRequestError     # type: ignore
+        BadRequestError = InvalidRequestError  # alias if BadRequestError missing
+    except ImportError:
+        # Fallback for rare intermediate versions
+        InvalidRequestError = getattr(openai, "InvalidRequestError", Exception) # type: ignore
+        BadRequestError = getattr(openai, "BadRequestError", InvalidRequestError) # type: ignore
+
 
 # ──────────────────────────────────────────────────────────────
 # ENV + CLIENTS
