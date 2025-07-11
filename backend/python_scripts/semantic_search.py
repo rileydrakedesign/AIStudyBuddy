@@ -19,6 +19,14 @@ from pymongo import MongoClient
 
 from logger_setup import log
 
+try:
+    # v1-style
+    from openai.error import BadRequestError, InvalidRequestError
+except ImportError:                      # older client
+    from openai import error as _oe
+    BadRequestError = _oe.InvalidRequestError  # type: ignore
+    InvalidRequestError = _oe.InvalidRequestError  # alias for consistency
+
 # ──────────────────────────────────────────────────────────────
 # ENV + CLIENTS
 # ──────────────────────────────────────────────────────────────
@@ -664,7 +672,45 @@ def process_semantic_search(
     prompt_template = ChatPromptTemplate.from_messages(
         [("system", formatted_prompt), MessagesPlaceholder("chat_history"), ("user", "{input}")]
     )
-    answer = construct_chain(prompt_template, user_query, chat_history_cleaned)
+    # -------------------- FINAL GENERATION --------------------
+    try:
+        answer = construct_chain(prompt_template, user_query, chat_history_cleaned)
+
+    except (InvalidRequestError, BadRequestError) as oe:
+        # New-style clients set oe.code == "context_length_exceeded"
+        # Older clients embed the same string in oe.error.code
+        err_code = getattr(oe, "code", None) or getattr(getattr(oe, "error", None), "code", None)
+
+        if err_code == "context_length_exceeded":
+            if mode == "class_summary":
+                friendly = (
+                    "Too many documents to summarise the full class. "
+                    "Try removing some documents or summarise individual ones directly in document chat."
+                )
+            elif route == "generate_study_guide" or mode == "study_guide":
+                friendly = (
+                    "Too many documents to generate a study guide for the full class. "
+                    "Trim the selection or generate guides per document."
+                )
+            else:  # generic query
+                friendly = (
+                    "This request is too large for the model’s context window. "
+                    "Please shorten the question or narrow the document scope."
+                )
+
+            chat_history.append({"role": "assistant", "content": friendly})
+            return {
+                "message": friendly,
+                "status":  "context_too_large",
+                "citation": [],
+                "chats":   chat_history,
+                "chunks":  chunk_array,
+                "chunkReferences": [],
+            }
+
+        # Any other OpenAI error → let upstream handlers deal with it
+        raise
+
 
     # Citations & references
     citation = get_file_citation(similarity_results)
