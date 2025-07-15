@@ -19,20 +19,35 @@ from pymongo import MongoClient
 
 from logger_setup import log
 import openai
+import traceback   # for last-chance logging
 
+# ------------------------------------------------------------------
+# Robust OpenAI exception aliases (works with any SDK version)
+# ------------------------------------------------------------------
 try:
-    # ≥ v1.0 – exceptions live in openai._exceptions
-    from openai._exceptions import InvalidRequestError, BadRequestError         # type: ignore
+    # ≥ v1.0
+    from openai._exceptions import (
+        InvalidRequestError,
+        BadRequestError,
+        RateLimitError,
+        APIConnectionError,
+        Timeout as OpenAITimeout,
+        APIStatusError,
+    )  # type: ignore
 except ImportError:
     try:
-        # ≤ v0.28 – exceptions live in openai.error
-        from openai.error import InvalidRequestError as InvalidRequestError     # type: ignore
-        BadRequestError = InvalidRequestError  # alias if BadRequestError missing
+        # ≤ v0.28
+        from openai.error import (   # type: ignore
+            InvalidRequestError as InvalidRequestError,
+            RateLimitError,
+            APIConnectionError,
+            Timeout as OpenAITimeout,
+            APIError as APIStatusError,
+        )
+        BadRequestError = InvalidRequestError  # alias not exposed pre-1.0
     except ImportError:
-        # Fallback for rare intermediate versions
-        InvalidRequestError = getattr(openai, "InvalidRequestError", Exception) # type: ignore
-        BadRequestError = getattr(openai, "BadRequestError", InvalidRequestError) # type: ignore
-
+        # Fallback—treat all as generic Exception
+        InvalidRequestError = BadRequestError = RateLimitError = APIConnectionError = APIStatusError = OpenAITimeout = Exception  # type: ignore
 
 # ──────────────────────────────────────────────────────────────
 # ENV + CLIENTS
@@ -681,15 +696,12 @@ def process_semantic_search(
     prompt_template = ChatPromptTemplate.from_messages(
         [("system", formatted_prompt), MessagesPlaceholder("chat_history"), ("user", "{input}")]
     )
-    # -------------------- FINAL GENERATION --------------------
     try:
         answer = construct_chain(prompt_template, user_query, chat_history_cleaned)
 
+    # ---- 1) Context-length specific (still needs special copy) ----
     except (InvalidRequestError, BadRequestError) as oe:
-        # New-style clients set oe.code == "context_length_exceeded"
-        # Older clients embed the same string in oe.error.code
         err_code = getattr(oe, "code", None) or getattr(getattr(oe, "error", None), "code", None)
-
         if err_code == "context_length_exceeded":
             if mode == "class_summary":
                 friendly = (
@@ -701,7 +713,7 @@ def process_semantic_search(
                     "Too many documents to generate a study guide for the full class. "
                     "Trim the selection or generate guides per document."
                 )
-            else:  # generic query
+            else:
                 friendly = (
                     "This request is too large for the model’s context window. "
                     "Please shorten the question or narrow the document scope."
@@ -717,8 +729,34 @@ def process_semantic_search(
                 "chunkReferences": [],
             }
 
-        # Any other OpenAI error → let upstream handlers deal with it
-        raise
+        # Any other InvalidRequest/BadRequest → fall through to generic handler below
+        last_exception = oe
+
+    # ---- 2) Transient LLM / network issues (retryable) ----
+    except (RateLimitError, APIConnectionError, OpenAITimeout, APIStatusError) as oe:
+        last_exception = oe
+
+    # ---- 3) Catch-all for anything unanticipated ----
+    except Exception as oe:  # pragma: no cover
+        last_exception = oe
+
+    # ---------- Generic graceful fallback (runs for all paths with `last_exception`) ----------
+    if "last_exception" in locals():
+        log.error("[LLM-ERROR] %s", traceback.format_exc(limit=3))
+        friendly = (
+            "The model or server is unavailable right now. "
+            "Please hit **Try again**. If the issue persists, try later or contact support."
+        )
+        chat_history.append({"role": "assistant", "content": friendly})
+        return {
+            "message": friendly,
+            "status":  "llm_error",
+            "retryable": True,
+            "citation": [],
+            "chats":   chat_history,
+            "chunks":  chunk_array,
+            "chunkReferences": [],
+        }
 
 
     # Citations & references
