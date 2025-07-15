@@ -42,7 +42,7 @@ s3_client = boto3.client(
     region_name=os.getenv("AWS_REGION"),
 )
 
-llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0)
+llm = ChatOpenAI(model="gpt-4.1-nano", temperature=0)
 
 # ──────────────────────────────────────────────────────────────
 # SUMMARY UTIL
