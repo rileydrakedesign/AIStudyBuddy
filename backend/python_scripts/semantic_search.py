@@ -489,6 +489,25 @@ def process_semantic_search(
     chunk_array = []
     similarity_results = []
 
+    # Reuse previous chunks for follow-up
+    if route == "follow_up":
+        last_refs = next(
+            (m.get("chunkReferences") for m in reversed(chat_history_cleaned) if m["role"] == "assistant"), []
+        )
+        if last_refs:
+            for ref in last_refs:
+                chunk_doc = collection.find_one({"_id": ref.get("chunkId")})
+                chunk_array.append(
+                    {
+                        "_id": ref.get("chunkId"),
+                        "chunkNumber": ref.get("displayNumber"),
+                        "text": chunk_doc.get("text") if chunk_doc else None,
+                        "pageNumber": ref.get("pageNumber"),
+                        "docId": chunk_doc.get("doc_id") if chunk_doc else None,
+                    }
+                )
+            mode = "follow_up"  # Treat as no new retrieval
+
     if mode not in ("follow_up", "doc_summary", "class_summary"):
         # 1) Embed the user query
         query_vec = create_embedding(user_query)
@@ -545,24 +564,7 @@ def process_semantic_search(
             }
 # ─────────────────────────────────────────────────────────
 
-    # Reuse previous chunks for follow-up
-    if route == "follow_up":
-        last_refs = next(
-            (m.get("chunkReferences") for m in reversed(chat_history_cleaned) if m["role"] == "assistant"), []
-        )
-        if last_refs:
-            for ref in last_refs:
-                chunk_doc = collection.find_one({"_id": ref.get("chunkId")})
-                chunk_array.append(
-                    {
-                        "_id": ref.get("chunkId"),
-                        "chunkNumber": ref.get("displayNumber"),
-                        "text": chunk_doc.get("text") if chunk_doc else None,
-                        "pageNumber": ref.get("pageNumber"),
-                        "docId": chunk_doc.get("doc_id") if chunk_doc else None,
-                    }
-                )
-            mode = "follow_up"  # Treat as no new retrieval
+
     # ----------------------------------------------------------------
         # ----------------------------------------------------------------
     # WHOLE-DOCUMENT SUMMARY MODE  (returns condensed version)
