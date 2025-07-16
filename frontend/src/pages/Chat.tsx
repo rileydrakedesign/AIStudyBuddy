@@ -1045,7 +1045,7 @@ const Chat = () => {
 
                   <Box sx={{ display: "flex", gap: 2 }}>
                     <Button variant="contained">Create Study Guide</Button>
-                    <Button variant="contained">Generate Notes</Button>
+                    <Button variant="contained">Generate Summary</Button>
                   </Box>
                 </Box>
               ) : (
