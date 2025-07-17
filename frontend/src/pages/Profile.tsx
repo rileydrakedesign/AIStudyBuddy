@@ -45,12 +45,13 @@ const Profile: React.FC = () => {
   // Logout handler: calls API and navigates to login page.
   const handleLogout = async () => {
     try {
-      await logoutUser();
+      await logoutUser();              // clear server cookie/session
     } catch (error) {
       console.error("Logout error", error);
-      // optional: toast.error("Logout failed on server; clearing local session.");
+      // optional: toast.error("Server logout failed; session cleared locally.");
     } finally {
-      navigate("/login", { replace: true });
+      // Force a full reload into the login route so stale auth state can't redirect back.
+      window.location.replace("/login");
     }
   };
 
