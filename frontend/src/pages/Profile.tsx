@@ -46,9 +46,11 @@ const Profile: React.FC = () => {
   const handleLogout = async () => {
     try {
       await logoutUser();
-      navigate("/login");
     } catch (error) {
       console.error("Logout error", error);
+      // optional: toast.error("Logout failed on server; clearing local session.");
+    } finally {
+      navigate("/login", { replace: true });
     }
   };
 
