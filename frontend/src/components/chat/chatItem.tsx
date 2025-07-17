@@ -270,6 +270,10 @@ const ChatItem: React.FC<ChatItemProps> = ({
     docId?: string;
   } | null>(null);
 
+  // capture rendered message text (for copy)
+  const messageBodyRef = useRef<HTMLDivElement | null>(null);
+
+
   /* ---------- ensure only one item’s pop-ups stay open ---------- */
   const chatItemIdRef = useRef<string>(
     Math.random().toString(36).substring(2, 9)
@@ -285,6 +289,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
     return () =>
       window.removeEventListener("citationPopupOpened", handler as EventListener);
   }, []);
+
 
   /* ---------- bracket reference click ---------- */
   const openChunkPopup = (anchorEl: HTMLElement, text: string) => {
@@ -393,12 +398,37 @@ const ChatItem: React.FC<ChatItemProps> = ({
   };
 
   const handleCopy = () => {
-    // best effort copy (no toast yet to avoid new imports)
+    // Prefer copying what the user sees (rendered text, code, citation labels)
+    const el = messageBodyRef.current;
+    const textToCopy = el?.innerText?.trim() || content;
+
     navigator.clipboard
-      .writeText(content)
-      .then(() => console.log("Copied message to clipboard"))
-      .catch((err) => console.error("Copy failed", err));
+      .writeText(textToCopy)
+      .then(() => {
+        console.log("Copied chat response to clipboard", {
+          chars: textToCopy.length,
+        });
+      })
+      .catch((err) => {
+        console.error("Copy failed; falling back", err);
+        try {
+          // legacy fallback
+          const ta = document.createElement("textarea");
+          ta.value = textToCopy;
+          ta.style.position = "fixed";
+          ta.style.opacity = "0";
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          document.execCommand("copy");
+          document.body.removeChild(ta);
+          console.log("Copied via execCommand fallback");
+        } catch (fallbackErr) {
+          console.error("Copy fallback failed", fallbackErr);
+        }
+      });
   };
+
 
   const handleThumbUp = () => {
     console.log("Thumb up:", content.slice(0, 40));
@@ -461,7 +491,10 @@ const ChatItem: React.FC<ChatItemProps> = ({
       </Avatar>
 
       {/* message body */}
-      <Box sx={{ flex: 1, maxWidth: "100%", fontSize: 16, lineHeight: 1.6 }}>
+      <Box
+        ref={messageBodyRef} 
+        sx={{ flex: 1, maxWidth: "100%", fontSize: 16, lineHeight: 1.6 }}
+      >
         {blocks.map((b, i) =>
           b.type === "code" ? (
             <SyntaxHighlighter
