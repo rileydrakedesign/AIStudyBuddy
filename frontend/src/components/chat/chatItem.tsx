@@ -18,6 +18,11 @@ import CloseIcon from "@mui/icons-material/Close";
 import Loader from "../ui/loader";
 import { getChunkText } from "../../helpers/api-communicators";
 import "katex/dist/katex.min.css";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import ThumbUpOffAltIcon from "@mui/icons-material/ThumbUpOffAlt";
+import ThumbDownOffAltIcon from "@mui/icons-material/ThumbDownOffAlt";
+import LoopIcon from "@mui/icons-material/Loop";
+
 
 /* ------------------------------
    HELPERS
@@ -381,6 +386,31 @@ const ChatItem: React.FC<ChatItemProps> = ({
     );
   };
 
+  /* ---------- action icon handlers (stubbed) ---------- */
+  const handleRetry = () => {
+    console.log("Retry clicked for message:", content.slice(0, 40));
+    // TODO: wire to retry flow
+  };
+
+  const handleCopy = () => {
+    // best effort copy (no toast yet to avoid new imports)
+    navigator.clipboard
+      .writeText(content)
+      .then(() => console.log("Copied message to clipboard"))
+      .catch((err) => console.error("Copy failed", err));
+  };
+
+  const handleThumbUp = () => {
+    console.log("Thumb up:", content.slice(0, 40));
+    // TODO: send rating
+  };
+
+  const handleThumbDown = () => {
+    console.log("Thumb down:", content.slice(0, 40));
+    // TODO: send rating
+  };
+
+
   /* ---------- render ---------- */
 
   if (role === "assistant" && content.trim() === "") {
@@ -492,6 +522,47 @@ const ChatItem: React.FC<ChatItemProps> = ({
                   {getDisplayText(c.text)}
                 </a>
               ))}
+            </Box>
+          )}
+          {/* action bar (assistant messages only) */}
+          {role === "assistant" && content.trim() !== "" && (
+            <Box
+              sx={{
+                mt: 1,
+                display: "flex",
+                alignItems: "center",
+                gap: 0.5,
+                color: "#9e9e9e",
+              }}
+            >
+              <IconButton
+                size="small"
+                onClick={handleRetry}
+                sx={{ color: "inherit", "&:hover": { color: "#fff" } }}
+              >
+                <LoopIcon fontSize="small" />
+              </IconButton>
+              <IconButton
+                size="small"
+                onClick={handleCopy}
+                sx={{ color: "inherit", "&:hover": { color: "#fff" } }}
+              >
+                <ContentCopyIcon fontSize="small" />
+              </IconButton>
+              <IconButton
+                size="small"
+                onClick={handleThumbUp}
+                sx={{ color: "inherit", "&:hover": { color: "#fff" } }}
+              >
+                <ThumbUpOffAltIcon fontSize="small" />
+              </IconButton>
+              <IconButton
+                size="small"
+                onClick={handleThumbDown}
+                sx={{ color: "inherit", "&:hover": { color: "#fff" } }}
+              >
+                <ThumbDownOffAltIcon fontSize="small" />
+              </IconButton>
             </Box>
           )}
       </Box>
