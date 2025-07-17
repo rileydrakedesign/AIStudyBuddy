@@ -1,5 +1,7 @@
 import axios from "axios";
 
+axios.defaults.withCredentials = true;
+
 export const loginUser = async (email: string, password: string) => {
   const res = await axios.post("/user/login", { email, password });
   if (res.status !== 200) {
@@ -14,12 +16,17 @@ export const signupUser = async (
   email: string,
   password: string
 ) => {
-  const res = await axios.post("/user/signup", { name, email, password });
-  if (res.status !== 201) {
-    throw new Error("Unable to Signup");
+  const res = await axios.post(
+    "/user/signup",
+    { name, email, password },
+    { withCredentials: true }
+  );
+
+  // Backend currently returns 200; 201 would also be valid.
+  if (res.status !== 200 && res.status !== 201) {
+    throw new Error("Unable to sign up");
   }
-  const data = await res.data;
-  return data;
+  return res.data;
 };
 
 export const checkAuthStatus = async () => {
