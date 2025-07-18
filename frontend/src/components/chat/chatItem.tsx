@@ -75,6 +75,8 @@ export type Citation = {
 interface ChatItemProps {
   content: string;
   role: "user" | "assistant";
+  messageIndex: number;
+  onRetry?: (index: number) => void;
   citation?: Citation[];
   chunkReferences?: ChunkReference[];
   chunks?: ChunkData[];
@@ -249,6 +251,8 @@ const CitationOptionsPopup: React.FC<CitationOptionsPopupProps> = ({
 const ChatItem: React.FC<ChatItemProps> = ({
   content,
   role,
+  messageIndex,
+  onRetry,
   citation,
   chunkReferences,
   chunks,
@@ -393,8 +397,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
 
   /* ---------- action icon handlers (stubbed) ---------- */
   const handleRetry = () => {
-    console.log("Retry clicked for message:", content.slice(0, 40));
-    // TODO: wire to retry flow
+    if (onRetry) onRetry(messageIndex);
   };
 
   const handleCopy = () => {

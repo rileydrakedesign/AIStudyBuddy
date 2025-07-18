@@ -61,6 +61,8 @@ type Message = {
   content: string;
   citation?: { href: string | null; text: string }[];
   chunkReferences?: ChunkReference[];
+  versions?: string[];
+  currentVersion?: number;
 };
 
 type ChatSession = {
@@ -619,6 +621,75 @@ const Chat = () => {
     setActiveDocId(docId);
   };
 
+
+  /* ------------------------------
+     RETRY CHAT
+  ------------------------------ */
+  const handleRetry = async (assistantIdx: number) => {
+    if (isGenerating) return;            // prevent while streaming
+
+    // Guard indices
+    if (assistantIdx <= 0 || assistantIdx >= chatMessages.length) return;
+    const userMsg = chatMessages[assistantIdx - 1];
+    const oldAssistant = chatMessages[assistantIdx];
+
+    if (userMsg.role !== "user" || oldAssistant.role !== "assistant") return;
+
+    try {
+      // optimistic UI: clear content & show loader inside the bubble
+      setChatMessages((prev) => {
+        const next = [...prev];
+        next[assistantIdx] = { ...oldAssistant, content: "" };
+        return next;
+      });
+
+      setIsGenerating(true);
+
+      const classNameForRequest = selectedClass === null ? "null" : selectedClass;
+      const chatData = await sendChatRequest(
+        userMsg.content,
+        classNameForRequest,
+        currentChatSessionId,
+        undefined,
+        true // <-- mark as ephemeral so backend doesn't persist (optional)
+      );
+
+      // Extract newest assistant message from response (last item)
+      const msgs = chatData.messages;
+      const newAssistant = msgs[msgs.length - 1];
+      if (!newAssistant || newAssistant.role !== "assistant") throw new Error("Bad retry response");
+
+      setChatMessages((prev) => {
+        const next = [...prev];
+        const target = next[assistantIdx];
+
+        // save versions
+        const prevVersions = target.versions ?? [oldAssistant.content];
+        next[assistantIdx] = {
+          ...target,
+          content: newAssistant.content,
+          citation: newAssistant.citation,
+          chunkReferences: newAssistant.chunkReferences,
+          versions: [...prevVersions, newAssistant.content],
+          currentVersion: (prevVersions.length), // zero‑based
+        };
+        return next;
+      });
+    } catch (err) {
+      console.error("Retry failed", err);
+      toast.error("Retry failed");
+      // restore old answer
+      setChatMessages((prev) => {
+        const next = [...prev];
+        next[assistantIdx] = oldAssistant;
+        return next;
+      });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+
   /* ------------------------------
      DELETE ALL CHAT SESSIONS
   ------------------------------ */
@@ -1075,11 +1146,17 @@ const Chat = () => {
                         citation={chat.citation && chat.citation.length ? chat.citation : undefined}
                         chunkReferences={chat.chunkReferences}
                         onDocumentChat={handleOpenDocumentChat}
+                        messageIndex={index}
+                        onRetry={handleRetry}
                       />
                     ))}
 
                     {isGenerating && partialAssistantMessage && (
-                      <ChatItem content={partialAssistantMessage} role="assistant" />
+                      <ChatItem 
+                        content={partialAssistantMessage} 
+                        role="assistant" 
+                        messageIndex={chatMessages.length}
+                      />
                     )}
 
                     {isGenerating && !partialAssistantMessage && (
