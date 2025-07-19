@@ -275,7 +275,7 @@ const Chat = () => {
         if (sessionsSorted.length > 0) {
           const first = sessionsSorted[0];
           setCurrentChatSessionId(first._id);
-          setChatMessages(first.messages);
+          setChatMessages(collapseRetries(first.messages));
           setSelectedClass(first.assignedClass || null);
         }
         //toast.success("Successfully loaded chat sessions", { id: "loadchatsessions" });
@@ -426,6 +426,8 @@ const Chat = () => {
       });
 
       const allMessages = chatData.messages;
+      const collapsed = collapseRetries(allMessages);
+
       const finalAssistantMsg =
         allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
 
@@ -524,7 +526,7 @@ const Chat = () => {
     const session = chatSessions.find((s) => s._id === chatSessionId);
     if (session) {
       setCurrentChatSessionId(chatSessionId);
-      setChatMessages(session.messages);
+      setChatMessages(collapseRetries(session.messages)); 
       setSelectedClass(session.assignedClass || null);
     }
   };
@@ -689,6 +691,28 @@ const Chat = () => {
     }
   };
 
+  const collapseRetries = (messages: Message[]): Message[] => {
+    const out: Message[] = [];
+  
+    messages.forEach((msg) => {
+      if (
+        msg.role === "assistant" &&
+        out.length &&
+        out[out.length - 1].role === "assistant"
+      ) {
+        // Merge as retry version
+        const prev = out[out.length - 1];
+        if (!prev.versions) prev.versions = [prev.content];
+        prev.versions.push(msg.content);
+        prev.currentVersion = prev.versions.length - 1;
+        prev.content = msg.content; // show newest by default
+      } else {
+        out.push({ ...msg });
+      }
+    });
+  
+    return out;
+  };  
 
   /* ------------------------------
      DELETE ALL CHAT SESSIONS
@@ -1148,6 +1172,8 @@ const Chat = () => {
                         onDocumentChat={handleOpenDocumentChat}
                         messageIndex={index}
                         onRetry={handleRetry}
+                        versions={chat.versions}
+                        currentVersion={chat.currentVersion}
                       />
                     ))}
 

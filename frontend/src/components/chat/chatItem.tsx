@@ -22,6 +22,8 @@ import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import ThumbUpOffAltIcon from "@mui/icons-material/ThumbUpOffAlt";
 import ThumbDownOffAltIcon from "@mui/icons-material/ThumbDownOffAlt";
 import LoopIcon from "@mui/icons-material/Loop";
+import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
+
 
 
 /* ------------------------------
@@ -77,6 +79,8 @@ interface ChatItemProps {
   role: "user" | "assistant";
   messageIndex: number;
   onRetry?: (index: number) => void;
+  versions?: string[];
+  currentVersion?: number;
   citation?: Citation[];
   chunkReferences?: ChunkReference[];
   chunks?: ChunkData[];
@@ -253,6 +257,8 @@ const ChatItem: React.FC<ChatItemProps> = ({
   role,
   messageIndex,
   onRetry,
+  versions = [],
+  currentVersion = versions.length,
   citation,
   chunkReferences,
   chunks,
@@ -276,6 +282,13 @@ const ChatItem: React.FC<ChatItemProps> = ({
 
   // capture rendered message text (for copy)
   const messageBodyRef = useRef<HTMLDivElement | null>(null);
+
+  const [displayIdx, setDisplayIdx] = useState(currentVersion);
+  const allVersions = [...versions, content];       // ensures current is included
+  const displayContent = allVersions[displayIdx] || content;
+
+  useEffect(() => { setDisplayIdx(currentVersion); }, [currentVersion]);
+
 
 
   /* ---------- ensure only one item’s pop-ups stay open ---------- */
@@ -400,10 +413,14 @@ const ChatItem: React.FC<ChatItemProps> = ({
     if (onRetry) onRetry(messageIndex);
   };
 
+  const handleToggle = () => {
+    setDisplayIdx((prev) => (prev + 1) % allVersions.length);
+  };
+  
   const handleCopy = () => {
     // Prefer copying what the user sees (rendered text, code, citation labels)
     const el = messageBodyRef.current;
-    const textToCopy = el?.innerText?.trim() || content;
+    const textToCopy = el?.innerText?.trim() || displayContent;
 
     navigator.clipboard
       .writeText(textToCopy)
@@ -463,7 +480,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
     );
   }
 
-  const blocks = extractBlocks(content);
+  const blocks = extractBlocks(displayContent);
 
   return (
     <Box
@@ -571,13 +588,26 @@ const ChatItem: React.FC<ChatItemProps> = ({
                 color: "#9e9e9e",
               }}
             >
-              <IconButton
-                size="small"
-                onClick={handleRetry}
-                sx={{ color: "inherit", "&:hover": { color: "#fff" } }}
-              >
-                <LoopIcon fontSize="small" />
-              </IconButton>
+              {versions.length === 0 ? (
+                /* still on first answer → show Retry */
+                <IconButton
+                  size="small"
+                  onClick={() => onRetry?.(messageIndex)}
+                  sx={{ color: "inherit", "&:hover": { color: "#fff" } }}
+                >
+                  <LoopIcon fontSize="small" />
+                </IconButton>
+              ) : (
+                /* we have 2 versions → show toggle button */
+                <IconButton
+                  size="small"
+                  onClick={handleToggle}
+                  sx={{ color: "inherit", "&:hover": { color: "#fff" }, display: "flex", gap: 0.25 }}
+                >
+                  <Box component="span" sx={{ fontSize: 12 }}>{displayIdx + 1}</Box>
+                  <SwapHorizIcon fontSize="small" />
+                </IconButton>
+              )}
               <IconButton
                 size="small"
                 onClick={handleCopy}
