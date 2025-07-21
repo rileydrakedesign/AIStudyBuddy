@@ -653,7 +653,8 @@ const Chat = () => {
         classNameForRequest,
         currentChatSessionId,
         undefined,
-        true // <-- mark as ephemeral so backend doesn't persist (optional)
+        false,        // or true when you passed `ephemeral`
+        true  
       );
 
       // Extract newest assistant message from response (last item)

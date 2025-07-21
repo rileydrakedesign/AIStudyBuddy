@@ -43,7 +43,8 @@ export const sendChatRequest = async (
   selectedClass: string | null,
   chatSessionId: string | null,
   docId?: string | null,
-  ephemeral?: boolean
+  ephemeral?: boolean,
+  retry?: boolean
 ) => {
   const body: any = {
     message,
@@ -58,6 +59,11 @@ export const sendChatRequest = async (
   if (ephemeral) {
     body.ephemeral = true;
   }
+
+  if (retry) {
+    body.retry = true; 
+  }
+
 
   const res = await axios.post("/chat/new", body);
   if (res.status !== 200) {
