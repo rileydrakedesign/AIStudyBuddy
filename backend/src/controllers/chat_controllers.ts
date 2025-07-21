@@ -188,12 +188,14 @@ export const generateChatCompletion = async (req, res, next) => {
     if (docIdForPython)     chatSession.assignedDocument = docIdForPython;
 
     /* ---------- push user message ---------- */
-    chatSession.messages.push({
-      content: message,
-      role: "user",
-      citation: null,
-      chunkReferences: [],
-    });
+    if (!retry) {                             // ⬅︎ only on first ask
+      chatSession.messages.push({
+        content: message,
+        role: "user",
+        citation: null,
+        chunkReferences: [],
+      });
+    }
 
     /* ---------- prepare FastAPI payload ---------- */
     const chats = chatSession.messages.map(({ role, content, citation, chunkReferences }) => ({

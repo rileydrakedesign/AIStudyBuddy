@@ -625,72 +625,42 @@ const Chat = () => {
 
 
   /* ------------------------------
-     RETRY CHAT
+   RETRY CHAT
   ------------------------------ */
   const handleRetry = async (assistantIdx: number) => {
-    if (isGenerating) return;            // prevent while streaming
-
-    // Guard indices
+    if (isGenerating) return;                        // block while streaming
     if (assistantIdx <= 0 || assistantIdx >= chatMessages.length) return;
-    const userMsg = chatMessages[assistantIdx - 1];
-    const oldAssistant = chatMessages[assistantIdx];
 
-    if (userMsg.role !== "user" || oldAssistant.role !== "assistant") return;
+    const userMsg = chatMessages[assistantIdx - 1];
+    const assistantMsg = chatMessages[assistantIdx];
+    if (userMsg.role !== "user" || assistantMsg.role !== "assistant") return;
 
     try {
-      // optimistic UI: clear content & show loader inside the bubble
-      setChatMessages((prev) => {
-        const next = [...prev];
-        next[assistantIdx] = { ...oldAssistant, content: "" };
-        return next;
-      });
-
       setIsGenerating(true);
 
       const classNameForRequest = selectedClass === null ? "null" : selectedClass;
+
+      // send the same prompt with retry flag = true
       const chatData = await sendChatRequest(
         userMsg.content,
         classNameForRequest,
         currentChatSessionId,
-        undefined,
-        false,        // or true when you passed `ephemeral`
-        true  
+        undefined,   // docId
+        false,       // ephemeral
+        true         // retry
       );
 
-      // Extract newest assistant message from response (last item)
-      const msgs = chatData.messages;
-      const newAssistant = msgs[msgs.length - 1];
-      if (!newAssistant || newAssistant.role !== "assistant") throw new Error("Bad retry response");
-
-      setChatMessages((prev) => {
-        const next = [...prev];
-        const target = next[assistantIdx];
-
-        // save versions
-        const prevVersions = target.versions ?? [oldAssistant.content];
-        next[assistantIdx] = {
-          ...target,
-          content: newAssistant.content,
-          citation: newAssistant.citation,
-          chunkReferences: newAssistant.chunkReferences,
-          versions: [...prevVersions, newAssistant.content],
-          currentVersion: (prevVersions.length), // zero‑based
-        };
-        return next;
-      });
+      // Replace local messages with the server’s list collapsed into one bubble
+      setChatMessages(collapseRetries(chatData.messages));
     } catch (err) {
       console.error("Retry failed", err);
       toast.error("Retry failed");
-      // restore old answer
-      setChatMessages((prev) => {
-        const next = [...prev];
-        next[assistantIdx] = oldAssistant;
-        return next;
-      });
+      // nothing to roll back: local state unchanged
     } finally {
       setIsGenerating(false);
     }
   };
+
 
   const collapseRetries = (messages: Message[]): Message[] => {
     const out: Message[] = [];
