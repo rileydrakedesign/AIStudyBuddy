@@ -36,6 +36,14 @@ const messageSchema = new mongoose.Schema({
         required: false,
         default: [],
     },
+    versions: {
+        type: [String],
+        default: undefined
+    },
+    currentVersion: {
+        type: Number,
+        default: 0
+    },
 });
 const chatSessionSchema = new mongoose.Schema({
     _id: {

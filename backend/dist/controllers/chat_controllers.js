@@ -86,7 +86,7 @@ export const getUserChatSessions = async (req, res, next) => {
 };
 export const generateChatCompletion = async (req, res, next) => {
     /* ---------- request body ---------- */
-    const { message, class_name, docId, chatSessionId, ephemeral } = req.body;
+    const { message, class_name, docId, chatSessionId, ephemeral, retry } = req.body;
     const classNameForPython = class_name && class_name !== "null" ? class_name : null;
     const docIdForPython = docId && docId !== "null" ? docId : null;
     try {
@@ -217,13 +217,42 @@ export const generateChatCompletion = async (req, res, next) => {
                 req.log.warn({ err: docError, docId: chatSession.assignedDocument }, "Error fetching document for citation update");
             }
         }
-        /* ---------- push assistant response ---------- */
-        chatSession.messages.push({
-            content: aiResponse,
-            role: "assistant",
-            citation,
-            chunkReferences,
-        });
+        /* ---------- assistant response handling ---------- */
+        if (retry === true) {
+            // Find the last assistant message; it must exist because the preceding user
+            // message we just pushed is its pair.
+            const lastIdx = chatSession.messages.length - 2; // -1 = user just pushed
+            if (lastIdx >= 0 && chatSession.messages[lastIdx].role === "assistant") {
+                const prevMsg = chatSession.messages[lastIdx];
+                // move current content into versions[]
+                if (!prevMsg.versions)
+                    prevMsg.versions = [prevMsg.content];
+                prevMsg.versions.push(aiResponse);
+                prevMsg.currentVersion = prevMsg.versions.length - 1;
+                // overwrite displayed fields
+                prevMsg.content = aiResponse;
+                prevMsg.citation = citation;
+                prevMsg.chunkReferences = chunkReferences;
+            }
+            else {
+                // fallback: if for some reason we can't find it, just push
+                chatSession.messages.push({
+                    content: aiResponse,
+                    role: "assistant",
+                    citation,
+                    chunkReferences,
+                });
+            }
+        }
+        else {
+            // normal first response
+            chatSession.messages.push({
+                content: aiResponse,
+                role: "assistant",
+                citation,
+                chunkReferences,
+            });
+        }
         await chatSession.save();
         /* ---------- respond to client ---------- */
         return res.status(200).json({
