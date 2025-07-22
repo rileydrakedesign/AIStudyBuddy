@@ -284,7 +284,9 @@ const ChatItem: React.FC<ChatItemProps> = ({
   const messageBodyRef = useRef<HTMLDivElement | null>(null);
 
   const [displayIdx, setDisplayIdx] = useState(currentVersion);
-  const allVersions = [...versions, content];       // ensures current is included
+  // keep **at most two** versions: the first (versions[0]) and the latest (content)
+  const allVersions = versions.length >= 2 ? versions.slice(0, 2) : [...versions, content];
+
   const displayContent = allVersions[displayIdx] || content;
 
   useEffect(() => { setDisplayIdx(currentVersion); }, [currentVersion]);
