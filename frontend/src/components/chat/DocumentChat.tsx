@@ -193,12 +193,7 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
     const oldAssistant  = messages[assistantIdx];
     if (userMsg.role !== "user" || oldAssistant.role !== "assistant") return;
   
-    // optimistic blank
-    setMessages((prev) => {
-      const next = [...prev];
-      next[assistantIdx] = { ...oldAssistant, content: "" };
-      return next;
-    });
+
     setIsGenerating(true);
   
     try {
@@ -478,7 +473,7 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
               onCitationClick={() => {}}
             />
           )}
-          {isGenerating && partialAssistantMessage === "" && (messages.length === 0 || messages[messages.length - 1].role === "user") && (
+          {isGenerating && partialAssistantMessage === "" && (
             <Box
               sx={{
                 display: "flex",
