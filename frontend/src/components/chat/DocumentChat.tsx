@@ -27,6 +27,8 @@ type Message = {
   citation?: { href: string | null; text: string }[];
   // Each message stores its own stable chunk references.
   chunkReferences?: ChunkReference[];
+  versions?: string[]; 
+  currentVersion?: number; 
 };
 
 type EphemeralChunk = {
@@ -85,6 +87,28 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
       target.setSelectionRange(length, length);
     }, 0);
   };
+
+  const collapseRetries = (msgs: Message[]): Message[] => {
+    const out: Message[] = [];
+    msgs.forEach((m) => {
+      if (
+        m.role === "assistant" &&
+        out.length &&
+        out[out.length - 1].role === "assistant"
+      ) {
+        const prev = out[out.length - 1];
+        if (!prev.versions) prev.versions = [prev.content];
+        prev.versions.push(m.content);          // keep only first + latest
+        if (prev.versions.length > 2) prev.versions = prev.versions.slice(0, 2);
+        prev.currentVersion = prev.versions.length - 1;
+        prev.content = m.content;
+      } else {
+        out.push({ ...m });
+      }
+    });
+    return out;
+  };
+  
 
   /* ------------------------------
      1) Fetch Document URL from S3
@@ -159,6 +183,69 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
     return () => pdfEl.removeEventListener("scroll", handlePDFScrollUp);
   }, [numPages, visibleStartPage]);
 
+
+
+  const handleRetry = async (assistantIdx: number) => {
+    if (isGenerating) return;
+    if (assistantIdx <= 0 || assistantIdx >= messages.length) return;
+  
+    const userMsg       = messages[assistantIdx - 1];
+    const oldAssistant  = messages[assistantIdx];
+    if (userMsg.role !== "user" || oldAssistant.role !== "assistant") return;
+  
+    // optimistic blank
+    setMessages((prev) => {
+      const next = [...prev];
+      next[assistantIdx] = { ...oldAssistant, content: "" };
+      return next;
+    });
+    setIsGenerating(true);
+  
+    try {
+      const sessId = docSessionId ?? "null";
+      const chatData = await sendChatRequest(
+        userMsg.content,
+        "null",
+        sessId,
+        docId,
+        true          // ephemeral
+      );
+      if (!docSessionId && chatData.chatSessionId)
+        setDocSessionId(chatData.chatSessionId);
+  
+      const msgs = chatData.messages;
+      const newAssistant = msgs[msgs.length - 1];
+      if (!newAssistant || newAssistant.role !== "assistant")
+        throw new Error("Bad retry");
+  
+      setMessages((prev) => {
+        const next = [...prev];
+        const target = next[assistantIdx];
+        const prevVersions = target.versions ?? [oldAssistant.content];
+        next[assistantIdx] = {
+          ...target,
+          content: newAssistant.content,
+          versions: [...prevVersions.slice(0, 1), newAssistant.content],
+          currentVersion: 1,
+          citation: newAssistant.citation,
+          chunkReferences: newAssistant.chunkReferences,
+        };
+        return next;
+      });
+    } catch (err) {
+      console.error("Retry failed", err);
+      toast.error("Retry failed");
+      setMessages((prev) => {
+        const next = [...prev];
+        next[assistantIdx] = oldAssistant;
+        return next;
+      });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+  
+
   /* ------------------------------
      4) Send a Message
      ------------------------------ */
@@ -192,7 +279,7 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
       }
       const updatedMessages = [...allMsgs];
       updatedMessages.pop(); // remove final assistant message for typewriter effect
-      setMessages(updatedMessages);
+      setMessages(collapseRetries(updatedMessages));
       const fullText = assistantMsg.content;
       let i = 0;
       const interval = setInterval(() => {
@@ -201,7 +288,7 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
         if (i >= fullText.length) {
           clearInterval(interval);
           const final = [...updatedMessages, { ...assistantMsg, content: fullText }];
-          setMessages(final);
+          setMessages(collapseRetries(final));
           setPartialAssistantMessage("");
           setIsGenerating(false);
         }
@@ -363,6 +450,10 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
               role={msg.role}
               citation={msg.citation}
               chunkReferences={msg.chunkReferences}
+              messageIndex={index}
+              onRetry={handleRetry}
+              versions={msg.versions}
+              currentVersion={msg.currentVersion}
               onCitationClick={(chunkNumber: number) => {
                 const ref = msg.chunkReferences?.find(
                   (r) => r.displayNumber === chunkNumber
@@ -383,6 +474,7 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
               content={partialAssistantMessage}
               role="assistant"
               citation={[]}
+              messageIndex={messages.length}
               onCitationClick={() => {}}
             />
           )}
