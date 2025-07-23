@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { verifyToken } from "../utils/token_manager.js";
 import { chatCompletionValidator, validate, chatSessionValidator, } from "../utils/validators.js";
-import { createNewChatSession, getUserChatSessions, generateChatCompletion, deleteChatSession, deleteAllChatSessions, } from "../controllers/chat_controllers.js";
+import { createNewChatSession, getUserChatSessions, generateChatCompletion, deleteChatSession, deleteAllChatSessions, setMessageReaction } from "../controllers/chat_controllers.js";
 // Mongoose utilities
 import { isValidObjectId } from "mongoose";
 // If you're using a lazy-loaded chunk model for the "study_buddy_demo" DB:
@@ -58,5 +58,12 @@ chatRoutes.get("/chunk/:chunkId", verifyToken, async (req, res) => {
         return res.status(500).json({ message: "Unable to fetch chunk" });
     }
 });
+/* ---------------------------
+   SET / CLEAR REACTION
+   --------------------------- */
+// PATCH /chat/message/<sessionId>/<msgIndex>/reaction
+chatRoutes.patch("/message/:sessionId/:msgIndex/reaction", verifyToken, // must be logged in
+setMessageReaction // controller does the work
+);
 export default chatRoutes;
 //# sourceMappingURL=chat_routes.js.map

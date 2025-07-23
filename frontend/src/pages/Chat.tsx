@@ -32,6 +32,7 @@ import {
   deleteClass,
   deleteDocument,
   verifyUser,
+  setReaction,
 } from "../helpers/api-communicators";
 import toast from "react-hot-toast";
 import ChatBubbleIcon from "@mui/icons-material/ChatBubble";
@@ -63,6 +64,7 @@ type Message = {
   chunkReferences?: ChunkReference[];
   versions?: string[];
   currentVersion?: number;
+  reaction?: "like" | "dislike" | null;
 };
 
 type ChatSession = {
@@ -139,6 +141,36 @@ const Chat = () => {
   const [chatUsage, setChatUsage] = useState<{ count: number; limit: number } | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
+
+  const handleSetReaction = async (
+    idx: number,
+    newReaction: "like" | "dislike" | null
+  ) => {
+    // optimistic UI
+    setChatMessages((prev) => {
+      const next = [...prev];
+      if (next[idx]?.role === "assistant") {
+        next[idx] = { ...next[idx], reaction: newReaction };
+      }
+      return next;
+    });
+  
+    try {
+      if (currentChatSessionId)
+        await setReaction(currentChatSessionId, idx, newReaction);
+    } catch (err) {
+      console.error("Failed to set reaction", err);
+      // revert on error
+      setChatMessages((prev) => {
+        const next = [...prev];
+        if (next[idx]?.role === "assistant") {
+          next[idx] = { ...next[idx], reaction: null };
+        }
+        return next;
+      });
+    }
+  };
+  
 
   /* ------------------------------
      AUTO-RESIZE & CURSOR HANDLERS
@@ -1145,6 +1177,8 @@ const Chat = () => {
                         onRetry={handleRetry}
                         versions={chat.versions}
                         currentVersion={chat.currentVersion}
+                        reaction={chat.reaction ?? null}
+                        onSetReaction={handleSetReaction}
                       />
                     ))}
 

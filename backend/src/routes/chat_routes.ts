@@ -12,6 +12,7 @@ import {
   generateChatCompletion,
   deleteChatSession,
   deleteAllChatSessions,
+  setMessageReaction
 } from "../controllers/chat_controllers.js";
 
 // Mongoose utilities
@@ -93,5 +94,15 @@ chatRoutes.get("/chunk/:chunkId", verifyToken, async (req, res) => {
     return res.status(500).json({ message: "Unable to fetch chunk" });
   }  
 });
+
+/* ---------------------------
+   SET / CLEAR REACTION
+   --------------------------- */
+// PATCH /chat/message/<sessionId>/<msgIndex>/reaction
+chatRoutes.patch(
+  "/message/:sessionId/:msgIndex/reaction",
+  verifyToken,              // must be logged in
+  setMessageReaction        // controller does the work
+);
 
 export default chatRoutes;

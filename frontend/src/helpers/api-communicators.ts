@@ -201,3 +201,16 @@ export const getUserDocuments = async () => {
   if (res.status !== 200) throw new Error("Unable to fetch documents");
   return res.data;                                           // { documents: [...] }
 };
+
+export const setReaction = async (
+  sessionId: string,
+  msgIndex: number,
+  reaction: "like" | "dislike" | null
+) => {
+  const res = await axios.patch(
+    `/chat/message/${sessionId}/${msgIndex}/reaction`,
+    { reaction }
+  );
+  if (res.status !== 200) throw new Error("Failed to set reaction");
+  return res.data.reaction;   // just echo
+};

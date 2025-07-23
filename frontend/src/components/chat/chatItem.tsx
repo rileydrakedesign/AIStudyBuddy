@@ -23,6 +23,9 @@ import ThumbUpOffAltIcon from "@mui/icons-material/ThumbUpOffAlt";
 import ThumbDownOffAltIcon from "@mui/icons-material/ThumbDownOffAlt";
 import LoopIcon from "@mui/icons-material/Loop";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
+import ThumbUpIcon    from "@mui/icons-material/ThumbUp";
+import ThumbDownIcon  from "@mui/icons-material/ThumbDown";
+
 
 
 
@@ -81,6 +84,8 @@ interface ChatItemProps {
   onRetry?: (index: number) => void;
   versions?: string[];
   currentVersion?: number;
+  reaction?: "like" | "dislike" | null;
+  onSetReaction?: (idx: number, r: "like" | "dislike" | null) => void;
   citation?: Citation[];
   chunkReferences?: ChunkReference[];
   chunks?: ChunkData[];
@@ -259,6 +264,8 @@ const ChatItem: React.FC<ChatItemProps> = ({
   onRetry,
   versions = [],
   currentVersion = versions.length,
+  reaction,
+  onSetReaction,
   citation,
   chunkReferences,
   chunks,
@@ -282,6 +289,10 @@ const ChatItem: React.FC<ChatItemProps> = ({
 
   // capture rendered message text (for copy)
   const messageBodyRef = useRef<HTMLDivElement | null>(null);
+
+  const [localReaction, setLocalReaction] = useState<"like" | "dislike" | null>(
+    reaction ?? null           // ← initialise from prop (DB value) if parent passes one
+  );
 
   const [displayIdx, setDisplayIdx] = useState(currentVersion);
   // keep **at most two** versions: the first (versions[0]) and the latest (content)
@@ -451,15 +462,18 @@ const ChatItem: React.FC<ChatItemProps> = ({
       });
   };
 
-
+  // 👍 like
   const handleThumbUp = () => {
-    console.log("Thumb up:", content.slice(0, 40));
-    // TODO: send rating
+    const next = localReaction === "like" ? null : "like";
+    setLocalReaction(next);
+    onSetReaction?.(messageIndex, next);   // let parent PATCH the DB
   };
 
+  // 👎 dislike
   const handleThumbDown = () => {
-    console.log("Thumb down:", content.slice(0, 40));
-    // TODO: send rating
+    const next = localReaction === "dislike" ? null : "dislike";
+    setLocalReaction(next);
+    onSetReaction?.(messageIndex, next);
   };
 
 
@@ -620,16 +634,23 @@ const ChatItem: React.FC<ChatItemProps> = ({
               <IconButton
                 size="small"
                 onClick={handleThumbUp}
-                sx={{ color: "inherit", "&:hover": { color: "#fff" } }}
+                sx={{ color: localReaction === "like" ? "#4caf50" : "inherit",
+                      "&:hover": { color: "#fff" } }}
               >
-                <ThumbUpOffAltIcon fontSize="small" />
+                {localReaction === "like"
+                  ? <ThumbUpIcon fontSize="small" />
+                  : <ThumbUpOffAltIcon fontSize="small" />}
               </IconButton>
+
               <IconButton
                 size="small"
                 onClick={handleThumbDown}
-                sx={{ color: "inherit", "&:hover": { color: "#fff" } }}
+                sx={{ color: localReaction === "dislike" ? "#f44336" : "inherit",
+                      "&:hover": { color: "#fff" } }}
               >
-                <ThumbDownOffAltIcon fontSize="small" />
+                {localReaction === "dislike"
+                  ? <ThumbDownIcon fontSize="small" />
+                  : <ThumbDownOffAltIcon fontSize="small" />}
               </IconButton>
             </Box>
           )}

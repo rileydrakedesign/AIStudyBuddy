@@ -33,7 +33,6 @@ const messageSchema = new mongoose.Schema({
     type: [citationSchema],
     required: false,
   },
-  // NEW FIELD to store chunk references without storing full text
   chunkReferences: {
     type: [chunkReferenceSchema],
     required: false,
@@ -46,6 +45,11 @@ const messageSchema = new mongoose.Schema({
   currentVersion: { 
     type: Number,  
     default: 0 
+  },
+  reaction: {                     // null | "like" | "dislike"
+    type:   String,
+    enum:   ["like", "dislike", null],
+    default: null,
   },
 });
 

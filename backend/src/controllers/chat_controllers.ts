@@ -333,6 +333,35 @@ export const deleteChatSession = async (req, res, next) => {
   }
 };
 
+// controllers/chat_controllers.ts
+export const setMessageReaction = async (req, res) => {
+  try {
+    const { sessionId, msgIndex } = req.params;
+    const { reaction }           = req.body;          // "like" | "dislike" | null
+    if (!["like", "dislike", null].includes(reaction))
+      return res.status(400).json({ message: "Invalid reaction value" });
+
+    const chat = await ChatSession.findOne({
+      _id:     sessionId,
+      userId:  res.locals.jwtData.id,
+      source:  "main_app",
+    });
+    if (!chat) return res.status(404).send("Chat session not found");
+
+    if (msgIndex < 0 || msgIndex >= chat.messages.length)
+      return res.status(400).send("Bad message index");
+
+    chat.messages[msgIndex].reaction = reaction;
+    await chat.save();
+
+    return res.status(200).json({ ok: true, reaction });
+  } catch (err) {
+    (req as any).log.error(err);
+    return res.status(500).json({ message: "ERROR", cause: err.message });
+  }
+};
+
+
 export const deleteAllChatSessions = async (req, res, next) => {
   try {
     const currentUser = await User.findById(res.locals.jwtData.id);
