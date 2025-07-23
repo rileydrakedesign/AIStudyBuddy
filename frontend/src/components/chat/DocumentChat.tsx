@@ -185,60 +185,45 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
 
 
 
-  const handleRetry = async (assistantIdx: number) => {
-    if (isGenerating) return;
-    if (assistantIdx <= 0 || assistantIdx >= messages.length) return;
-  
-    const userMsg       = messages[assistantIdx - 1];
-    const oldAssistant  = messages[assistantIdx];
-    if (userMsg.role !== "user" || oldAssistant.role !== "assistant") return;
-  
+  /* ------------------------------ RETRY CHAT (doc) ------------------------------ */
+const handleRetry = async (assistantIdx: number) => {
+  if (isGenerating) return;
+  if (assistantIdx <= 0 || assistantIdx >= messages.length) return;
 
+  const userMsg      = messages[assistantIdx - 1];
+  const assistantMsg = messages[assistantIdx];
+
+  if (userMsg.role !== "user" || assistantMsg.role !== "assistant") return;
+
+  try {
     setIsGenerating(true);
-  
-    try {
-      const sessId = docSessionId ?? "null";
-      const chatData = await sendChatRequest(
-        userMsg.content,
-        "null",
-        sessId,
-        docId,
-        true          // ephemeral
-      );
-      if (!docSessionId && chatData.chatSessionId)
-        setDocSessionId(chatData.chatSessionId);
-  
-      const msgs = chatData.messages;
-      const newAssistant = msgs[msgs.length - 1];
-      if (!newAssistant || newAssistant.role !== "assistant")
-        throw new Error("Bad retry");
-  
-      setMessages((prev) => {
-        const next = [...prev];
-        const target = next[assistantIdx];
-        const prevVersions = target.versions ?? [oldAssistant.content];
-        next[assistantIdx] = {
-          ...target,
-          content: newAssistant.content,
-          versions: [...prevVersions.slice(0, 1), newAssistant.content],
-          currentVersion: 1,
-          citation: newAssistant.citation,
-          chunkReferences: newAssistant.chunkReferences,
-        };
-        return next;
-      });
-    } catch (err) {
-      console.error("Retry failed", err);
-      toast.error("Retry failed");
-      setMessages((prev) => {
-        const next = [...prev];
-        next[assistantIdx] = oldAssistant;
-        return next;
-      });
-    } finally {
-      setIsGenerating(false);
+
+    const sessId = docSessionId ?? "null";
+
+    // same endpoint, last arg = retry = true
+    const chatData = await sendChatRequest(
+      userMsg.content,
+      "null",      // class
+      sessId,
+      docId,
+      true,        // ephemeral
+      true         // retry
+    );
+
+    if (!docSessionId && chatData.chatSessionId) {
+      setDocSessionId(chatData.chatSessionId);
     }
-  };
+
+    // server returns full msg list → collapse to 1 bubble per Q/A
+    setMessages(collapseRetries(chatData.messages));
+  } catch (err) {
+    console.error("Retry failed", err);
+    toast.error("Retry failed");
+  } finally {
+    setIsGenerating(false);
+  }
+};
+
   
 
   /* ------------------------------
