@@ -478,7 +478,7 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
               onCitationClick={() => {}}
             />
           )}
-          {isGenerating && partialAssistantMessage === "" && (
+          {isGenerating && partialAssistantMessage === "" && (messages.length === 0 || messages[messages.length - 1].role === "user") && (
             <Box
               sx={{
                 display: "flex",
