@@ -16,9 +16,7 @@ from langchain_mongodb import MongoDBAtlasVectorSearch
 import boto3, pymupdf
 from logger_setup import log
 import numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.decomposition import TruncatedSVD
-from sklearn.cluster import MiniBatchKMeans
+
 
 load_dotenv()
 
@@ -61,184 +59,34 @@ TOK_PER_CHAR           = 1 / 4
 MAX_TOKENS_PER_REQUEST = 300_000
 est_tokens = lambda txt: int(len(txt) * TOK_PER_CHAR)
 
-# ──────────────────────────────────────────────────────────────
-# NEW –  TF‑IDF + SVD term extractor
-# ──────────────────────────────────────────────────────────────
 
-def compute_key_terms(chunks, top_n: int = 25):
-    """Return up to *top_n* salient terms/phrases across the given chunks."""
-    texts = [c["text"] for c in chunks if not c["metadata"].get("is_summary")]
-    if not texts:
-        return []
-
-    # 1) TF‑IDF (uni‐ to tri‑grams)
-    vec = TfidfVectorizer(stop_words="english", ngram_range=(1, 3), min_df=2)
-    X = vec.fit_transform(texts)
-    if X.shape[1] == 0:
-        return []
-
-    # 2) Truncated SVD (latent concepts)
-    k = min(100, X.shape[1] - 1)
-    svd = TruncatedSVD(n_components=k, random_state=42)
-    X_svd = svd.fit_transform(X)
-
-    # 3) Rank terms by maximum loading across components
-    comp_loadings = np.abs(svd.components_)
-    top_indices = np.argsort(-comp_loadings, axis=1)[:, :10]  # 10 per comp
-    term_ids = []
-    for row in top_indices:
-        term_ids.extend(row)
-    # unique while preserving order
-    seen = set(); ordered = []
-    for idx in term_ids:
-        if idx not in seen:
-            seen.add(idx)
-            ordered.append(idx)
-        if len(ordered) >= top_n:
-            break
-    terms = [vec.get_feature_names_out()[i] for i in ordered]
-    return terms
-
-# ──────────────────────────────────────────────────────────────
-# NEW –  MiniBatch‑KMeans for embedding clusters (optional)
-# ──────────────────────────────────────────────────────────────
-
-def cluster_embeddings(vectors, min_k: int = 2):
-    """Return cluster_id list (len == len(vectors)). k ≈ sqrt(n)."""
-    n = len(vectors)
-    log.info(f"Clustering embeddings: n_vectors={n}")
-    if n < 20:
-        return [None] * n
-    # ensure k is valid and < n
-    k = max(min_k, int(math.sqrt(n)))
-    k = min(k, n - 1)
-    log.info(f"Running MiniBatchKMeans with k={k}")  
-    if k < 2:
-        return [None] * n
-    km = MiniBatchKMeans(n_clusters=k, random_state=42, batch_size=256)
-    labels = km.fit_predict(vectors)
-    log.info(f"Cluster labels (first 10): {labels[:10]}") 
-    return labels.tolist()
-
-# ──────────────────────────────────────────────────────────────
-# 1) TABLE-OF-CONTENTS SCRAPER
-# ──────────────────────────────────────────────────────────────
-TOC_LINE_RE = re.compile(r"chapter\s+(\d+)", re.I)
-
-def detect_chapters_toc(doc):
-    mapping = {}
-    for page in range(min(20, len(doc))):
-        text = doc.load_page(page).get_text("text")
-        if "contents" not in text.lower():
-            continue
-        for line in text.splitlines():
-            m = TOC_LINE_RE.search(line)
-            if m:
-                chap = int(m.group(1))
-                # find last int in line = target page
-                nums = [int(t) for t in re.findall(r"\d{1,4}", line)]
-                if nums:
-                    mapping[nums[-1]] = chap
-        if mapping:
-            break
-    return mapping if len(mapping) >= 2 else {}
-
-# ──────────────────────────────────────────────────────────────
-# 2) LARGEST-HEADING + RARITY
-# ──────────────────────────────────────────────────────────────
-def detect_chapters_heading(doc):
-    size_hist = Counter()
-    spans_per_page = []
-
-    for p in range(3, len(doc)):               # skip cover & TOC
-        spans = []
-        for b in doc.load_page(p).get_text("dict")["blocks"]:
-            for l in b.get("lines", []):
-                for sp in l["spans"]:
-                    spans.append(sp)
-                    size_hist[round(sp["size"], 1)] += 1
-        spans_per_page.append((p, spans))
-
-    if not size_hist:                           # scanned PDF?
-        return {}
-
-    num_pages = len(doc)
-    # pick largest font used on ≤10% pages
-    cand_sizes = [s for s, cnt in size_hist.items() if cnt <= 0.1 * num_pages]
-    if not cand_sizes:
-        return {}
-    target_size = max(cand_sizes)
-
-    mapping, chap = {}, 0
-    for p, spans in spans_per_page:
-        for sp in spans:
-            if abs(sp["size"] - target_size) < 0.1 and sp["text"].strip():
-                # vertical gap > 24 pt?
-                if sp["bbox"][1] - min((s["bbox"][3] for s in spans), default=0) > 24:
-                    chap += 1
-                    mapping[p + 1] = chap
-                break
-    return mapping if chap >= 2 else {}
-
-# ──────────────────────────────────────────────────────────────
-# 3) RUNNING-HEADER CHANGE DETECTOR
-# ──────────────────────────────────────────────────────────────
-def detect_chapters_header(doc):
-    header_strs = []
-    for p in range(len(doc)):
-        blk = doc.load_page(p).get_text("dict")["blocks"]
-        header = " ".join(sp["text"] for b in blk for l in b.get("lines", []) for sp in l["spans"]
-                          if sp["bbox"][1] < 72).strip()
-        header_strs.append(header)
-
-    mapping, chap = {}, 0
-    prev = None
-    for idx, h in enumerate(header_strs):
-        if h and h != prev:
-            chap += 1
-            mapping[idx + 1] = chap
-        prev = h
-    return mapping if chap >= 2 and chap <= len(doc) // 4 else {}
-
-# ──────────────────────────────────────────────────────────────
-# COMPOSITE DETECTOR
-# ──────────────────────────────────────────────────────────────
-def build_chapter_map(doc):
-    for detector in (detect_chapters_toc, detect_chapters_heading, detect_chapters_header):
-        m = detector(doc)
-        if m:
-            log.debug(f"Chapter map by {detector.__name__}: {m}")
-            return m
-    log.debug("No chapters detected; defaulting to None")
-    return {}
 
 # ──────────────────────────────────────────────────────────────
 # CHUNKING WITH NEW CHAPTER MAP
 # ──────────────────────────────────────────────────────────────
 def process_markdown_with_page_numbers(pdf_stream, user_id, class_id, doc_id, file_name):
-    doc        = pymupdf.open(stream=pdf_stream, filetype="pdf")
-    chapter_map = build_chapter_map(doc)        # {start_page: chapter_idx}
-    current_chap = None
+    """
+    One‑pass PDF → markdown → semantic chunks.
+    """
+    doc = pymupdf.open(stream=pdf_stream, filetype="pdf")
 
-    headers = [("#","H1"),("##","H2"),("###","H3"),("####","H4"),("#####","H5"),("######","H6")]
-    md_splitter = MarkdownHeaderTextSplitter(headers)
+    headers          = [("#","H1"),("##","H2"),("###","H3"),("####","H4"),("#####","H5"),("######","H6")]
+    md_splitter      = MarkdownHeaderTextSplitter(headers)
     semantic_splitter = SemanticChunker(OpenAIEmbeddings(), breakpoint_threshold_type="standard_deviation")
 
     meta   = doc.metadata or {}
-    title  = meta.get("title","Unknown")
-    author = meta.get("author","Unknown")
+    title  = meta.get("title",  "Unknown")
+    author = meta.get("author", "Unknown")
 
-    chunks=[]
+    chunks = []
     for page_idx in range(len(doc)):
-        if chapter_map.get(page_idx + 1):
-            current_chap = chapter_map[page_idx + 1]
-
         page_md = doc.load_page(page_idx).get_text("markdown")
         if not page_md.strip():
             continue
 
         docs = md_splitter.split_text(page_md) or RecursiveCharacterTextSplitter(
-            chunk_size=1500, chunk_overlap=200).create_documents(page_md)
+            chunk_size=1500, chunk_overlap=200
+        ).create_documents(page_md)
 
         for d in docs:
             text = d.page_content.strip()
@@ -248,16 +96,14 @@ def process_markdown_with_page_numbers(pdf_stream, user_id, class_id, doc_id, fi
                 chunks.append({
                     "text": piece,
                     "metadata": {
-                        "file_name": file_name,
-                        "title": title,
-                        "author": author,
-                        "user_id": user_id,
-                        "class_id": class_id,
-                        "doc_id": doc_id,
+                        "file_name":  file_name,
+                        "title":      title,
+                        "author":     author,
+                        "user_id":    user_id,
+                        "class_id":   class_id,
+                        "doc_id":     doc_id,
                         "is_summary": False,
                         "page_number": page_idx + 1,
-                        "chapter_idx": current_chap,
-                        "cluster_id": None,
                     },
                 })
     return chunks
@@ -332,43 +178,17 @@ def load_pdf_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
         chunks.append({
             "text": summary_text,
             "metadata": {
-                "file_name" : file_name,
-                "title"     : chunks[0]["metadata"]["title"] if chunks else file_name,
-                "author"    : chunks[0]["metadata"]["author"] if chunks else "Unknown",
-                "user_id"   : user_id,
-                "class_id"  : class_name,
-                "doc_id"    : doc_id,
+                "file_name":  file_name,
+                "title":      chunks[0]["metadata"]["title"]  if chunks else file_name,
+                "author":     chunks[0]["metadata"]["author"] if chunks else "Unknown",
+                "user_id":    user_id,
+                "class_id":   class_name,
+                "doc_id":     doc_id,
                 "is_summary": True,
                 "page_number": None,
-                "chapter_idx": None,
-                "cluster_id": None,
             },
         })
-    
-    # ────────────────────────────────────────────────────────────
-    # NEW – analytics (key terms + clustering)
-    # ────────────────────────────────────────────────────────────
-    log.info("Computing key terms via TF‑IDF + SVD …")
-    key_terms = compute_key_terms(chunks)
-    try:
-        main_collection.update_one({"_id": ObjectId(doc_id)}, {"$set": {"key_terms": key_terms}})
-    except Exception as e:
-        log.error(f"Error saving key_terms for doc {doc_id}: {e}")
 
-    log.info("Embedding locally for clustering …")
-    embeddings_model = OpenAIEmbeddings(model="text-embedding-3-small")
-    try:
-        log.info(f"Embedding {len(chunks)} chunks locally for clustering …")
-        vectors = embeddings_model.embed_documents([c["text"] for c in chunks])
-    except Exception as e:
-        log.info("Embedding failed for clustering; proceeding without clusters", exc_info=True)
-        vectors = None
-
-    if vectors:
-        labels = cluster_embeddings(vectors)
-        for c, lbl in zip(chunks, labels):
-            c["metadata"]["cluster_id"] = lbl
-        log.info(f"Assigned cluster_id to {len(chunks)} chunks.") 
    
 
     store_embeddings(chunks)
