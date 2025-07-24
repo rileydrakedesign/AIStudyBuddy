@@ -77,7 +77,11 @@ const Signup: React.FC = () => {
         border: "2px dotted #e8e8e8", // same dotted border as login
       }}
     >
-      <Typography variant="h4" sx={{ mb: 3, textAlign: "center", color: "#e8e8e8" }}>
+      <Typography 
+        variant="h4" 
+        fontWeight={700} 
+        sx={{ mb: 3, textAlign: "center", color: "#e8e8e8" }}
+      >
         Create your account
       </Typography>
 
@@ -233,14 +237,15 @@ const Signup: React.FC = () => {
           </Grid>
 
           {/* Switch to login */}
-          <Grid item xs={12} sx={{ textAlign: "center" }}>
+          <Grid item xs={12} sx={{ textAlign: "center", fontSize: "0.75rem", color: "#9ca3af" }}>
+            Already have an account?{" "}
             <Link
               component={RouterLink}
               to="/login"
               underline="hover"
-              sx={{ color: "#e8e8e8", "&:hover": { color: BORDER_BLUE } }}
+              sx={{ color: "#e8e8e8", "&:hover": { color: "#a78bfa" } }}
             >
-              Already have an account? Log in
+              Log in
             </Link>
           </Grid>
         </Grid>
