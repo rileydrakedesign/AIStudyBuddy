@@ -16,6 +16,20 @@ import { useNavigate, Link as RouterLink } from "react-router-dom";
 import toast from "react-hot-toast";
 import { useAuth } from "@/context/authContext";
 
+const extractErrorMsg = (err: any): string => {
+  // express‑validator returns { errors: [ { msg, param, … } ] }
+  if (err?.response?.data?.errors?.length) {
+    return err.response.data.errors[0].msg as string;
+  }
+  // generic message fallbacks
+  return (
+    err?.response?.data?.message ||
+    err?.response?.data ||
+    "Something went wrong — try again"
+  );
+};
+
+
 const Login: React.FC = () => {
   /* ---------- state ---------- */
   const [form, setForm] = useState({ email: "", password: "" });
@@ -46,14 +60,10 @@ const Login: React.FC = () => {
       await auth?.login(form.email, form.password);
       navigate("/chat");
     } catch (err: any) {
-      const msg =
-        err?.response?.data?.message ||
-        err?.response?.data ||
-        "Login failed — check your credentials";
-      toast.error(msg);
+      toast.error(extractErrorMsg(err));
     } finally {
       setLoading(false);
-    }
+    }    
   };
 
   /* ---------- UI ---------- */

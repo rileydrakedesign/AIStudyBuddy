@@ -19,16 +19,48 @@ export const validate = (validations) => {
         return res.status(422).json({ errors: errors.array() });
     };
 };
-export const loginValidator = [
-    body("email").trim().isEmail().withMessage("Valid email is required"),
-    body("password")
-        .trim()
-        .isLength({ min: 6 })
-        .withMessage("Password should contain at least 6 characters"),
-];
+/* ----------------------------------------------------------
+   EMAIL & PASSWORD
+---------------------------------------------------------- */
+const emailValidator = body("email")
+    .trim()
+    .isEmail()
+    .withMessage("Valid email is required")
+    .normalizeEmail();
+const passwordValidator = body("password")
+    .isLength({ min: 8 })
+    .withMessage("Password must be at least 8 characters")
+    .matches(/[A-Za-z]/)
+    .withMessage("Password must contain at least one letter")
+    .matches(/\d/)
+    .withMessage("Password must contain at least one number");
+export const loginValidator = [emailValidator, passwordValidator];
 export const signupValidator = [
-    body("name").notEmpty().withMessage("Name is required"),
-    ...loginValidator,
+    // First & last names come in as firstName / lastName from the new form
+    body("firstName")
+        .trim()
+        .notEmpty()
+        .withMessage("First name is required")
+        .isAlpha("en-US", { ignore: " " })
+        .withMessage("First name must contain only letters"),
+    body("lastName")
+        .trim()
+        .notEmpty()
+        .withMessage("Last name is required")
+        .isAlpha("en-US", { ignore: " " })
+        .withMessage("Last name must contain only letters"),
+    // Optional school
+    body("school")
+        .optional()
+        .isString()
+        .isLength({ max: 100 })
+        .withMessage("School must be under 100 characters"),
+    emailValidator,
+    passwordValidator,
+    // Confirm password matches
+    body("confirmPassword")
+        .custom((value, { req }) => value === req.body.password)
+        .withMessage("Passwords do not match"),
 ];
 export const chatCompletionValidator = [
     body("message")

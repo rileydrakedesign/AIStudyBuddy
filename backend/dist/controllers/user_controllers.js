@@ -19,7 +19,8 @@ export const getAllUsers = async (req, res, next) => {
 export const userSignup = async (req, res, next) => {
     try {
         // user signup
-        const { name, email, password } = req.body;
+        const { firstName, lastName, school, email, password } = req.body;
+        const name = `${firstName} ${lastName}`.trim();
         const existingUser = await user.findOne({ email });
         if (existingUser)
             return res.status(401).send("User already registered");

@@ -12,6 +12,20 @@ import { useNavigate, Link as RouterLink } from "react-router-dom";
 import toast from "react-hot-toast";
 import { signupUser } from "../helpers/api-communicators";
 
+const extractErrorMsg = (err: any): string => {
+  // express‑validator returns { errors: [ { msg, param, … } ] }
+  if (err?.response?.data?.errors?.length) {
+    return err.response.data.errors[0].msg as string;
+  }
+  // generic message fallbacks
+  return (
+    err?.response?.data?.message ||
+    err?.response?.data ||
+    "Something went wrong — try again"
+  );
+};
+
+
 const BORDER_BLUE = "#1976d2";
 
 const Signup: React.FC = () => {
@@ -52,14 +66,10 @@ const Signup: React.FC = () => {
       toast.success("Account created – you're logged in!");
       navigate("/chat");
     } catch (err: any) {
-      const msg =
-        err?.response?.data?.message ||
-        err?.response?.data ||
-        "Signup failed — try again";
-      toast.error(msg);
+      toast.error(extractErrorMsg(err));
     } finally {
       setLoading(false);
-    }
+    }    
   };
 
   /* ---------- UI ---------- */
