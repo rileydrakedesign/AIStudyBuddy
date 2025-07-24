@@ -3,18 +3,21 @@ import React, { useState, useEffect } from "react";
 import {
   Box,
   Button,
+  Divider,
   Grid,
+  IconButton,
   Link,
   TextField,
   Typography,
 } from "@mui/material";
 import { IoIosLogIn } from "react-icons/io";
+import { FaGoogle } from "react-icons/fa";
 import { useNavigate, Link as RouterLink } from "react-router-dom";
 import toast from "react-hot-toast";
 import { useAuth } from "@/context/authContext";
 
 const Login: React.FC = () => {
-  /* ---------- local form state ---------- */
+  /* ---------- state ---------- */
   const [form, setForm] = useState({ email: "", password: "" });
   const [loading, setLoading] = useState(false);
 
@@ -26,20 +29,18 @@ const Login: React.FC = () => {
     if (auth?.user) navigate("/chat");
   }, [auth?.user, navigate]);
 
-  /* ---------- input handlers ---------- */
+  /* ---------- handlers ---------- */
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
+    setForm((p) => ({ ...p, [name]: value }));
   };
 
-  /* ---------- submit ---------- */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.email || !form.password) {
       toast.error("Both fields are required");
       return;
     }
-
     try {
       setLoading(true);
       await auth?.login(form.email, form.password);
@@ -59,20 +60,18 @@ const Login: React.FC = () => {
   return (
     <Box
       sx={{
-        mt: 25,
+        mt: 20,
         mx: "auto",
-        maxWidth: 480,
+        maxWidth: 400,
         p: 4,
-        backgroundColor: "#212121",
-        borderRadius: 2,
-        border: "2px dashed #e8e8e8",
-        alignItems: "center",
-        justifyContent: "center",
-        background: "radial-gradient(circle at top, #0d1117 0%, #000 80%)",
+        borderRadius: 3,
+        backgroundColor: "#0d1117",
+        color: "#e8e8e8",
+        boxShadow: 3,
       }}
     >
-      <Typography variant="h4" sx={{ mb: 3, textAlign: "center", color: "#e8e8e8" }}>
-        Welcome back
+      <Typography variant="h4" fontWeight={700} textAlign="center" gutterBottom>
+        Login
       </Typography>
 
       <form onSubmit={handleSubmit}>
@@ -88,12 +87,14 @@ const Login: React.FC = () => {
               value={form.email}
               onChange={handleChange}
               sx={{
-                input: { color: "#e8e8e8" },
                 "& .MuiOutlinedInput-root": {
-                  "& fieldset": { borderColor: "#e8e8e8" },
-                  "&:hover fieldset": { borderColor: "#1976d2" },
-                  "&.Mui-focused fieldset": { borderColor: "#1976d2" },
+                  bgcolor: "#111827",
+                  color: "#e8e8e8",
+                  "& fieldset": { borderColor: "#374151" },
+                  "&:hover fieldset": { borderColor: "#a78bfa" },
+                  "&.Mui-focused fieldset": { borderColor: "#a78bfa" },
                 },
+                "& .MuiInputLabel-root": { color: "#9ca3af" },
               }}
             />
           </Grid>
@@ -109,14 +110,33 @@ const Login: React.FC = () => {
               value={form.password}
               onChange={handleChange}
               sx={{
-                input: { color: "#e8e8e8" },
                 "& .MuiOutlinedInput-root": {
-                  "& fieldset": { borderColor: "#e8e8e8" },
-                  "&:hover fieldset": { borderColor: "#1976d2" },
-                  "&.Mui-focused fieldset": { borderColor: "#1976d2" },
+                  bgcolor: "#111827",
+                  color: "#e8e8e8",
+                  "& fieldset": { borderColor: "#374151" },
+                  "&:hover fieldset": { borderColor: "#a78bfa" },
+                  "&.Mui-focused fieldset": { borderColor: "#a78bfa" },
                 },
+                "& .MuiInputLabel-root": { color: "#9ca3af" },
               }}
             />
+            <Box
+              sx={{
+                mt: 1,
+                display: "flex",
+                justifyContent: "flex-end",
+                fontSize: "0.75rem",
+              }}
+            >
+              <Link
+                component={RouterLink}
+                to="/forgot-password"
+                underline="hover"
+                sx={{ color: "#9ca3af", "&:hover": { color: "#a78bfa" } }}
+              >
+                Forgot Password&nbsp;?
+              </Link>
+            </Box>
           </Grid>
 
           {/* Submit */}
@@ -127,25 +147,72 @@ const Login: React.FC = () => {
               type="submit"
               disabled={loading}
               startIcon={<IoIosLogIn />}
-              sx={{ backgroundColor: "#1976d2" }}
+              sx={{
+                backgroundColor: "#a78bfa",
+                color: "#111827",
+                fontWeight: 600,
+                ":hover": { backgroundColor: "#8b5cf6" },
+              }}
             >
-              {loading ? "Signing in..." : "Login"}
+              {loading ? "Signing in..." : "Sign in"}
             </Button>
-          </Grid>
-
-          {/* Switch to signup */}
-          <Grid item xs={12} sx={{ textAlign: "center" }}>
-            <Link
-              component={RouterLink}
-              to="/signup"
-              underline="hover"
-              sx={{ color: "#90caf9" }}
-            >
-              Don’t have an account? Sign up
-            </Link>
           </Grid>
         </Grid>
       </form>
+
+      {/* Social separator */}
+      <Box sx={{ mt: 3 }}>
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
+            color: "#9ca3af",
+            fontSize: "0.875rem",
+          }}
+        >
+          <Divider sx={{ flex: 1, bgcolor: "#374151" }} />
+          <span>Login with social accounts</span>
+          <Divider sx={{ flex: 1, bgcolor: "#374151" }} />
+        </Box>
+
+        {/* Google sign‑in */}
+        <Box sx={{ display: "flex", justifyContent: "center", mt: 2 }}>
+          <IconButton
+            aria-label="Log in with Google"
+            size="large"
+            sx={{
+              color: "#fff",
+              border: "1px solid rgba(255,255,255,0.12)",
+              p: 1.5,
+              "&:hover": { bgcolor: "rgba(167,139,250,0.12)" },
+            }}
+            onClick={() => toast("Google sign‑in coming soon")}
+          >
+            <FaGoogle />
+          </IconButton>
+        </Box>
+      </Box>
+
+      {/* Sign‑up link */}
+      <Typography
+        sx={{
+          mt: 3,
+          textAlign: "center",
+          fontSize: "0.75rem",
+          color: "#9ca3af",
+        }}
+      >
+        Don’t have an account?{" "}
+        <Link
+          component={RouterLink}
+          to="/signup"
+          underline="hover"
+          sx={{ color: "#e8e8e8", "&:hover": { color: "#a78bfa" } }}
+        >
+          Sign up
+        </Link>
+      </Typography>
     </Box>
   );
 };
