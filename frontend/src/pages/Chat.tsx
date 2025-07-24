@@ -93,6 +93,11 @@ type DocumentItem = {
   isProcessing?: boolean;
 };
 
+/* ---- util to remove matching items ---- */
+const withRemoved = <T,>(arr: T[], pred: (el: T) => boolean) =>
+  arr.filter((el) => !pred(el));
+
+
 /* ------------------------------
    COMPONENT
 ------------------------------ */
@@ -141,6 +146,11 @@ const Chat = () => {
   const [chatUsage, setChatUsage] = useState<{ count: number; limit: number } | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
+
+  // Track in‑flight deletions  (add below your existing state hooks)
+  const [deletingChatIds, setDeletingChatIds] = useState<Set<string>>(new Set());
+  const [deletingDocIds,  setDeletingDocIds]  = useState<Set<string>>(new Set());
+
 
   const handleSetReaction = async (
     idx: number,
@@ -566,26 +576,50 @@ const Chat = () => {
   /* ------------------------------
      DELETE A CHAT SESSION
   ------------------------------ */
+  // DELETE A CHAT SESSION (optimistic + guarded)
   const handleDeleteChatSession = async (chatSessionId: string) => {
+    if (deletingChatIds.has(chatSessionId)) return;          // already deleting
+    setDeletingChatIds((prev) => new Set(prev).add(chatSessionId));
+
+    // --- optimistic snapshot ---
+    const prevSessions = chatSessions;
+    const prevCurrent  = currentChatSessionId;
+    const prevMsgs     = chatMessages;
+    const prevSelClass = selectedClass;
+
+    setChatSessions(withRemoved(chatSessions, (s) => s._id === chatSessionId));
+
+    if (currentChatSessionId === chatSessionId) {
+      const remaining = withRemoved(chatSessions, (s) => s._id === chatSessionId);
+      if (remaining.length) {
+        const next = remaining[0];
+        setCurrentChatSessionId(next._id);
+        setChatMessages(next.messages);
+        setSelectedClass(next.assignedClass || null);
+      } else {
+        setCurrentChatSessionId(null);
+        setChatMessages([]);
+        setSelectedClass(null);
+      }
+    }
+
     try {
       await deleteChatSession(chatSessionId);
-      setChatSessions((prev) => prev.filter((session) => session._id !== chatSessionId));
-      if (currentChatSessionId === chatSessionId) {
-        const remaining = chatSessions.filter((s) => s._id !== chatSessionId);
-        if (remaining.length > 0) {
-          const next = remaining[0];
-          setCurrentChatSessionId(next._id);
-          setChatMessages(next.messages);
-          setSelectedClass(next.assignedClass || null);
-        } else {
-          setCurrentChatSessionId(null);
-          setChatMessages([]);
-          setSelectedClass(null);
-        }
-      }
-    } catch (error) {
-      console.error("Error deleting chat session:", error);
+      toast.success("Chat deleted");
+    } catch (err) {
+      console.error("Error deleting chat session:", err);
       toast.error("Failed to delete chat session");
+      // rollback
+      setChatSessions(prevSessions);
+      setCurrentChatSessionId(prevCurrent);
+      setChatMessages(prevMsgs);
+      setSelectedClass(prevSelClass);
+    } finally {
+      setDeletingChatIds((prev) => {
+        const next = new Set(prev);
+        next.delete(chatSessionId);
+        return next;
+      });
     }
   };
 
@@ -612,23 +646,35 @@ const Chat = () => {
   /* ------------------------------
      DELETE A DOCUMENT
   ------------------------------ */
+  // DELETE A DOCUMENT (optimistic + guarded)
   const handleDeleteDocument = async (docId: string, className: string) => {
+    if (deletingDocIds.has(docId)) return;
+    setDeletingDocIds((prev) => new Set(prev).add(docId));
+
+    // optimistic snapshot
+    const prevDocs = classDocs[className] ?? [];
+    setClassDocs((prev) => ({
+      ...prev,
+      [className]: withRemoved(prevDocs, (d) => d._id === docId),
+    }));
+
     try {
       await deleteDocument(docId);
-      setClassDocs((prev) => {
-        const updated = { ...prev };
-        if (updated[className]) {
-          updated[className] = updated[className].filter((doc) => doc._id !== docId);
-        }
-        return updated;
-      });
-
       toast.success("Document deleted");
-    } catch (error) {
-      console.error("Error deleting document:", error);
+    } catch (err) {
+      console.error("Error deleting document:", err);
       toast.error("Failed to delete document");
+      // rollback
+      setClassDocs((prev) => ({ ...prev, [className]: prevDocs }));
+    } finally {
+      setDeletingDocIds((prev) => {
+        const next = new Set(prev);
+        next.delete(docId);
+        return next;
+      });
     }
   };
+
 
   /* ------------------------------
      Classes & Documents
