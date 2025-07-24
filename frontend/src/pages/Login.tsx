@@ -68,6 +68,7 @@ const Login: React.FC = () => {
         backgroundColor: "#0d1117",
         color: "#e8e8e8",
         boxShadow: 3,
+        border: "2px dotted #e8e8e8",
       }}
     >
       <Typography variant="h4" fontWeight={700} textAlign="center" gutterBottom>
@@ -91,8 +92,8 @@ const Login: React.FC = () => {
                   bgcolor: "#111827",
                   color: "#e8e8e8",
                   "& fieldset": { borderColor: "#374151" },
-                  "&:hover fieldset": { borderColor: "#a78bfa" },
-                  "&.Mui-focused fieldset": { borderColor: "#a78bfa" },
+                  "&:hover fieldset": { borderColor: "#1976d2" },
+                  "&.Mui-focused fieldset": { borderColor: "#1976d2" },
                 },
                 "& .MuiInputLabel-root": { color: "#9ca3af" },
               }}
@@ -114,8 +115,8 @@ const Login: React.FC = () => {
                   bgcolor: "#111827",
                   color: "#e8e8e8",
                   "& fieldset": { borderColor: "#374151" },
-                  "&:hover fieldset": { borderColor: "#a78bfa" },
-                  "&.Mui-focused fieldset": { borderColor: "#a78bfa" },
+                  "&:hover fieldset": { borderColor: "#1976d2" },
+                  "&.Mui-focused fieldset": { borderColor: "#1976d2" },
                 },
                 "& .MuiInputLabel-root": { color: "#9ca3af" },
               }}
@@ -148,10 +149,10 @@ const Login: React.FC = () => {
               disabled={loading}
               startIcon={<IoIosLogIn />}
               sx={{
-                backgroundColor: "#a78bfa",
+                backgroundColor: "#1976d2",
                 color: "#111827",
                 fontWeight: 600,
-                ":hover": { backgroundColor: "#8b5cf6" },
+                ":hover": { backgroundColor: "#1565c0" },
               }}
             >
               {loading ? "Signing in..." : "Sign in"}
