@@ -133,7 +133,7 @@ const Login: React.FC = () => {
                 component={RouterLink}
                 to="/forgot-password"
                 underline="hover"
-                sx={{ color: "#9ca3af", "&:hover": { color: "#a78bfa" } }}
+                sx={{ color: "#9ca3af", "&:hover": { color: "#1976d2" } }}
               >
                 Forgot Password&nbsp;?
               </Link>
@@ -209,7 +209,7 @@ const Login: React.FC = () => {
           component={RouterLink}
           to="/signup"
           underline="hover"
-          sx={{ color: "#e8e8e8", "&:hover": { color: "#a78bfa" } }}
+          sx={{ color: "#e8e8e8", "&:hover": { color: "#1976d2" } }}
         >
           Sign up
         </Link>
