@@ -1,115 +1,152 @@
-import React, { useEffect } from "react";
-import { IoIosLogIn } from "react-icons/io";
-import { useAuth } from "@/context/authContext";
-import { useNavigate } from "react-router-dom";
-import { z } from "zod";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-
-import { Button } from "@/components/ui/button";
+// src/pages/Login.tsx
+import React, { useState, useEffect } from "react";
 import {
-  Form,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormControl,
-  FormMessage,
-} from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
+  Box,
+  Button,
+  Grid,
+  Link,
+  TextField,
+  Typography,
+} from "@mui/material";
+import { IoIosLogIn } from "react-icons/io";
+import { useNavigate, Link as RouterLink } from "react-router-dom";
+import toast from "react-hot-toast";
+import { useAuth } from "@/context/authContext";
 
-const Login = () => {
+const Login: React.FC = () => {
+  /* ---------- local form state ---------- */
+  const [form, setForm] = useState({ email: "", password: "" });
+  const [loading, setLoading] = useState(false);
+
   const navigate = useNavigate();
-  const auth = useAuth();
+  const auth     = useAuth();
 
-  // Define the validation schema using Zod
-  const FormSchema = z.object({
-    email: z.string().email({ message: "Please enter a valid email address." }),
-    password: z.string().min(6, { message: "Password must be at least 6 characters." }),
-  });
+  /* ---------- redirect if already logged in ---------- */
+  useEffect(() => {
+    if (auth?.user) navigate("/chat");
+  }, [auth?.user, navigate]);
 
-  // Initialize the form
-  const form = useForm<z.infer<typeof FormSchema>>({
-    resolver: zodResolver(FormSchema),
-    defaultValues: {
-      email: "",
-      password: "",
-    },
-  });
+  /* ---------- input handlers ---------- */
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+  };
 
-  // Handle form submission
-  const onSubmit = async (data: z.infer<typeof FormSchema>) => {
+  /* ---------- submit ---------- */
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.email || !form.password) {
+      toast.error("Both fields are required");
+      return;
+    }
+
     try {
-      await auth?.login(data.email, data.password);
+      setLoading(true);
+      await auth?.login(form.email, form.password);
       navigate("/chat");
-    } catch (error) {
-      console.error(error);
-      // Handle error accordingly
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.message ||
+        err?.response?.data ||
+        "Login failed — check your credentials";
+      toast.error(msg);
+    } finally {
+      setLoading(false);
     }
   };
 
-  useEffect(() => {
-    if (auth?.user) {
-      navigate("/chat");
-    }
-  }, [auth, navigate]);
-
+  /* ---------- UI ---------- */
   return (
-    <div className="flex w-full h-full dark">
-      <div className="hidden md:flex p-8 mt-8">{/* Additional content */}</div>
-      <div className="flex flex-1 justify-center items-center p-4 mt-24">
-        <Form {...form}>
-          <form
-            onSubmit={form.handleSubmit(onSubmit)}
-            className="w-full max-w-md bg-neutral-900 p-8 shadow-lg rounded-lg space-y-8"
-          >
-            <h2 className="text-2xl font-semibold text-center mb-8 text-white">Login</h2>
+    <Box
+      sx={{
+        mt: 25,
+        mx: "auto",
+        maxWidth: 480,
+        p: 4,
+        backgroundColor: "#212121",
+        borderRadius: 2,
+        border: "2px dashed #e8e8e8",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "radial-gradient(circle at top, #0d1117 0%, #000 80%)",
+      }}
+    >
+      <Typography variant="h4" sx={{ mb: 3, textAlign: "center", color: "#e8e8e8" }}>
+        Welcome back
+      </Typography>
 
-            <FormField
-              control={form.control}
+      <form onSubmit={handleSubmit}>
+        <Grid container spacing={2}>
+          {/* Email */}
+          <Grid item xs={12}>
+            <TextField
+              fullWidth
+              required
               name="email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-white">Email</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="email"
-                      placeholder="Enter your email"
-                      {...field}
-                      className="bg-neutral-800 text-white"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+              label="Email"
+              type="email"
+              value={form.email}
+              onChange={handleChange}
+              sx={{
+                input: { color: "#e8e8e8" },
+                "& .MuiOutlinedInput-root": {
+                  "& fieldset": { borderColor: "#e8e8e8" },
+                  "&:hover fieldset": { borderColor: "#1976d2" },
+                  "&.Mui-focused fieldset": { borderColor: "#1976d2" },
+                },
+              }}
             />
+          </Grid>
 
-            <FormField
-              control={form.control}
+          {/* Password */}
+          <Grid item xs={12}>
+            <TextField
+              fullWidth
+              required
               name="password"
-              render={({ field }) => (
-                <FormItem className="mt-4">
-                  <FormLabel className="text-white">Password</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="password"
-                      placeholder="Enter your password"
-                      {...field}
-                      className="bg-neutral-800 text-white"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+              label="Password"
+              type="password"
+              value={form.password}
+              onChange={handleChange}
+              sx={{
+                input: { color: "#e8e8e8" },
+                "& .MuiOutlinedInput-root": {
+                  "& fieldset": { borderColor: "#e8e8e8" },
+                  "&:hover fieldset": { borderColor: "#1976d2" },
+                  "&.Mui-focused fieldset": { borderColor: "#1976d2" },
+                },
+              }}
             />
+          </Grid>
 
-            <Button type="submit" className="w-full mt-6">
-              Login
-              <IoIosLogIn className="ml-2" />
+          {/* Submit */}
+          <Grid item xs={12}>
+            <Button
+              fullWidth
+              variant="contained"
+              type="submit"
+              disabled={loading}
+              startIcon={<IoIosLogIn />}
+              sx={{ backgroundColor: "#1976d2" }}
+            >
+              {loading ? "Signing in..." : "Login"}
             </Button>
-          </form>
-        </Form>
-      </div>
-    </div>
+          </Grid>
+
+          {/* Switch to signup */}
+          <Grid item xs={12} sx={{ textAlign: "center" }}>
+            <Link
+              component={RouterLink}
+              to="/signup"
+              underline="hover"
+              sx={{ color: "#90caf9" }}
+            >
+              Don’t have an account? Sign up
+            </Link>
+          </Grid>
+        </Grid>
+      </form>
+    </Box>
   );
 };
 
