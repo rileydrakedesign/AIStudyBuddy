@@ -11,23 +11,24 @@ export const loginUser = async (email: string, password: string) => {
   return data;
 };
 
-export const signupUser = async (
-  name: string,
-  email: string,
-  password: string
-) => {
-  const res = await axios.post(
-    "/user/signup",
-    { name, email, password },
-    { withCredentials: true }
-  );
+export interface SignupPayload {
+  firstName: string;
+  lastName:  string;
+  school?:   string;
+  email:     string;
+  password:  string;
+  confirmPassword: string;
+}
 
-  // Backend currently returns 200; 201 would also be valid.
+export const signupUser = async (payload: SignupPayload) => {
+  const res = await axios.post("/user/signup", payload, { withCredentials: true });
+
   if (res.status !== 200 && res.status !== 201) {
     throw new Error("Unable to sign up");
   }
   return res.data;
 };
+
 
 export const checkAuthStatus = async () => {
   const res = await axios.get("/user/auth-status");

@@ -18,16 +18,20 @@ export const getAllUsers = async (req, res, next) => {
 };
 export const userSignup = async (req, res, next) => {
     try {
-        // user signup
         const { firstName, lastName, school, email, password } = req.body;
         const name = `${firstName} ${lastName}`.trim();
         const existingUser = await user.findOne({ email });
         if (existingUser)
             return res.status(401).send("User already registered");
         const hashedPassword = await hash(password, 10);
-        const newUser = new user({ name, email, password: hashedPassword });
+        const newUser = new user({
+            name,
+            school, // optional
+            email,
+            password: hashedPassword,
+        });
         await newUser.save();
-        /* ------------- cookie handling ------------- */
+        /* ---------- auth cookie ---------- */
         res.clearCookie(COOKIE_NAME, {
             httpOnly: true,
             secure: true,
@@ -46,13 +50,15 @@ export const userSignup = async (req, res, next) => {
             httpOnly: true,
             signed: true,
         });
-        return res
-            .status(200)
-            .json({ message: "OK", name: newUser.name, email: newUser.email });
+        return res.status(200).json({
+            message: "OK",
+            name: newUser.name,
+            email: newUser.email,
+        });
     }
     catch (error) {
         req.log.error(error);
-        return res.status(200).json({ message: "ERROR", cause: error.message });
+        return res.status(500).json({ message: "ERROR", cause: error.message });
     }
 };
 export const userLogin = async (req, res, next) => {

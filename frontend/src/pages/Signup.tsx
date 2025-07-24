@@ -48,9 +48,15 @@ const Signup: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    // Basic validation
-    if (!form.firstName || !form.lastName || !form.email || !form.password || !form.confirmPassword) {
+  
+    // Front‑end sanity checks
+    if (
+      !form.firstName ||
+      !form.lastName ||
+      !form.email ||
+      !form.password ||
+      !form.confirmPassword
+    ) {
       toast.error("All required fields must be filled");
       return;
     }
@@ -58,19 +64,28 @@ const Signup: React.FC = () => {
       toast.error("Passwords do not match");
       return;
     }
-
+  
     try {
       setLoading(true);
-      const fullName = `${form.firstName} ${form.lastName}`.trim();
-      await signupUser(fullName, form.email, form.password); // school not persisted yet
+  
+      await signupUser({
+        firstName:       form.firstName,
+        lastName:        form.lastName,
+        school:          form.school || undefined,
+        email:           form.email,
+        password:        form.password,
+        confirmPassword: form.confirmPassword,
+      });
+  
       toast.success("Account created – you're logged in!");
       navigate("/chat");
     } catch (err: any) {
       toast.error(extractErrorMsg(err));
     } finally {
       setLoading(false);
-    }    
+    }
   };
+  
 
   /* ---------- UI ---------- */
   return (
