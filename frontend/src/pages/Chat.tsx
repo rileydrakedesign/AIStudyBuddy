@@ -150,6 +150,8 @@ const Chat = () => {
   // Track in‑flight deletions  (add below your existing state hooks)
   const [deletingChatIds, setDeletingChatIds] = useState<Set<string>>(new Set());
   const [deletingDocIds,  setDeletingDocIds]  = useState<Set<string>>(new Set());
+  const [deletingClassIds, setDeletingClassIds] = useState<Set<string>>(new Set());
+
 
 
   const handleSetReaction = async (
@@ -626,22 +628,54 @@ const Chat = () => {
   /* ------------------------------
      DELETE A CLASS
   ------------------------------ */
+  /* ------------------------------
+   DELETE A CLASS  (optimistic + guarded)
+  ------------------------------ */
   const handleDeleteClass = async (classId: string) => {
+    if (deletingClassIds.has(classId)) return;          // already in flight
+    setDeletingClassIds((prev) => new Set(prev).add(classId));
+
+    // snapshot for rollback
+    const prevClasses      = classes;
+    const prevClassDocs    = classDocs;
+    const prevSelected     = selectedClass;
+    const prevExpanded     = expandedClass;
+
+    // optimistic UI: remove class + its docs immediately
+    setClasses(withRemoved(classes, (c) => c._id === classId));
+    setClassDocs((prev) => {
+      const next = { ...prev };
+      const cls  = prevClasses.find((c) => c._id === classId);
+      if (cls) delete next[cls.name];
+      return next;
+    });
+    if (selectedClass && prevClasses.find((c) => c._id === classId)?.name === selectedClass) {
+      setSelectedClass(null);
+    }
+    if (expandedClass && prevClasses.find((c) => c._id === classId)?.name === expandedClass) {
+      setExpandedClass(null);
+    }
+
     try {
       await deleteClass(classId);
-      setClasses((prev) => prev.filter((c) => c._id !== classId));
-
-      setClassDocs((prev) => {
-        const updated = { ...prev };
-        return updated;
-      });
-
       toast.success("Class deleted");
-    } catch (error) {
-      console.error("Error deleting class:", error);
+    } catch (err) {
+      console.error("Error deleting class:", err);
       toast.error("Failed to delete class");
+      // rollback
+      setClasses(prevClasses);
+      setClassDocs(prevClassDocs);
+      setSelectedClass(prevSelected);
+      setExpandedClass(prevExpanded);
+    } finally {
+      setDeletingClassIds((prev) => {
+        const next = new Set(prev);
+        next.delete(classId);
+        return next;
+      });
     }
   };
+
 
   /* ------------------------------
      DELETE A DOCUMENT
