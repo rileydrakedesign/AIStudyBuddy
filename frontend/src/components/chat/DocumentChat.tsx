@@ -486,6 +486,7 @@ const handleRetry = async (assistantIdx: number) => {
           <textarea
             ref={inputRef}
             disabled={isGenerating}
+            placeholder="Ask away..." 
             onKeyDown={handleKeyDown}
             onInput={handleInput}
             onPaste={handlePaste}
