@@ -150,7 +150,6 @@ const Login: React.FC = () => {
               startIcon={<IoIosLogIn />}
               sx={{
                 backgroundColor: "#1976d2",
-                color: "#111827",
                 fontWeight: 600,
                 ":hover": { backgroundColor: "#1565c0" },
               }}

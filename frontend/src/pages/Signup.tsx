@@ -243,7 +243,7 @@ const Signup: React.FC = () => {
               component={RouterLink}
               to="/login"
               underline="hover"
-              sx={{ color: "#e8e8e8", "&:hover": { color: "#a78bfa" } }}
+              sx={{ color: "#e8e8e8", "&:hover": { color: "#1565c0" } }}
             >
               Log in
             </Link>
