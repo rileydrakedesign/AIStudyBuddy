@@ -1192,6 +1192,7 @@ const Chat = () => {
                       <textarea
                         ref={inputRef}
                         disabled={isGenerating}
+                        placeholder="Ask away..." 
                         onKeyDown={handleKeyDown}
                         onInput={handleInput}
                         onPaste={handlePaste}
