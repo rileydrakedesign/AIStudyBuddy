@@ -1,5 +1,5 @@
 // src/pages/Signup.tsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Box,
   Button,
@@ -11,6 +11,9 @@ import {
 import { useNavigate, Link as RouterLink } from "react-router-dom";
 import toast from "react-hot-toast";
 import { signupUser } from "../helpers/api-communicators";
+import { useAuth } from "@/context/authContext";
+
+
 
 const extractErrorMsg = (err: any): string => {
   // express‑validator returns { errors: [ { msg, param, … } ] }
@@ -40,6 +43,13 @@ const Signup: React.FC = () => {
   });
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+
+  const auth = useAuth();
+
+  useEffect(() => {
+    if (auth?.user) navigate("/chat");
+  }, [auth?.user, navigate]);
+
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
