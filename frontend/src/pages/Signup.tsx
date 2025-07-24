@@ -1,3 +1,4 @@
+// src/pages/Signup.tsx
 import React, { useState } from "react";
 import {
   Box,
@@ -11,9 +12,18 @@ import { useNavigate, Link as RouterLink } from "react-router-dom";
 import toast from "react-hot-toast";
 import { signupUser } from "../helpers/api-communicators";
 
+const BORDER_BLUE = "#1976d2";
+
 const Signup: React.FC = () => {
   /* ---------- local form state ---------- */
-  const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [form, setForm] = useState({
+    firstName: "",
+    lastName: "",
+    school: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
+  });
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
@@ -24,16 +34,23 @@ const Signup: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name || !form.email || !form.password) {
-      toast.error("All fields are required");
+
+    // Basic validation
+    if (!form.firstName || !form.lastName || !form.email || !form.password || !form.confirmPassword) {
+      toast.error("All required fields must be filled");
+      return;
+    }
+    if (form.password !== form.confirmPassword) {
+      toast.error("Passwords do not match");
       return;
     }
 
     try {
       setLoading(true);
-      await signupUser(form.name, form.email, form.password);
+      const fullName = `${form.firstName} ${form.lastName}`.trim();
+      await signupUser(fullName, form.email, form.password); // school not persisted yet
       toast.success("Account created – you're logged in!");
-      navigate("/");                 // land on dashboard/home
+      navigate("/chat");
     } catch (err: any) {
       const msg =
         err?.response?.data?.message ||
@@ -49,16 +66,15 @@ const Signup: React.FC = () => {
   return (
     <Box
       sx={{
-        mt: 25,
+        mt: 20,
         mx: "auto",
         maxWidth: 480,
         p: 4,
-        backgroundColor: "#212121",
-        borderRadius: 2,
-        border: "2px dashed #e8e8e8",
-        alignItems: "center",
-        justifyContent: "center",
-        background: "radial-gradient(circle at top, #0d1117 0%, #000 80%)",
+        borderRadius: 3,
+        backgroundColor: "#0d1117",
+        color: "#e8e8e8",
+        boxShadow: 3,
+        border: "2px dotted #e8e8e8", // same dotted border as login
       }}
     >
       <Typography variant="h4" sx={{ mb: 3, textAlign: "center", color: "#e8e8e8" }}>
@@ -67,22 +83,65 @@ const Signup: React.FC = () => {
 
       <form onSubmit={handleSubmit}>
         <Grid container spacing={2}>
-          {/* Name */}
-          <Grid item xs={12}>
+          {/* First & Last name on same line */}
+          <Grid item xs={12} sm={6}>
+          <TextField
+              fullWidth
+              required
+              name="firstName"
+              label="First name"
+              value={form.firstName}
+              onChange={handleChange}
+              sx={{
+                "& .MuiOutlinedInput-root": {
+                  bgcolor: "#111827",
+                  color: "#e8e8e8",
+                  "& fieldset": { borderColor: "#374151" },
+                  "&:hover fieldset": { borderColor: BORDER_BLUE },
+                  "&.Mui-focused fieldset": { borderColor: BORDER_BLUE },
+                },
+                "& .MuiInputLabel-root": { color: "#9ca3af" },
+              }}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6}>
             <TextField
               fullWidth
               required
-              name="name"
-              label="Name"
-              value={form.name}
+              name="lastName"
+              label="Last name"
+              value={form.lastName}
               onChange={handleChange}
               sx={{
-                input: { color: "#e8e8e8" },
                 "& .MuiOutlinedInput-root": {
-                  "& fieldset": { borderColor: "#e8e8e8" },
-                  "&:hover fieldset": { borderColor: "#1976d2" },
-                  "&.Mui-focused fieldset": { borderColor: "#1976d2" },
+                  bgcolor: "#111827",
+                  color: "#e8e8e8",
+                  "& fieldset": { borderColor: "#374151" },
+                  "&:hover fieldset": { borderColor: BORDER_BLUE },
+                  "&.Mui-focused fieldset": { borderColor: BORDER_BLUE },
                 },
+                "& .MuiInputLabel-root": { color: "#9ca3af" },
+              }}
+            />
+          </Grid>
+
+          {/* School (optional) */}
+          <Grid item xs={12}>
+            <TextField
+              fullWidth
+              name="school"
+              label="School (optional)"
+              value={form.school}
+              onChange={handleChange}
+              sx={{
+                "& .MuiOutlinedInput-root": {
+                  bgcolor: "#111827",
+                  color: "#e8e8e8",
+                  "& fieldset": { borderColor: "#374151" },
+                  "&:hover fieldset": { borderColor: BORDER_BLUE },
+                  "&.Mui-focused fieldset": { borderColor: BORDER_BLUE },
+                },
+                "& .MuiInputLabel-root": { color: "#9ca3af" },
               }}
             />
           </Grid>
@@ -98,12 +157,14 @@ const Signup: React.FC = () => {
               value={form.email}
               onChange={handleChange}
               sx={{
-                input: { color: "#e8e8e8" },
                 "& .MuiOutlinedInput-root": {
-                  "& fieldset": { borderColor: "#e8e8e8" },
-                  "&:hover fieldset": { borderColor: "#1976d2" },
-                  "&.Mui-focused fieldset": { borderColor: "#1976d2" },
+                  bgcolor: "#111827",
+                  color: "#e8e8e8",
+                  "& fieldset": { borderColor: "#374151" },
+                  "&:hover fieldset": { borderColor: BORDER_BLUE },
+                  "&.Mui-focused fieldset": { borderColor: BORDER_BLUE },
                 },
+                "& .MuiInputLabel-root": { color: "#9ca3af" },
               }}
             />
           </Grid>
@@ -119,12 +180,37 @@ const Signup: React.FC = () => {
               value={form.password}
               onChange={handleChange}
               sx={{
-                input: { color: "#e8e8e8" },
                 "& .MuiOutlinedInput-root": {
-                  "& fieldset": { borderColor: "#e8e8e8" },
-                  "&:hover fieldset": { borderColor: "#1976d2" },
-                  "&.Mui-focused fieldset": { borderColor: "#1976d2" },
+                  bgcolor: "#111827",
+                  color: "#e8e8e8",
+                  "& fieldset": { borderColor: "#374151" },
+                  "&:hover fieldset": { borderColor: BORDER_BLUE },
+                  "&.Mui-focused fieldset": { borderColor: BORDER_BLUE },
                 },
+                "& .MuiInputLabel-root": { color: "#9ca3af" },
+              }}
+            />
+          </Grid>
+
+          {/* Confirm Password */}
+          <Grid item xs={12}>
+            <TextField
+              fullWidth
+              required
+              name="confirmPassword"
+              label="Confirm password"
+              type="password"
+              value={form.confirmPassword}
+              onChange={handleChange}
+              sx={{
+                "& .MuiOutlinedInput-root": {
+                  bgcolor: "#111827",
+                  color: "#e8e8e8",
+                  "& fieldset": { borderColor: "#374151" },
+                  "&:hover fieldset": { borderColor: BORDER_BLUE },
+                  "&.Mui-focused fieldset": { borderColor: BORDER_BLUE },
+                },
+                "& .MuiInputLabel-root": { color: "#9ca3af" },
               }}
             />
           </Grid>
@@ -136,7 +222,11 @@ const Signup: React.FC = () => {
               variant="contained"
               type="submit"
               disabled={loading}
-              sx={{ backgroundColor: "#1976d2" }}
+              sx={{
+                backgroundColor: BORDER_BLUE,
+                fontWeight: 600,
+                ":hover": { backgroundColor: "#1565c0" },
+              }}
             >
               {loading ? "Creating..." : "Sign Up"}
             </Button>
@@ -148,7 +238,7 @@ const Signup: React.FC = () => {
               component={RouterLink}
               to="/login"
               underline="hover"
-              sx={{ color: "#90caf9" }}
+              sx={{ color: "#e8e8e8", "&:hover": { color: BORDER_BLUE } }}
             >
               Already have an account? Log in
             </Link>
