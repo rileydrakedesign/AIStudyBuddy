@@ -105,13 +105,19 @@ const Profile: React.FC = () => {
               sx={{
                 "& .MuiOutlinedInput-root": {
                   bgcolor: "#111827",
-                  color: "#e8e8e8",
+                  color: "#e8e8e8",                 // editable text colour
                   "& fieldset": { borderColor: "#374151" },
                   "&:hover fieldset": { borderColor: BORDER_BLUE },
                   "&.Mui-focused fieldset": { borderColor: BORDER_BLUE },
                 },
+                "& .MuiInputBase-input": {         // white text always…
+                  color: "#e8e8e8",
+                },
+                "& .MuiInputBase-input.Mui-disabled": {
+                  WebkitTextFillColor: "#e8e8e8 !important", // …even when disabled
+                },
                 "& .MuiInputLabel-root": { color: "#9ca3af" },
-              }}
+              }}              
             />
           </Grid>
           <Grid item xs={1} sx={{ display: "flex", alignItems: "center" }}>
@@ -135,13 +141,19 @@ const Profile: React.FC = () => {
               sx={{
                 "& .MuiOutlinedInput-root": {
                   bgcolor: "#111827",
-                  color: "#e8e8e8",
+                  color: "#e8e8e8",                 // editable text colour
                   "& fieldset": { borderColor: "#374151" },
                   "&:hover fieldset": { borderColor: BORDER_BLUE },
                   "&.Mui-focused fieldset": { borderColor: BORDER_BLUE },
                 },
+                "& .MuiInputBase-input": {         // white text always…
+                  color: "#e8e8e8",
+                },
+                "& .MuiInputBase-input.Mui-disabled": {
+                  WebkitTextFillColor: "#e8e8e8 !important", // …even when disabled
+                },
                 "& .MuiInputLabel-root": { color: "#9ca3af" },
-              }}
+              }}              
             />
           </Grid>
           <Grid item xs={1} sx={{ display: "flex", alignItems: "center" }}>
