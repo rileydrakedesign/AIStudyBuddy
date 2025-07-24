@@ -3,17 +3,24 @@ import {
   Box,
   Button,
   Grid,
+  IconButton,
   TextField,
   Typography,
 } from "@mui/material";
-import { getUserProfile as apiGetUserProfile, logoutUser } from "../helpers/api-communicators";
-import { useNavigate } from "react-router-dom";
+import { Edit as EditIcon } from "@mui/icons-material";
 import toast from "react-hot-toast";
+import {
+  getUserProfile as apiGetUserProfile,
+  logoutUser,
+} from "../helpers/api-communicators";
+import { useNavigate } from "react-router-dom";
 
 const BORDER_BLUE = "#1976d2";
 
 const Profile: React.FC = () => {
   const [profile, setProfile] = useState({ name: "", email: "" });
+  const [editName, setEditName] = useState(false);
+  const [editEmail, setEditEmail] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -28,7 +35,7 @@ const Profile: React.FC = () => {
             email: data.profile.email,
           });
         }
-      } catch (err) {
+      } catch {
         toast.error("Failed to load profile");
       } finally {
         setLoading(false);
@@ -45,11 +52,13 @@ const Profile: React.FC = () => {
   const handleLogout = async () => {
     try {
       await logoutUser();
-    } catch (err) {
-      console.error("Logout error", err);
     } finally {
       window.location.replace("/login");
     }
+  };
+
+  const handleDelete = () => {
+    toast("Delete account coming soon");
   };
 
   if (loading) {
@@ -77,22 +86,22 @@ const Profile: React.FC = () => {
       <Typography
         variant="h4"
         fontWeight={700}
-        sx={{ mb: 3, textAlign: "center", color: "#e8e8e8" }}
+        sx={{ mb: 3, textAlign: "center" }}
       >
         Profile Settings
       </Typography>
 
       <form>
         <Grid container spacing={2}>
-          {/* Name */}
-          <Grid item xs={12}>
+          {/* Name (inline edit) */}
+          <Grid item xs={11}>
             <TextField
               fullWidth
-              required
               label="Name"
               name="name"
               value={profile.name}
               onChange={handleChange}
+              disabled={!editName}
               sx={{
                 "& .MuiOutlinedInput-root": {
                   bgcolor: "#111827",
@@ -105,16 +114,24 @@ const Profile: React.FC = () => {
               }}
             />
           </Grid>
+          <Grid item xs={1} sx={{ display: "flex", alignItems: "center" }}>
+            <IconButton
+              onClick={() => setEditName((v) => !v)}
+              sx={{ color: "#9ca3af" }}
+            >
+              <EditIcon fontSize="small" />
+            </IconButton>
+          </Grid>
 
-          {/* Email */}
-          <Grid item xs={12}>
+          {/* Email (inline edit) */}
+          <Grid item xs={11}>
             <TextField
               fullWidth
-              required
               label="Email"
               name="email"
               value={profile.email}
               onChange={handleChange}
+              disabled={!editEmail}
               sx={{
                 "& .MuiOutlinedInput-root": {
                   bgcolor: "#111827",
@@ -127,8 +144,16 @@ const Profile: React.FC = () => {
               }}
             />
           </Grid>
+          <Grid item xs={1} sx={{ display: "flex", alignItems: "center" }}>
+            <IconButton
+              onClick={() => setEditEmail((v) => !v)}
+              sx={{ color: "#9ca3af" }}
+            >
+              <EditIcon fontSize="small" />
+            </IconButton>
+          </Grid>
 
-          {/* Plan (disabled) */}
+          {/* Plan */}
           <Grid item xs={12} sm={6}>
             <TextField
               fullWidth
@@ -147,25 +172,24 @@ const Profile: React.FC = () => {
               }}
             />
           </Grid>
-          <Grid
-            item
-            xs={12}
-            sm={6}
-            sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}
-          >
-            <Button variant="contained" sx={{ backgroundColor: BORDER_BLUE }}>
+          <Grid item xs={12} sm={6} sx={{ display: "flex", alignItems: "center" }}>
+            <Button variant="contained" fullWidth sx={{ backgroundColor: BORDER_BLUE }}>
               Change Plan
             </Button>
           </Grid>
 
-          {/* Reset password */}
+          {/* Change Password */}
           <Grid item xs={12}>
-            <Button variant="contained" sx={{ backgroundColor: BORDER_BLUE }}>
-              Reset Password
+            <Button
+              variant="contained"
+              fullWidth
+              sx={{ backgroundColor: BORDER_BLUE }}
+            >
+              Change Password
             </Button>
           </Grid>
 
-          {/* Save changes */}
+          {/* Save Changes */}
           <Grid item xs={12}>
             <Button
               variant="contained"
@@ -188,6 +212,18 @@ const Profile: React.FC = () => {
               onClick={handleLogout}
             >
               Logout
+            </Button>
+          </Grid>
+
+          {/* Delete Account */}
+          <Grid item xs={12}>
+            <Button
+              variant="contained"
+              fullWidth
+              sx={{ backgroundColor: "#b71c1c !important" }}
+              onClick={handleDelete}
+            >
+              Delete Account
             </Button>
           </Grid>
         </Grid>
