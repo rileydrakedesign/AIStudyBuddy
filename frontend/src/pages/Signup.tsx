@@ -77,7 +77,7 @@ const Signup: React.FC = () => {
   
     try {
       setLoading(true);
-  
+    
       await signupUser({
         firstName:       form.firstName,
         lastName:        form.lastName,
@@ -86,8 +86,10 @@ const Signup: React.FC = () => {
         password:        form.password,
         confirmPassword: form.confirmPassword,
       });
-  
-      toast.success("Account created – you're logged in!");
+    
+      // immediately populate Auth context
+      await auth?.login(form.email, form.password);
+    
       navigate("/chat");
     } catch (err: any) {
       toast.error(extractErrorMsg(err));
