@@ -1,210 +1,197 @@
 import React, { useEffect, useState } from "react";
-import { Box, Typography, TextField, Button, Grid } from "@mui/material";
+import {
+  Box,
+  Button,
+  Grid,
+  TextField,
+  Typography,
+} from "@mui/material";
 import { getUserProfile as apiGetUserProfile, logoutUser } from "../helpers/api-communicators";
 import { useNavigate } from "react-router-dom";
+import toast from "react-hot-toast";
+
+const BORDER_BLUE = "#1976d2";
 
 const Profile: React.FC = () => {
-  // Local state using "name" and "email"
-  const [profile, setProfile] = useState({
-    name: "",
-    email: "",
-  });
-  
-  // Track changes to enable the save button.
+  const [profile, setProfile] = useState({ name: "", email: "" });
   const [hasChanges, setHasChanges] = useState(false);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  // Fetch the current user's profile on mount.
   useEffect(() => {
-    const fetchProfile = async () => {
+    (async () => {
       try {
         const data = await apiGetUserProfile();
-        if (data && data.profile) {
+        if (data?.profile) {
           setProfile({
             name: data.profile.name,
             email: data.profile.email,
           });
         }
-      } catch (error) {
-        console.error("Error fetching profile:", error);
+      } catch (err) {
+        toast.error("Failed to load profile");
       } finally {
         setLoading(false);
       }
-    };
-    fetchProfile();
+    })();
   }, []);
 
-  // Handler for field changes.
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    setProfile(prev => ({ ...prev, [name]: value }));
+    setProfile((p) => ({ ...p, [name]: value }));
     setHasChanges(true);
   };
 
-  // Logout handler: calls API and navigates to login page.
   const handleLogout = async () => {
     try {
-      await logoutUser();              // clear server cookie/session
-    } catch (error) {
-      console.error("Logout error", error);
-      // optional: toast.error("Server logout failed; session cleared locally.");
+      await logoutUser();
+    } catch (err) {
+      console.error("Logout error", err);
     } finally {
-      // Force a full reload into the login route so stale auth state can't redirect back.
       window.location.replace("/login");
     }
   };
 
   if (loading) {
     return (
-      <Box sx={{ mt: 10, textAlign: "center", color: "#e8e8e8" }}>
-        <Typography>Loading profile...</Typography>
+      <Box sx={{ mt: 20, textAlign: "center", color: "#e8e8e8" }}>
+        <Typography>Loading profile…</Typography>
       </Box>
     );
   }
 
   return (
-    <Box sx={{ mt: 10, mx: "auto", maxWidth: 600, p: 3 }}>
-      <Box
-        sx={{
-          p: 4,
-          backgroundColor: "#212121",
-          border: "2px dashed #e8e8e8",
-          borderRadius: 2,
-          transition: "border 0.3s ease, background-color 0.3s ease",
-        }}
+    <Box
+      sx={{
+        mt: 20,
+        mx: "auto",
+        maxWidth: 480,
+        p: 4,
+        borderRadius: 3,
+        backgroundColor: "#0d1117",
+        color: "#e8e8e8",
+        boxShadow: 3,
+        border: "2px dotted #e8e8e8",
+      }}
+    >
+      <Typography
+        variant="h4"
+        fontWeight={700}
+        sx={{ mb: 3, textAlign: "center", color: "#e8e8e8" }}
       >
-        <Typography variant="h5" sx={{ mb: 3, color: "#e8e8e8" }}>
-          Profile Settings
-        </Typography>
+        Profile Settings
+      </Typography>
+
+      <form>
         <Grid container spacing={2}>
-          {/* Name Field */}
+          {/* Name */}
           <Grid item xs={12}>
-            <Typography variant="subtitle1" sx={{ color: "#e8e8e8" }}>
-              Name
-            </Typography>
             <TextField
               fullWidth
+              required
+              label="Name"
               name="name"
               value={profile.name}
               onChange={handleChange}
-              variant="outlined"
               sx={{
-                input: { color: "#e8e8e8" },
                 "& .MuiOutlinedInput-root": {
-                  "& fieldset": { borderColor: "#e8e8e8" },
-                  "&:hover fieldset": { borderColor: "#1976d2" },
-                  "&.Mui-focused fieldset": { borderColor: "#1976d2" },
+                  bgcolor: "#111827",
+                  color: "#e8e8e8",
+                  "& fieldset": { borderColor: "#374151" },
+                  "&:hover fieldset": { borderColor: BORDER_BLUE },
+                  "&.Mui-focused fieldset": { borderColor: BORDER_BLUE },
                 },
-                mb: 2,
+                "& .MuiInputLabel-root": { color: "#9ca3af" },
               }}
             />
           </Grid>
 
-          {/* Email Field */}
+          {/* Email */}
           <Grid item xs={12}>
-            <Typography variant="subtitle1" sx={{ color: "#e8e8e8" }}>
-              Email
-            </Typography>
             <TextField
               fullWidth
+              required
+              label="Email"
               name="email"
               value={profile.email}
               onChange={handleChange}
-              variant="outlined"
               sx={{
-                input: { color: "#e8e8e8" },
                 "& .MuiOutlinedInput-root": {
-                  "& fieldset": { borderColor: "#e8e8e8" },
-                  "&:hover fieldset": { borderColor: "#1976d2" },
-                  "&.Mui-focused fieldset": { borderColor: "#1976d2" },
+                  bgcolor: "#111827",
+                  color: "#e8e8e8",
+                  "& fieldset": { borderColor: "#374151" },
+                  "&:hover fieldset": { borderColor: BORDER_BLUE },
+                  "&.Mui-focused fieldset": { borderColor: BORDER_BLUE },
                 },
-                mb: 2,
+                "& .MuiInputLabel-root": { color: "#9ca3af" },
               }}
             />
           </Grid>
 
-          {/* Plan Field with Change Plan Button */}
-          <Grid item xs={12} container alignItems="center" spacing={1}>
-            <Grid item xs={12} sm={6}>
-              <Typography variant="subtitle1" sx={{ color: "#e8e8e8" }}>
-                Plan
-              </Typography>
-              <TextField
-                fullWidth
-                value="Free Tier"
-                variant="outlined"
-                disabled
-                sx={{
-                  // Override the default disabled styling for white text
-                  "& .MuiInputBase-input.Mui-disabled": {
-                    WebkitTextFillColor: "#ffffff !important",
-                  },
-                  "& .MuiOutlinedInput-root": {
-                    "& fieldset": { borderColor: "#ffffff !important" },
-                    "&:hover fieldset": { borderColor: "#ffffff !important" },
-                    "&.Mui-focused fieldset": { borderColor: "#ffffff !important" },
-                  },
-                  mb: 2,
-                }}
-              />
-            </Grid>
-            <Grid
-              item
-              xs={12}
-              sm={6}
+          {/* Plan (disabled) */}
+          <Grid item xs={12} sm={6}>
+            <TextField
+              fullWidth
+              label="Plan"
+              value="Free Tier"
+              disabled
               sx={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: { xs: "flex-start", sm: "flex-end" },
+                "& .MuiInputBase-input.Mui-disabled": {
+                  WebkitTextFillColor: "#ffffff !important",
+                },
+                "& .MuiOutlinedInput-root": {
+                  bgcolor: "#111827",
+                  "& fieldset": { borderColor: "#374151" },
+                },
+                "& .MuiInputLabel-root": { color: "#9ca3af" },
               }}
-            >
-              <Button variant="contained" sx={{ backgroundColor: "#1976d2" }}>
-                Change Plan
-              </Button>
-            </Grid>
+            />
+          </Grid>
+          <Grid
+            item
+            xs={12}
+            sm={6}
+            sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}
+          >
+            <Button variant="contained" sx={{ backgroundColor: BORDER_BLUE }}>
+              Change Plan
+            </Button>
           </Grid>
 
-          {/* Reset Password Section */}
+          {/* Reset password */}
           <Grid item xs={12}>
-            <Typography variant="subtitle1" sx={{ color: "#e8e8e8" }}>
-              Password
-            </Typography>
-            <Button variant="contained" sx={{ backgroundColor: "#1976d2", mt: 1 }}>
+            <Button variant="contained" sx={{ backgroundColor: BORDER_BLUE }}>
               Reset Password
             </Button>
           </Grid>
 
-          {/* Logout Button */}
-          <Grid item xs={12}>
-            <Button
-              variant="contained"
-              fullWidth
-              sx={{
-                backgroundColor: "#d32f2f !important", // red
-                mt: 2,
-              }}
-              onClick={handleLogout}
-            >
-              Logout
-            </Button>
-          </Grid>
-
-          {/* Save Changes Button */}
+          {/* Save changes */}
           <Grid item xs={12}>
             <Button
               variant="contained"
               fullWidth
               disabled={!hasChanges}
               sx={{
-                backgroundColor: hasChanges ? "#1976d2" : "#536878 !important",
+                backgroundColor: hasChanges ? BORDER_BLUE : "#536878 !important",
               }}
             >
               Save Changes
             </Button>
           </Grid>
+
+          {/* Logout */}
+          <Grid item xs={12}>
+            <Button
+              variant="contained"
+              fullWidth
+              sx={{ backgroundColor: "#d32f2f !important" }}
+              onClick={handleLogout}
+            >
+              Logout
+            </Button>
+          </Grid>
         </Grid>
-      </Box>
+      </form>
     </Box>
   );
 };
