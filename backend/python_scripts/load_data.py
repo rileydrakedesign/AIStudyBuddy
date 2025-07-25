@@ -1,6 +1,10 @@
+# load_data.py  – 25 Jul 2025
 import os, argparse
 from io import BytesIO
-from collections import Counter, defaultdict
+from queue import SimpleQueue
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from bson import ObjectId
 from dotenv import load_dotenv
 from pymongo import MongoClient
@@ -15,11 +19,6 @@ from langchain.prompts import PromptTemplate
 from langchain_mongodb import MongoDBAtlasVectorSearch
 import boto3, pymupdf
 from logger_setup import log
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
-
-
-
 
 load_dotenv()
 
@@ -43,7 +42,12 @@ s3_client = boto3.client(
     region_name=os.getenv("AWS_REGION"),
 )
 
-llm = ChatOpenAI(model="gpt-4.1-nano", temperature=0)
+llm         = ChatOpenAI(model="gpt-4.1-nano", temperature=0)
+embeddings  = OpenAIEmbeddings(model="text-embedding-3-small")
+
+TOK_PER_CHAR           = 1 / 4
+MAX_TOKENS_PER_REQUEST = 300_000
+est_tokens             = lambda txt: int(len(txt) * TOK_PER_CHAR)
 
 # ──────────────────────────────────────────────────────────────
 # SUMMARY UTIL
@@ -58,20 +62,41 @@ def summarize_document(text_input: str) -> str:
     )
     return (prompt | llm | StrOutputParser()).invoke({"context": text_input})
 
-TOK_PER_CHAR           = 1 / 4
-MAX_TOKENS_PER_REQUEST = 300_000
-est_tokens = lambda txt: int(len(txt) * TOK_PER_CHAR)
-
-
-
 # ──────────────────────────────────────────────────────────────
-# CHUNKING WITH NEW CHAPTER MAP
+# PRODUCER → CONSUMER INGEST
 # ──────────────────────────────────────────────────────────────
-def process_markdown_with_page_numbers(pdf_stream, user_id, class_id, doc_id, file_name):
+def stream_chunks_to_atlas(
+    pdf_stream,
+    *,                    # force keyword args for clarity
+    user_id: str,
+    class_id: str,
+    doc_id: str,
+    file_name: str,
+    batch_chars: int = 8_000,
+) -> str:
     """
-    One‑pass PDF → markdown → semantic chunks with threaded page parsing.
-    Uses max_workers = os.cpu_count() (≈ number of vCPUs on the dyno).
+    Parse PDF pages in parallel, push small batches through a queue.
+    Consumer thread embeds + inserts each batch immediately.
+    Returns the *full_doc_text* needed for summary generation.
     """
+    q: SimpleQueue[list[tuple[str, dict]]] = SimpleQueue()
+
+    # ---------------- consumer ----------------
+    def consumer():
+        while True:
+            batch = q.get()
+            if batch is None:                 # poison‑pill
+                break
+            texts, metas = zip(*batch)
+            log.info("Flushing %d texts to Atlas", len(texts))
+            MongoDBAtlasVectorSearch.from_texts(
+                texts, embeddings, metadatas=metas, collection=collection
+            )
+
+    t_cons = threading.Thread(target=consumer, daemon=True)
+    t_cons.start()
+
+    # ---------------- producer (page parsing) ----------------
     doc = pymupdf.open(stream=pdf_stream, filetype="pdf")
 
     headers           = [("#","H1"),("##","H2"),("###","H3"),("####","H4"),("#####","H5"),("######","H6")]
@@ -82,18 +107,23 @@ def process_markdown_with_page_numbers(pdf_stream, user_id, class_id, doc_id, fi
     title  = meta.get("title",  "Unknown")
     author = meta.get("author", "Unknown")
 
-    # ---------- helper executed in worker thread ----------
-    def parse_page(idx: int) -> tuple[int, list[dict]]:
-        """Return (page_index, chunk_dict_list)"""
+    summary_parts: list[str] = []
+    batch, char_sum = [], 0
+
+    def flush_batch():
+        nonlocal char_sum
+        if batch:
+            q.put(batch.copy())
+            batch.clear(); char_sum = 0
+
+    def parse_page(idx: int):
         page_md = doc.load_page(idx).get_text("markdown")
         if not page_md.strip():
-            return idx, []                       # empty page
-
-        page_chunks = []
+            return []
+        page_items = []
         docs = md_splitter.split_text(page_md) or RecursiveCharacterTextSplitter(
             chunk_size=1500, chunk_overlap=200
         ).create_documents(page_md)
-
         for d in docs:
             text = d.page_content.strip()
             if not text:
@@ -102,132 +132,109 @@ def process_markdown_with_page_numbers(pdf_stream, user_id, class_id, doc_id, fi
                 semantic_splitter.split_text(text) if len(text) > 1000 else [text]
             )
             for piece in pieces:
-                page_chunks.append({
-                    "text": piece,
-                    "metadata": {
-                        "file_name":  file_name,
-                        "title":      title,
-                        "author":     author,
-                        "user_id":    user_id,
-                        "class_id":   class_id,
-                        "doc_id":     doc_id,
-                        "is_summary": False,
-                        "page_number": idx + 1,
-                    },
-                })
-        return idx, page_chunks
+                summary_parts.append(piece)
+                page_items.append(
+                    (
+                        piece,
+                        {
+                            "file_name":  file_name,
+                            "title":      title,
+                            "author":     author,
+                            "user_id":    user_id,
+                            "class_id":   class_id,
+                            "doc_id":     doc_id,
+                            "is_summary": False,
+                            "page_number": idx + 1,
+                        },
+                    )
+                )
+        return page_items
 
-    # ---------- run page parsing in parallel ----------
-    chunks: list[dict] = []
     with ThreadPoolExecutor(max_workers=os.cpu_count() or 2) as ex:
         futures = [ex.submit(parse_page, i) for i in range(len(doc))]
         for fut in as_completed(futures):
-            idx, page_chunks = fut.result()
-            chunks.extend(page_chunks)
+            for text, meta_d in fut.result():
+                batch.append((text, meta_d))
+                char_sum += len(text)
+                if char_sum >= batch_chars:
+                    flush_batch()
 
-    doc.close()   # free page objects (RAM win)
-    log.info("Threaded parsing done | n_chunks=%d", len(chunks))
-    return chunks
+    doc.close()
+    flush_batch()    # final producer flush
+    q.put(None)      # stop consumer
+    t_cons.join()
+    log.info("Streaming ingest complete")
 
-
-
-
-# ──────────────────────────────────────────────────────────────
-# BATCHED EMBEDDINGS  (NEW)
-# ──────────────────────────────────────────────────────────────
-def store_embeddings(chunks, batch_chars: int = 8_000):
-    """
-    Stream‑embed *chunks* in small batches to control memory.
-    Uses MongoDBAtlasVectorSearch.from_texts (built‑in embed + insert).
-    """
-    embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-    texts, metas, char_sum = [], [], 0
-
-    def flush():
-        nonlocal char_sum
-        if texts:
-            log.info("Flushing %d texts to Atlas", len(texts))
-            MongoDBAtlasVectorSearch.from_texts(        # embed + bulk insert
-                texts, embeddings, metadatas=metas, collection=collection
-            )
-            texts.clear(); metas.clear()
-            char_sum = 0                               # reset counter
-
-    for c in chunks:
-        texts.append(c["text"])
-        metas.append(c["metadata"])
-        char_sum += len(c["text"])
-        if char_sum >= batch_chars:
-            flush()
-
-    flush()   # flush any remainder
-
+    return " ".join(summary_parts)
 
 # ──────────────────────────────────────────────────────────────
-# MAIN INGEST
+# MAIN INGEST ENTRY
 # ──────────────────────────────────────────────────────────────
 def load_pdf_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
 
     try:
-        obj = s3_client.get_object(Bucket=os.getenv("AWS_S3_BUCKET_NAME"), Key=s3_key)
+        obj = s3_client.get_object(
+            Bucket=os.getenv("AWS_S3_BUCKET_NAME"), Key=s3_key
+        )
     except Exception:
-        log.error(f"Error downloading {s3_key} from S3", exc_info=True); return
+        log.error("Error downloading %s from S3", s3_key, exc_info=True); return
     if obj["ContentLength"] == 0:
-        log.warning(f"S3 file {s3_key} is empty"); return
+        log.warning("S3 file %s is empty", s3_key); return
 
     pdf_stream = BytesIO(obj["Body"].read()); pdf_stream.seek(0)
     if not main_collection.find_one({"_id": ObjectId(doc_id)}):
-        log.error(f"No document with _id={doc_id}"); return
+        log.error("No document with _id=%s", doc_id); return
 
     file_name = os.path.basename(s3_key)
-    chunks    = process_markdown_with_page_numbers(pdf_stream, user_id, class_name, doc_id, file_name)
 
-    # ── Smart summary guard-rails  (NEW) ─────────────────────────────────
-    full_doc_text = " ".join(c["text"] for c in chunks)
-    summary_text  = None
+    # ---------- producer → consumer pipeline ----------
+    full_doc_text = stream_chunks_to_atlas(
+        pdf_stream,
+        user_id=user_id,
+        class_id=class_name,
+        doc_id=doc_id,
+        file_name=file_name,
+    )
 
+    # ---------- summary generation ----------
     def safe_sum(txt: str):
         return summarize_document(txt) if est_tokens(txt) <= MAX_TOKENS_PER_REQUEST else None
 
     summary_text = safe_sum(full_doc_text)
-
-    if summary_text is None:            # split by page midpoint
-        max_page = max(c["metadata"]["page_number"] or 0 for c in chunks)
-        mid_page = max_page // 2 or 1
-        first_txt  = " ".join(c["text"] for c in chunks if (c["metadata"]["page_number"] or 0) <= mid_page)
-        second_txt = " ".join(c["text"] for c in chunks if (c["metadata"]["page_number"] or 0) > mid_page)
-        s1, s2 = safe_sum(first_txt), safe_sum(second_txt)
+    if summary_text is None:
+        # try half‑split fallback
+        tokens = full_doc_text.split()
+        mid    = len(tokens) // 2 or 1
+        s1 = safe_sum(" ".join(tokens[:mid]))
+        s2 = safe_sum(" ".join(tokens[mid:]))
         if s1 and s2:
             summary_text = f"{s1}\n\n---\n\n{s2}"
-        else:
-            log.warning(f"Summary skipped for doc {doc_id}: context too large.")
 
     if summary_text:
-        chunks.append({
-            "text": summary_text,
-            "metadata": {
-                "file_name":  file_name,
-                "title":      chunks[0]["metadata"]["title"]  if chunks else file_name,
-                "author":     chunks[0]["metadata"]["author"] if chunks else "Unknown",
-                "user_id":    user_id,
-                "class_id":   class_name,
-                "doc_id":     doc_id,
-                "is_summary": True,
-                "page_number": None,
-            },
-        })
+        summary_meta = {
+            "file_name":  file_name,
+            "title":      file_name,
+            "author":     "Unknown",
+            "user_id":    user_id,
+            "class_id":   class_name,
+            "doc_id":     doc_id,
+            "is_summary": True,
+            "page_number": None,
+        }
+        MongoDBAtlasVectorSearch.from_texts(
+            [summary_text], embeddings, metadatas=[summary_meta], collection=collection
+        )
 
-   
-
-    store_embeddings(chunks)
-
+    # ---------- mark complete ----------
     try:
-        main_collection.update_one({"_id": ObjectId(doc_id)}, {"$set": {"isProcessing": False}})
-        log.info("set isProcessing False", doc_id)
+        main_collection.update_one(
+            {"_id": ObjectId(doc_id)}, {"$set": {"isProcessing": False}}
+        )
+        log.info("set isProcessing False %s", doc_id)
     except Exception as e:
-        log.error(f"Error updating isProcessing for doc {doc_id}: {e}")
+        log.error("Error updating isProcessing for doc %s: %s", doc_id, e)
 
-    log.info(f"Processed and stored embeddings for doc {doc_id}.")
+    log.info("Ingest finished for doc %s", doc_id)
 
 # ---------------------------------------------------------------------
 # CLI for local testing
@@ -238,5 +245,5 @@ if __name__ == "__main__":
     ap.add_argument("--class_name", required=True)
     ap.add_argument("--s3_key", required=True)
     ap.add_argument("--doc_id", required=True)
-    a = ap.parse_args()
-    load_pdf_data(a.user_id, a.class_name, a.s3_key, a.doc_id)
+    args = ap.parse_args()
+    load_pdf_data(args.user_id, args.class_name, args.s3_key, args.doc_id)
