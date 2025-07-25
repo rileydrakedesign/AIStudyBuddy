@@ -19,6 +19,9 @@ from langchain.prompts import PromptTemplate
 from langchain_mongodb import MongoDBAtlasVectorSearch
 import boto3, pymupdf
 from logger_setup import log
+import asyncio
+from openai import AsyncOpenAI, RateLimitError, APIConnectionError, Timeout as OpenAITimeout
+
 
 load_dotenv()
 
@@ -48,6 +51,54 @@ embeddings  = OpenAIEmbeddings(model="text-embedding-3-small")
 TOK_PER_CHAR           = 1 / 4
 MAX_TOKENS_PER_REQUEST = 300_000
 est_tokens             = lambda txt: int(len(txt) * TOK_PER_CHAR)
+
+
+# ──────────────────────────────────────────────────────────────
+# ASYNC EMBEDDING HELPER
+# ──────────────────────────────────────────────────────────────
+async_client = AsyncOpenAI()       # one shared client
+
+async def async_embed_texts(
+    texts: list[str],
+    *,
+    batch_size: int = 80,
+    concurrency: int = 4,
+) -> list[list[float]]:
+    """
+    Embed *texts* concurrently.
+    Splits into ≤batch_size chunks and keeps ≤concurrency requests in flight.
+    """
+    sem     = asyncio.Semaphore(concurrency)
+    results = [None] * len(texts)   # type: ignore
+
+    async def worker(start_idx: int, slice_: list[str]):
+        async with sem:
+            retries = 2
+            while True:
+                try:
+                    resp = await async_client.embeddings.create(
+                        model="text-embedding-3-small", input=slice_
+                    )
+                    break
+                except (RateLimitError, APIConnectionError, OpenAITimeout) as e:
+                    if retries == 0:
+                        raise e
+                    retries -= 1
+                    await asyncio.sleep(1.5)
+            for i, d in enumerate(resp.data):
+                results[start_idx + i] = d.embedding   # type: ignore
+
+    tasks = [
+        worker(i, texts[i:i + batch_size])
+        for i in range(0, len(texts), batch_size)
+    ]
+    await asyncio.gather(*tasks)
+    return results
+
+def embed_texts_sync(texts: list[str]) -> list[list[float]]:
+    """Sync wrapper so the consumer thread can call it easily."""
+    return asyncio.run(async_embed_texts(texts))
+
 
 # ──────────────────────────────────────────────────────────────
 # SUMMARY UTIL
@@ -82,16 +133,27 @@ def stream_chunks_to_atlas(
     q: SimpleQueue[list[tuple[str, dict]]] = SimpleQueue()
 
     # ---------------- consumer ----------------
+    # ---------------- consumer ----------------
     def consumer():
         while True:
             batch = q.get()
-            if batch is None:                 # poison‑pill
+            if batch is None:            # poison‑pill
                 break
             texts, metas = zip(*batch)
-            log.info("Flushing %d texts to Atlas", len(texts))
-            MongoDBAtlasVectorSearch.from_texts(
-                texts, embeddings, metadatas=metas, collection=collection
-            )
+            log.info("Embedding + inserting %d texts", len(texts))
+
+            # ① async embed (non‑blocking)
+            vectors = embed_texts_sync(list(texts))
+
+            # ② build docs and insert directly (since from_embeddings not present)
+            docs = []
+            for vec, txt, meta_d in zip(vectors, texts, metas):
+                doc_record = meta_d.copy()
+                doc_record["text"]      = txt
+                doc_record["embedding"] = vec
+                docs.append(doc_record)
+
+            collection.insert_many(docs)
 
     t_cons = threading.Thread(target=consumer, daemon=True)
     t_cons.start()
