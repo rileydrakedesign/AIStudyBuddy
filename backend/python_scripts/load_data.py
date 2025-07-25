@@ -1,4 +1,4 @@
-import os, re, argparse, math
+import os, argparse
 from io import BytesIO
 from collections import Counter, defaultdict
 from bson import ObjectId
@@ -15,6 +15,9 @@ from langchain.prompts import PromptTemplate
 from langchain_mongodb import MongoDBAtlasVectorSearch
 import boto3, pymupdf
 from logger_setup import log
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+
 
 
 
@@ -66,8 +69,8 @@ est_tokens = lambda txt: int(len(txt) * TOK_PER_CHAR)
 # ──────────────────────────────────────────────────────────────
 def process_markdown_with_page_numbers(pdf_stream, user_id, class_id, doc_id, file_name):
     """
-    One‑pass PDF → markdown → semantic chunks.
-    Closes the PyMuPDF document at the end to free page objects (big RAM win).
+    One‑pass PDF → markdown → semantic chunks with threaded page parsing.
+    Uses max_workers = os.cpu_count() (≈ number of vCPUs on the dyno).
     """
     doc = pymupdf.open(stream=pdf_stream, filetype="pdf")
 
@@ -79,12 +82,14 @@ def process_markdown_with_page_numbers(pdf_stream, user_id, class_id, doc_id, fi
     title  = meta.get("title",  "Unknown")
     author = meta.get("author", "Unknown")
 
-    chunks = []
-    for page_idx in range(len(doc)):
-        page_md = doc.load_page(page_idx).get_text("markdown")
+    # ---------- helper executed in worker thread ----------
+    def parse_page(idx: int) -> tuple[int, list[dict]]:
+        """Return (page_index, chunk_dict_list)"""
+        page_md = doc.load_page(idx).get_text("markdown")
         if not page_md.strip():
-            continue
+            return idx, []                       # empty page
 
+        page_chunks = []
         docs = md_splitter.split_text(page_md) or RecursiveCharacterTextSplitter(
             chunk_size=1500, chunk_overlap=200
         ).create_documents(page_md)
@@ -93,8 +98,11 @@ def process_markdown_with_page_numbers(pdf_stream, user_id, class_id, doc_id, fi
             text = d.page_content.strip()
             if not text:
                 continue
-            for piece in (semantic_splitter.split_text(text) if len(text) > 1000 else [text]):
-                chunks.append({
+            pieces = (
+                semantic_splitter.split_text(text) if len(text) > 1000 else [text]
+            )
+            for piece in pieces:
+                page_chunks.append({
                     "text": piece,
                     "metadata": {
                         "file_name":  file_name,
@@ -104,12 +112,23 @@ def process_markdown_with_page_numbers(pdf_stream, user_id, class_id, doc_id, fi
                         "class_id":   class_id,
                         "doc_id":     doc_id,
                         "is_summary": False,
-                        "page_number": page_idx + 1,
+                        "page_number": idx + 1,
                     },
                 })
+        return idx, page_chunks
 
-    doc.close()               # ← releases all page objects (~100‑200 MB for large PDFs)
+    # ---------- run page parsing in parallel ----------
+    chunks: list[dict] = []
+    with ThreadPoolExecutor(max_workers=os.cpu_count() or 2) as ex:
+        futures = [ex.submit(parse_page, i) for i in range(len(doc))]
+        for fut in as_completed(futures):
+            idx, page_chunks = fut.result()
+            chunks.extend(page_chunks)
+
+    doc.close()   # free page objects (RAM win)
+    log.info("Threaded parsing done | n_chunks=%d", len(chunks))
     return chunks
+
 
 
 
