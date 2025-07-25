@@ -67,11 +67,12 @@ est_tokens = lambda txt: int(len(txt) * TOK_PER_CHAR)
 def process_markdown_with_page_numbers(pdf_stream, user_id, class_id, doc_id, file_name):
     """
     One‑pass PDF → markdown → semantic chunks.
+    Closes the PyMuPDF document at the end to free page objects (big RAM win).
     """
     doc = pymupdf.open(stream=pdf_stream, filetype="pdf")
 
-    headers          = [("#","H1"),("##","H2"),("###","H3"),("####","H4"),("#####","H5"),("######","H6")]
-    md_splitter      = MarkdownHeaderTextSplitter(headers)
+    headers           = [("#","H1"),("##","H2"),("###","H3"),("####","H4"),("#####","H5"),("######","H6")]
+    md_splitter       = MarkdownHeaderTextSplitter(headers)
     semantic_splitter = SemanticChunker(OpenAIEmbeddings(), breakpoint_threshold_type="standard_deviation")
 
     meta   = doc.metadata or {}
@@ -106,7 +107,10 @@ def process_markdown_with_page_numbers(pdf_stream, user_id, class_id, doc_id, fi
                         "page_number": page_idx + 1,
                     },
                 })
+
+    doc.close()               # ← releases all page objects (~100‑200 MB for large PDFs)
     return chunks
+
 
 
 # ──────────────────────────────────────────────────────────────
@@ -115,26 +119,20 @@ def process_markdown_with_page_numbers(pdf_stream, user_id, class_id, doc_id, fi
 def store_embeddings(chunks, batch_chars: int = 8_000):
     """
     Stream‑embed *chunks* in small batches to control memory.
-    Each batch is           ≤ batch_chars characters (~20 k tokens @ 8 k chars).
-    Steps per batch:
-      1. OpenAI embed (returns list[1536‑float] vectors)
-      2. Insert into MongoDB Atlas via from_embeddings
-      3. Delete vectors list to free RAM
+    Uses MongoDBAtlasVectorSearch.from_texts (built‑in embed + insert).
     """
     embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
     texts, metas, char_sum = [], [], 0
 
     def flush():
         nonlocal char_sum
-        if texts:                              # buffer not empty
+        if texts:
             log.info("Flushing %d texts to Atlas", len(texts))
-            vectors = embeddings.embed_documents(texts)        # ① embed
-            MongoDBAtlasVectorSearch.from_embeddings(          # ② insert
-                vectors, texts, metadatas=metas, collection=collection
+            MongoDBAtlasVectorSearch.from_texts(        # embed + bulk insert
+                texts, embeddings, metadatas=metas, collection=collection
             )
-            del vectors                                        # ③ free
             texts.clear(); metas.clear()
-            char_sum = 0                                       # reset counter
+            char_sum = 0                               # reset counter
 
     for c in chunks:
         texts.append(c["text"])
@@ -143,7 +141,7 @@ def store_embeddings(chunks, batch_chars: int = 8_000):
         if char_sum >= batch_chars:
             flush()
 
-    flush()      # flush any remainder
+    flush()   # flush any remainder
 
 
 # ──────────────────────────────────────────────────────────────
