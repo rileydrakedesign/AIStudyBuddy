@@ -15,7 +15,7 @@ from langchain.prompts import PromptTemplate
 from langchain_mongodb import MongoDBAtlasVectorSearch
 import boto3, pymupdf
 from logger_setup import log
-import numpy as np
+
 
 
 load_dotenv()
@@ -112,28 +112,39 @@ def process_markdown_with_page_numbers(pdf_stream, user_id, class_id, doc_id, fi
 # ──────────────────────────────────────────────────────────────
 # BATCHED EMBEDDINGS  (NEW)
 # ──────────────────────────────────────────────────────────────
-def store_embeddings(chunks, batch_chars: int = 20_000):
+def store_embeddings(chunks, batch_chars: int = 8_000):
     """
-    Embed chunks in batches small enough to stay under the 300 k-token
-    request ceiling. 20 000 chars ≈ 50 000 tokens.
+    Stream‑embed *chunks* in small batches to control memory.
+    Each batch is           ≤ batch_chars characters (~20 k tokens @ 8 k chars).
+    Steps per batch:
+      1. OpenAI embed (returns list[1536‑float] vectors)
+      2. Insert into MongoDB Atlas via from_embeddings
+      3. Delete vectors list to free RAM
     """
     embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
     texts, metas, char_sum = [], [], 0
 
     def flush():
-        if texts:
-            MongoDBAtlasVectorSearch.from_texts(texts, embeddings,
-                                                collection=collection,
-                                                metadatas=metas)
+        nonlocal char_sum
+        if texts:                              # buffer not empty
+            log.info("Flushing %d texts to Atlas", len(texts))
+            vectors = embeddings.embed_documents(texts)        # ① embed
+            MongoDBAtlasVectorSearch.from_embeddings(          # ② insert
+                vectors, texts, metadatas=metas, collection=collection
+            )
+            del vectors                                        # ③ free
             texts.clear(); metas.clear()
+            char_sum = 0                                       # reset counter
 
     for c in chunks:
         texts.append(c["text"])
         metas.append(c["metadata"])
         char_sum += len(c["text"])
         if char_sum >= batch_chars:
-            flush(); char_sum = 0
-    flush()
+            flush()
+
+    flush()      # flush any remainder
+
 
 # ──────────────────────────────────────────────────────────────
 # MAIN INGEST
