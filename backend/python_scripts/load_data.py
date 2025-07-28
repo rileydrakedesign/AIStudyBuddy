@@ -140,7 +140,7 @@ def stream_chunks_to_atlas(
             if batch is None:            # poison‑pill
                 break
             texts, metas = zip(*batch)
-            log.info("Embedding + inserting %s texts", len(texts))
+            log.info("Embedding + inserting %d texts", len(texts))
 
             # ① async embed (non‑blocking)
             vectors = embed_texts_sync(list(texts))

@@ -522,6 +522,18 @@ const Chat = () => {
     }
   };
 
+  // ─────────────────────────────────────────────────────────
+  // PATCH 2 – helper to send a fixed prompt
+  // ─────────────────────────────────────────────────────────
+  const handlePresetPrompt = (prompt: string) => {
+    if (isGenerating) return;                // guard while streaming
+    if (inputRef.current) {
+      inputRef.current.value = prompt;       // seed the textarea
+    }
+    handleSubmit();                          // reuse the normal path
+  };
+
+
   /* ------------------------------
      CREATE NEW CHAT
   ------------------------------ */
@@ -1223,8 +1235,21 @@ const Chat = () => {
                   </Box>
 
                   <Box sx={{ display: "flex", gap: 2 }}>
-                    <Button variant="contained">Create Study Guide</Button>
-                    <Button variant="contained">Generate Summary</Button>
+                    <Button
+                      variant="contained"
+                      disabled={isGenerating}
+                      onClick={() => handlePresetPrompt("Create a study guide for this class")}
+                    >
+                      Create Study Guide
+                    </Button>
+
+                    <Button
+                      variant="contained"
+                      disabled={isGenerating}
+                      onClick={() => handlePresetPrompt("Summarize this class")}
+                    >
+                      Generate Summary
+                    </Button>
                   </Box>
                 </Box>
               ) : (
