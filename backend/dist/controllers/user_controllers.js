@@ -71,6 +71,11 @@ export const userLogin = async (req, res, next) => {
         if (!currentUser) {
             return res.status(401).send("User not registered");
         }
+        if (!currentUser.emailVerified) {
+            return res
+                .status(403)
+                .send("Please confirm your email via the link we sent.");
+        }
         const isPasswordCorrect = await compare(password, currentUser.password);
         if (!isPasswordCorrect) {
             return res.status(403).send("Incorrect password");

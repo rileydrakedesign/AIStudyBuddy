@@ -215,3 +215,9 @@ export const setReaction = async (
   if (res.status !== 200) throw new Error("Failed to set reaction");
   return res.data.reaction;   // just echo
 };
+
+export const resendConfirmation = async (email: string) => {
+  const res = await axios.post("/user/resend-confirmation", { email });
+  if (res.status !== 200) throw new Error("Failed to resend");
+  return res.data;
+};

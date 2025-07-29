@@ -1,5 +1,9 @@
 import user from "../models/user.js";
+import { sendConfirmEmail } from "../utils/email.js";
 
+/* ------------------------------------------------------------------ */
+/* 1)  GET /confirm/:token   → verify e‑mail and redirect to /chat   */
+/* ------------------------------------------------------------------ */
 export const confirmEmail = async (req, res) => {
   const found = await user.findOne({
     emailToken: req.params.token,
@@ -15,8 +19,29 @@ export const confirmEmail = async (req, res) => {
   found.emailTokenExp = undefined;
   await found.save();
 
-  return res.redirect(
-    302,
-    "https://app.classchatai.com/chat"          // or  "/email-confirmed"
-  );
+  return res.redirect(302, "https://app.classchatai.com/chat");
+};
+
+/* ------------------------------------------------------------------ */
+/* 2)  POST /resend-confirmation   → send link again (30 s cooldown)  */
+/* ------------------------------------------------------------------ */
+export const resendConfirmEmail = async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ message: "Email required" });
+
+  const found = await user.findOne({ email });
+  if (!found) return res.status(404).json({ message: "User not found" });
+  if (found.emailVerified)
+    return res.status(400).json({ message: "Already verified" });
+
+  // OPTIONAL: simple 30‑second resend cooldown per user
+  const now = Date.now();
+  if (found.emailTokenExp && now - found.emailTokenExp.getTime() < 30_000) {
+    return res
+      .status(429)
+      .json({ message: "Please wait before requesting another e‑mail." });
+  }
+
+  await sendConfirmEmail(found);
+  return res.status(200).json({ message: "Confirmation e‑mail sent" });
 };
