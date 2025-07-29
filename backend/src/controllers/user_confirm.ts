@@ -15,5 +15,8 @@ export const confirmEmail = async (req, res) => {
   found.emailTokenExp = undefined;
   await found.save();
 
-  return res.redirect(`https://app.classchatai.com/login?verified=1`);
+  return res.redirect(
+    302,
+    "https://app.classchatai.com/chat"          // or  "/email-confirmed"
+  );
 };

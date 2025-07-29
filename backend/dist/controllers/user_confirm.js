@@ -11,6 +11,7 @@ export const confirmEmail = async (req, res) => {
     found.emailToken = undefined;
     found.emailTokenExp = undefined;
     await found.save();
-    return res.redirect(`https://app.classchatai.com/login?verified=1`);
+    return res.redirect(302, "https://app.classchatai.com/chat" // or  "/email-confirmed"
+    );
 };
 //# sourceMappingURL=user_confirm.js.map

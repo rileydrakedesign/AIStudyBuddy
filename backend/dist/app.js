@@ -8,6 +8,7 @@ const pinoHttp = PinoHttpNS.default ?? PinoHttpNS;
 import { v4 as uuid } from 'uuid';
 import logger from './utils/logger.js';
 /* ─────────────────────────────────────────── */
+import { confirmEmail } from "./controllers/user_confirm.js";
 import appRouter from './routes/index.js';
 config(); // load .env
 const app = express();
@@ -61,6 +62,7 @@ app.use((req, res, next) => {
         res.setHeader('X-Request-ID', req.id);
     next();
 });
+app.get("/confirm/:token", confirmEmail);
 /* routes ----------------------------------------------------------------- */
 app.use('/api/v1', appRouter);
 /* error handlers --------------------------------------------------------- */
