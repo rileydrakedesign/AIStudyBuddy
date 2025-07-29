@@ -10,10 +10,8 @@ import {
 } from "@mui/material";
 import { useNavigate, Link as RouterLink } from "react-router-dom";
 import toast from "react-hot-toast";
-import { signupUser, resendConfirmation } from "../helpers/api-communicators";
+import { signupUser, resendConfirmation, verifyUser } from "../helpers/api-communicators";
 import { useAuth } from "@/context/authContext";
-
-
 
 
 
@@ -54,6 +52,24 @@ const Signup: React.FC = () => {
   useEffect(() => {
     if (auth?.user) navigate("/chat");
   }, [auth?.user, navigate]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await verifyUser();               // { emailVerified, email, … }
+        if (data.emailVerified) {
+          navigate("/chat");                           // user already confirmed
+        } else if (data.email) {
+          // logged‑in but not verified → show waiting panel with their e‑mail
+          setForm((prev) => ({ ...prev, email: data.email }));
+          setWaitingConfirm(true);
+        }
+      } catch {
+        /* not logged in → no action */
+      }
+    })();
+  }, [navigate]);
+  
 
   useEffect(() => {
     if (resendCooldown === 0) return;
@@ -313,14 +329,18 @@ const Signup: React.FC = () => {
             disabled={resendCooldown > 0}
             sx={{
               backgroundColor: resendCooldown ? "#536878" : BORDER_BLUE,
+              cursor: resendCooldown ? "not-allowed" : "pointer",
               fontWeight: 600,
-              ":hover": { backgroundColor: resendCooldown ? "#536878" : "#1565c0" },
+              ":hover": {
+                backgroundColor: resendCooldown ? "#536878" : "#1565c0",
+              },
             }}
             onClick={async () => {
+              if (resendCooldown > 0) return;      // extra guard
               try {
                 await resendConfirmation(form.email);
                 toast.success("Confirmation e‑mail sent");
-                setResendCooldown(30);          // 30‑second lockout
+                setResendCooldown(30);
               } catch {
                 toast.error("Failed to resend e‑mail");
               }
@@ -328,6 +348,7 @@ const Signup: React.FC = () => {
           >
             {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Send again"}
           </Button>
+
         </Box>
       )}
     </Box>
