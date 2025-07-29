@@ -10,6 +10,7 @@ const mg = new Mailgun(formData).client({
 export const sendConfirmEmail = async (user) => {
     user.emailToken = crypto.randomBytes(20).toString("hex");
     user.emailTokenExp = Date.now() + 24 * 60 * 60 * 1000; // 24 h
+    user.confirmEmailSentAt = new Date();
     await user.save();
     const url = `${process.env.BACKEND_URL}/confirm/${user.emailToken}`;
     await mg.messages.create(process.env.MAILGUN_DOMAIN, {

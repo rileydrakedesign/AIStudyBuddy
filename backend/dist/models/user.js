@@ -27,6 +27,7 @@ const userSchema = new mongoose.Schema({
     emailVerified: { type: Boolean, default: false },
     emailToken: { type: String },
     emailTokenExp: { type: Date },
+    confirmEmailSentAt: { type: Date },
     /* subscription / usage */
     plan: {
         type: String,

@@ -23,25 +23,29 @@ export const confirmEmail = async (req, res) => {
 };
 
 /* ------------------------------------------------------------------ */
-/* 2)  POST /resend-confirmation   → send link again (30 s cooldown)  */
+/*  POST /resend-confirmation   → send verification link again        */
 /* ------------------------------------------------------------------ */
 export const resendConfirmEmail = async (req, res) => {
-  const { email } = req.body;
-  if (!email) return res.status(400).json({ message: "Email required" });
-
-  const found = await user.findOne({ email });
-  if (!found) return res.status(404).json({ message: "User not found" });
-  if (found.emailVerified)
-    return res.status(400).json({ message: "Already verified" });
-
-  // OPTIONAL: simple 30‑second resend cooldown per user
-  const now = Date.now();
-  if (found.emailTokenExp && now - found.emailTokenExp.getTime() < 30_000) {
-    return res
-      .status(429)
-      .json({ message: "Please wait before requesting another e‑mail." });
-  }
-
-  await sendConfirmEmail(found);
-  return res.status(200).json({ message: "Confirmation e‑mail sent" });
-};
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: "Email required" });
+  
+    const found = await user.findOne({ email });
+    if (!found) return res.status(404).json({ message: "User not found" });
+    if (found.emailVerified)
+      return res.status(400).json({ message: "Already verified" });
+  
+    // ── 30‑second server‑side cooldown ───────────────────────────
+    const now = Date.now();
+    if (
+      found.confirmEmailSentAt &&                      // field added to schema
+      now - found.confirmEmailSentAt.getTime() < 30_000
+    ) {
+      return res
+        .status(429)
+        .json({ message: "Please wait before requesting another e‑mail." });
+    }
+  
+    await sendConfirmEmail(found);                     // helper updates confirmEmailSentAt
+    return res.status(200).json({ message: "Confirmation e‑mail sent" });
+  };
+  
