@@ -50,25 +50,28 @@ const Signup: React.FC = () => {
   const [resendCooldown, setResendCooldown] = useState(0);
 
   useEffect(() => {
-    if (auth?.user) navigate("/chat");
-  }, [auth?.user, navigate]);
-
-  useEffect(() => {
-    (async () => {
+    const checkUser = async () => {
+      if (!auth?.user) return;                      // not logged‑in → stay on page
+  
       try {
-        const data = await verifyUser();               // { emailVerified, email, … }
+        const data = await verifyUser();            // { emailVerified, email, … }
+  
         if (data.emailVerified) {
-          navigate("/chat");                           // user already confirmed
-        } else if (data.email) {
-          // logged‑in but not verified → show waiting panel with their e‑mail
+          navigate("/chat");                        // logged‑in *and* verified
+        } else {
+          // logged‑in but NOT verified → show waiting panel + 30 s cooldown
           setForm((prev) => ({ ...prev, email: data.email }));
           setWaitingConfirm(true);
+          setResendCooldown(30);
         }
       } catch {
-        /* not logged in → no action */
+        /* token invalid or server down → ignore */
       }
-    })();
-  }, [navigate]);
+    };
+  
+    checkUser();
+  }, [auth?.user, navigate]);
+  
   
 
   useEffect(() => {
@@ -115,7 +118,8 @@ const Signup: React.FC = () => {
       });
     
       toast.success("Account created — check your inbox to confirm.");
-      setWaitingConfirm(true);            // show “check e‑mail” panel
+      setWaitingConfirm(true);
+      setResendCooldown(30);  
     } catch (err: any) {
       toast.error(extractErrorMsg(err));
     } finally {
