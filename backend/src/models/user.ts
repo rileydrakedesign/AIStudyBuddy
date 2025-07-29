@@ -28,6 +28,11 @@ const userSchema = new mongoose.Schema({
   password: { type: String, required: true },
   school:   { type: String, required: false },
 
+  /* mailgun email info */
+  emailVerified: { type: Boolean, default: false },
+  emailToken:    { type: String },
+  emailTokenExp: { type: Date },
+
   /* subscription / usage */
   plan: {
     type: String,

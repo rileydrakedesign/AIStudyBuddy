@@ -5,6 +5,7 @@ import { COOKIE_NAME } from "../utils/constants.js";
 import mongoose from "mongoose";
 import Document from "../models/documents.js";
 import ChatSession from "../models/chatSession.js";
+import { sendConfirmEmail } from "../utils/email.js";
 export const getAllUsers = async (req, res, next) => {
     try {
         // get all users
@@ -31,6 +32,7 @@ export const userSignup = async (req, res, next) => {
             password: hashedPassword,
         });
         await newUser.save();
+        await sendConfirmEmail(newUser);
         /* ---------- auth cookie ---------- */
         res.clearCookie(COOKIE_NAME, {
             httpOnly: true,
