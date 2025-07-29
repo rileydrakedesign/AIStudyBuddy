@@ -15,5 +15,5 @@ export const confirmEmail = async (req, res) => {
   found.emailTokenExp = undefined;
   await found.save();
 
-  return res.redirect(`${process.env.APP_BASE_URL}/login?verified=1`);
+  return res.redirect(`https://app.classchatai.com/login?verified=1`);
 };

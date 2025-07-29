@@ -14,7 +14,7 @@ export const sendConfirmEmail = async (user) => {
   user.emailTokenExp = Date.now() + 24 * 60 * 60 * 1000;  // 24 h
   await user.save();
 
-  const url = `${process.env.APP_BASE_URL}/confirm/${user.emailToken}`;
+  const url = `https://app.classchatai.com/confirm/${user.emailToken}`;
 
   await mg.messages.create(process.env.MAILGUN_DOMAIN, {
     from: "ClassChat <no-reply@classchat.ai>",
