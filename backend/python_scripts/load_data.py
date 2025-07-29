@@ -21,6 +21,8 @@ import boto3, pymupdf
 from logger_setup import log
 import asyncio
 from openai import AsyncOpenAI, RateLimitError, APIConnectionError, Timeout as OpenAITimeout
+import time
+import redis                         
 
 
 load_dotenv()
@@ -51,6 +53,16 @@ embeddings  = OpenAIEmbeddings(model="text-embedding-3-small")
 TOK_PER_CHAR           = 1 / 4
 MAX_TOKENS_PER_REQUEST = 300_000
 est_tokens             = lambda txt: int(len(txt) * TOK_PER_CHAR)
+
+# ──────────────────  Rate‑limit guard  ──────────────────
+r = redis.Redis.from_url(os.getenv("REDIS_URL"), ssl_cert_reqs=None)
+
+# Your org’s tokens‑per‑minute limit for text‑embedding‑3‑small
+TPM_LIMIT = int(os.getenv("OPENAI_TPM_LIMIT", "180000"))
+
+# Use the same heuristic as elsewhere
+TOK_PER_CHAR = 1 / 4
+
 
 
 # ──────────────────────────────────────────────────────────────
@@ -100,6 +112,37 @@ def embed_texts_sync(texts: list[str]) -> list[list[float]]:
     return asyncio.run(async_embed_texts(texts))
 
 
+def reserve_tokens(tokens_needed: int, bucket_key: str = "openai:tpm") -> bool:
+    """
+    Try to reserve `tokens_needed` tokens for the next minute.
+    Returns True if reservation succeeded, else False.
+    """
+    now = int(time.time())
+    pipe = r.pipeline()
+
+    # 1) Leak tokens older than 60 s
+    pipe.zremrangebyscore(bucket_key, 0, now - 60)
+
+    # 2) How many tokens remain after leak?
+    pipe.zcard(bucket_key)
+    current = pipe.execute()[-1]
+
+    # 3) Reserve if room
+    if current + tokens_needed <= TPM_LIMIT:
+        pipe = r.pipeline()
+        # Any unique member IDs; we add one per token (fast for TPM ≤ 300k)
+        for i in range(tokens_needed):
+            pipe.zadd(bucket_key, {f"{now}:{i}": now})
+        pipe.execute()
+        return True
+    return False
+
+def acquire_tokens(tokens_needed: int):
+    """Block until tokens are available."""
+    while not reserve_tokens(tokens_needed):
+        time.sleep(0.5)        # half‑second back‑off
+
+
 # ──────────────────────────────────────────────────────────────
 # SUMMARY UTIL
 # ──────────────────────────────────────────────────────────────
@@ -143,7 +186,10 @@ def stream_chunks_to_atlas(
             log.info("Embedding + inserting %d texts", len(texts))
 
             # ① async embed (non‑blocking)
+            tokens_needed = sum(int(len(t) * TOK_PER_CHAR) for t in texts)
+            acquire_tokens(tokens_needed)          # NEW guard
             vectors = embed_texts_sync(list(texts))
+
 
             # ② build docs and insert directly (since from_embeddings not present)
             docs = []
