@@ -134,7 +134,17 @@ def reserve_tokens(tokens_needed: int, bucket_key: str = "openai:tpm") -> bool:
         for i in range(tokens_needed):
             pipe.zadd(bucket_key, {f"{now}:{i}": now})
         pipe.execute()
+        remaining = TPM_LIMIT - (current + tokens_needed)
+        log.info(
+            "[RateLimit] Reserved %d tokens | %d remaining this minute",
+            tokens_needed, remaining
+        )
         return True
+    # Not enough room – log and signal caller to wait
+    log.info(
+        "[RateLimit] Bucket full – need %d tokens, have %d/%d. Waiting …",
+        tokens_needed, current, TPM_LIMIT
+    )
     return False
 
 def acquire_tokens(tokens_needed: int):
