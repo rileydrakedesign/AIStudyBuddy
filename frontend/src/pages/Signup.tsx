@@ -10,8 +10,10 @@ import {
 } from "@mui/material";
 import { useNavigate, Link as RouterLink } from "react-router-dom";
 import toast from "react-hot-toast";
-import { signupUser } from "../helpers/api-communicators";
+import { signupUser, resendConfirmation } from "../helpers/api-communicators";
 import { useAuth } from "@/context/authContext";
+
+
 
 
 
@@ -46,9 +48,18 @@ const Signup: React.FC = () => {
 
   const auth = useAuth();
 
+  const [waitingConfirm, setWaitingConfirm] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+
   useEffect(() => {
     if (auth?.user) navigate("/chat");
   }, [auth?.user, navigate]);
+
+  useEffect(() => {
+    if (resendCooldown === 0) return;
+    const id = setInterval(() => setResendCooldown((s) => s - 1), 1000);
+    return () => clearInterval(id);
+  }, [resendCooldown]);
 
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -87,15 +98,13 @@ const Signup: React.FC = () => {
         confirmPassword: form.confirmPassword,
       });
     
-      // immediately populate Auth context
-      await auth?.login(form.email, form.password);
-    
-      navigate("/chat");
+      toast.success("Account created — check your inbox to confirm.");
+      setWaitingConfirm(true);            // show “check e‑mail” panel
     } catch (err: any) {
       toast.error(extractErrorMsg(err));
     } finally {
       setLoading(false);
-    }
+    }    
   };
   
 
@@ -121,172 +130,206 @@ const Signup: React.FC = () => {
       >
         Create your account
       </Typography>
-
-      <form onSubmit={handleSubmit}>
-        <Grid container spacing={2}>
-          {/* First & Last name on same line */}
-          <Grid item xs={12} sm={6}>
-          <TextField
-              fullWidth
-              required
-              name="firstName"
-              label="First name"
-              value={form.firstName}
-              onChange={handleChange}
-              sx={{
-                "& .MuiOutlinedInput-root": {
-                  bgcolor: "#111827",
-                  color: "#e8e8e8",
-                  "& fieldset": { borderColor: "#374151" },
-                  "&:hover fieldset": { borderColor: BORDER_BLUE },
-                  "&.Mui-focused fieldset": { borderColor: BORDER_BLUE },
-                },
-                "& .MuiInputLabel-root": { color: "#9ca3af" },
-              }}
-            />
-          </Grid>
-          <Grid item xs={12} sm={6}>
+      {!waitingConfirm ? (
+        <form onSubmit={handleSubmit}>
+          <Grid container spacing={2}>
+            {/* First & Last name on same line */}
+            <Grid item xs={12} sm={6}>
             <TextField
-              fullWidth
-              required
-              name="lastName"
-              label="Last name"
-              value={form.lastName}
-              onChange={handleChange}
-              sx={{
-                "& .MuiOutlinedInput-root": {
-                  bgcolor: "#111827",
-                  color: "#e8e8e8",
-                  "& fieldset": { borderColor: "#374151" },
-                  "&:hover fieldset": { borderColor: BORDER_BLUE },
-                  "&.Mui-focused fieldset": { borderColor: BORDER_BLUE },
-                },
-                "& .MuiInputLabel-root": { color: "#9ca3af" },
-              }}
-            />
-          </Grid>
+                fullWidth
+                required
+                name="firstName"
+                label="First name"
+                value={form.firstName}
+                onChange={handleChange}
+                sx={{
+                  "& .MuiOutlinedInput-root": {
+                    bgcolor: "#111827",
+                    color: "#e8e8e8",
+                    "& fieldset": { borderColor: "#374151" },
+                    "&:hover fieldset": { borderColor: BORDER_BLUE },
+                    "&.Mui-focused fieldset": { borderColor: BORDER_BLUE },
+                  },
+                  "& .MuiInputLabel-root": { color: "#9ca3af" },
+                }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                required
+                name="lastName"
+                label="Last name"
+                value={form.lastName}
+                onChange={handleChange}
+                sx={{
+                  "& .MuiOutlinedInput-root": {
+                    bgcolor: "#111827",
+                    color: "#e8e8e8",
+                    "& fieldset": { borderColor: "#374151" },
+                    "&:hover fieldset": { borderColor: BORDER_BLUE },
+                    "&.Mui-focused fieldset": { borderColor: BORDER_BLUE },
+                  },
+                  "& .MuiInputLabel-root": { color: "#9ca3af" },
+                }}
+              />
+            </Grid>
 
-          {/* School (optional) */}
-          <Grid item xs={12}>
-            <TextField
-              fullWidth
-              name="school"
-              label="School (optional)"
-              value={form.school}
-              onChange={handleChange}
-              sx={{
-                "& .MuiOutlinedInput-root": {
-                  bgcolor: "#111827",
-                  color: "#e8e8e8",
-                  "& fieldset": { borderColor: "#374151" },
-                  "&:hover fieldset": { borderColor: BORDER_BLUE },
-                  "&.Mui-focused fieldset": { borderColor: BORDER_BLUE },
-                },
-                "& .MuiInputLabel-root": { color: "#9ca3af" },
-              }}
-            />
-          </Grid>
+            {/* School (optional) */}
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                name="school"
+                label="School (optional)"
+                value={form.school}
+                onChange={handleChange}
+                sx={{
+                  "& .MuiOutlinedInput-root": {
+                    bgcolor: "#111827",
+                    color: "#e8e8e8",
+                    "& fieldset": { borderColor: "#374151" },
+                    "&:hover fieldset": { borderColor: BORDER_BLUE },
+                    "&.Mui-focused fieldset": { borderColor: BORDER_BLUE },
+                  },
+                  "& .MuiInputLabel-root": { color: "#9ca3af" },
+                }}
+              />
+            </Grid>
 
-          {/* Email */}
-          <Grid item xs={12}>
-            <TextField
-              fullWidth
-              required
-              name="email"
-              label="Email"
-              type="email"
-              value={form.email}
-              onChange={handleChange}
-              sx={{
-                "& .MuiOutlinedInput-root": {
-                  bgcolor: "#111827",
-                  color: "#e8e8e8",
-                  "& fieldset": { borderColor: "#374151" },
-                  "&:hover fieldset": { borderColor: BORDER_BLUE },
-                  "&.Mui-focused fieldset": { borderColor: BORDER_BLUE },
-                },
-                "& .MuiInputLabel-root": { color: "#9ca3af" },
-              }}
-            />
-          </Grid>
+            {/* Email */}
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                required
+                name="email"
+                label="Email"
+                type="email"
+                value={form.email}
+                onChange={handleChange}
+                sx={{
+                  "& .MuiOutlinedInput-root": {
+                    bgcolor: "#111827",
+                    color: "#e8e8e8",
+                    "& fieldset": { borderColor: "#374151" },
+                    "&:hover fieldset": { borderColor: BORDER_BLUE },
+                    "&.Mui-focused fieldset": { borderColor: BORDER_BLUE },
+                  },
+                  "& .MuiInputLabel-root": { color: "#9ca3af" },
+                }}
+              />
+            </Grid>
 
-          {/* Password */}
-          <Grid item xs={12}>
-            <TextField
-              fullWidth
-              required
-              name="password"
-              label="Password"
-              type="password"
-              value={form.password}
-              onChange={handleChange}
-              sx={{
-                "& .MuiOutlinedInput-root": {
-                  bgcolor: "#111827",
-                  color: "#e8e8e8",
-                  "& fieldset": { borderColor: "#374151" },
-                  "&:hover fieldset": { borderColor: BORDER_BLUE },
-                  "&.Mui-focused fieldset": { borderColor: BORDER_BLUE },
-                },
-                "& .MuiInputLabel-root": { color: "#9ca3af" },
-              }}
-            />
-          </Grid>
+            {/* Password */}
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                required
+                name="password"
+                label="Password"
+                type="password"
+                value={form.password}
+                onChange={handleChange}
+                sx={{
+                  "& .MuiOutlinedInput-root": {
+                    bgcolor: "#111827",
+                    color: "#e8e8e8",
+                    "& fieldset": { borderColor: "#374151" },
+                    "&:hover fieldset": { borderColor: BORDER_BLUE },
+                    "&.Mui-focused fieldset": { borderColor: BORDER_BLUE },
+                  },
+                  "& .MuiInputLabel-root": { color: "#9ca3af" },
+                }}
+              />
+            </Grid>
 
-          {/* Confirm Password */}
-          <Grid item xs={12}>
-            <TextField
-              fullWidth
-              required
-              name="confirmPassword"
-              label="Confirm password"
-              type="password"
-              value={form.confirmPassword}
-              onChange={handleChange}
-              sx={{
-                "& .MuiOutlinedInput-root": {
-                  bgcolor: "#111827",
-                  color: "#e8e8e8",
-                  "& fieldset": { borderColor: "#374151" },
-                  "&:hover fieldset": { borderColor: BORDER_BLUE },
-                  "&.Mui-focused fieldset": { borderColor: BORDER_BLUE },
-                },
-                "& .MuiInputLabel-root": { color: "#9ca3af" },
-              }}
-            />
-          </Grid>
+            {/* Confirm Password */}
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                required
+                name="confirmPassword"
+                label="Confirm password"
+                type="password"
+                value={form.confirmPassword}
+                onChange={handleChange}
+                sx={{
+                  "& .MuiOutlinedInput-root": {
+                    bgcolor: "#111827",
+                    color: "#e8e8e8",
+                    "& fieldset": { borderColor: "#374151" },
+                    "&:hover fieldset": { borderColor: BORDER_BLUE },
+                    "&.Mui-focused fieldset": { borderColor: BORDER_BLUE },
+                  },
+                  "& .MuiInputLabel-root": { color: "#9ca3af" },
+                }}
+              />
+            </Grid>
 
-          {/* Submit */}
-          <Grid item xs={12}>
-            <Button
-              fullWidth
-              variant="contained"
-              type="submit"
-              disabled={loading}
-              sx={{
-                backgroundColor: BORDER_BLUE,
-                fontWeight: 600,
-                ":hover": { backgroundColor: "#1565c0" },
-              }}
-            >
-              {loading ? "Creating..." : "Sign Up"}
-            </Button>
-          </Grid>
+            {/* Submit */}
+            <Grid item xs={12}>
+              <Button
+                fullWidth
+                variant="contained"
+                type="submit"
+                disabled={loading}
+                sx={{
+                  backgroundColor: BORDER_BLUE,
+                  fontWeight: 600,
+                  ":hover": { backgroundColor: "#1565c0" },
+                }}
+              >
+                {loading ? "Creating..." : "Sign Up"}
+              </Button>
+            </Grid>
 
-          {/* Switch to login */}
-          <Grid item xs={12} sx={{ textAlign: "center", fontSize: "0.75rem", color: "#9ca3af" }}>
-            Already have an account?{" "}
-            <Link
-              component={RouterLink}
-              to="/login"
-              underline="hover"
-              sx={{ color: "#e8e8e8", "&:hover": { color: "#1565c0" } }}
-            >
-              Log in
-            </Link>
+            {/* Switch to login */}
+            <Grid item xs={12} sx={{ textAlign: "center", fontSize: "0.75rem", color: "#9ca3af" }}>
+              Already have an account?{" "}
+              <Link
+                component={RouterLink}
+                to="/login"
+                underline="hover"
+                sx={{ color: "#e8e8e8", "&:hover": { color: "#1565c0" } }}
+              >
+                Log in
+              </Link>
+            </Grid>
           </Grid>
-        </Grid>
-      </form>
+        </form>
+      ) : (
+        /* ---------- WAITING‑FOR‑CONFIRMATION PANEL ---------- */
+        <Box sx={{ textAlign: "center" }}>
+          <Typography variant="h5" fontWeight={700} sx={{ mb: 2 }}>
+            Confirm your e‑mail
+          </Typography>
+          <Typography sx={{ mb: 4 }}>
+            We sent a link to <strong>{form.email}</strong>.<br />
+            Please click it to activate your account.
+          </Typography>
+      
+          <Button
+            variant="contained"
+            fullWidth
+            disabled={resendCooldown > 0}
+            sx={{
+              backgroundColor: resendCooldown ? "#536878" : BORDER_BLUE,
+              fontWeight: 600,
+              ":hover": { backgroundColor: resendCooldown ? "#536878" : "#1565c0" },
+            }}
+            onClick={async () => {
+              try {
+                await resendConfirmation(form.email);
+                toast.success("Confirmation e‑mail sent");
+                setResendCooldown(30);          // 30‑second lockout
+              } catch {
+                toast.error("Failed to resend e‑mail");
+              }
+            }}
+          >
+            {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Send again"}
+          </Button>
+        </Box>
+      )}
     </Box>
   );
 };
