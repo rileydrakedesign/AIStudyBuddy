@@ -20,6 +20,9 @@ from pymongo import MongoClient
 from logger_setup import log
 import openai
 import traceback   # for last-chance logging
+import time      
+import redis      
+
 
 # ------------------------------------------------------------------
 # Robust OpenAI exception aliases (works with any SDK version)
@@ -54,6 +57,13 @@ except ImportError:
 # ──────────────────────────────────────────────────────────────
 load_dotenv()
 
+# ─────────────  Rate‑limit guard (shared with ingest)  ─────────────
+r = redis.Redis.from_url(os.getenv("REDIS_URL"), ssl_cert_reqs=None)
+
+TPM_LIMIT    = int(os.getenv("OPENAI_TPM_LIMIT", "180000"))  # same org quota
+TOK_PER_CHAR = 1 / 4                                         # heuristic
+
+
 connection_string = os.getenv("MONGO_CONNECTION_STRING")
 client = MongoClient(connection_string)
 db_name = "study_buddy_demo"
@@ -68,8 +78,7 @@ backend_url = os.getenv("BACKEND_URL", "https://localhost:3000/api/v1")
 # ------------------------------------------------------------------
 # Context-window guard-rails
 # ------------------------------------------------------------------
-MAX_PROMPT_TOKENS = 8_000          # safe ceiling for gpt-4-mini
-TOK_PER_CHAR      = 1 / 4          # heuristic ≈ 4 chars/token
+MAX_PROMPT_TOKENS = 8_000          # safe ceiling for gpt-4-mini       # heuristic ≈ 4 chars/token
 est_tokens        = lambda txt: int(len(txt) * TOK_PER_CHAR)
 
 SIMILARITY_THRESHOLD = 0.5
@@ -103,6 +112,37 @@ def suggest_refine_queries() -> List[str]:
         "Refer to a section number, e.g. “Summarise Section 3.4”.",
         "Break the question into a smaller part, e.g. “List the main theorems first”.",
     ]
+
+
+def reserve_tokens(tokens_needed: int, bucket_key: str = "openai:tpm") -> bool:
+    now = int(time.time())
+    pipe = r.pipeline()
+    pipe.zremrangebyscore(bucket_key, 0, now - 60)   # leak 60‑s window
+    pipe.zcard(bucket_key)
+    current = pipe.execute()[-1]
+
+    if current + tokens_needed <= TPM_LIMIT:
+        pipe = r.pipeline()
+        for i in range(tokens_needed):
+            pipe.zadd(bucket_key, {f"{now}:{i}": now})
+        pipe.execute()
+        log.info("[RateLimit] Reserved %d tokens (remaining %d)",
+                 tokens_needed, TPM_LIMIT - (current + tokens_needed))
+        return True
+
+    log.warning("[RateLimit] Bucket full – need %d, have %d/%d",
+                tokens_needed, current, TPM_LIMIT)
+    return False
+
+
+def acquire_tokens(tokens_needed: int):
+    waited = 0.0
+    while not reserve_tokens(tokens_needed):
+        time.sleep(0.5)
+        waited += 0.5
+        if waited % 5 == 0:
+            log.warning("[RateLimit] Still waiting (%.1fs)", waited)
+
 
 
 # ──────────────────────────────────────────────────────────────
@@ -525,6 +565,7 @@ def process_semantic_search(
 
     if mode not in ("follow_up", "doc_summary", "class_summary"):
         # 1) Embed the user query
+        acquire_tokens(est_tokens(user_query))
         query_vec = create_embedding(user_query)
 
         # 2) Build Mongo search filter to scope by user / class / doc
@@ -691,6 +732,15 @@ def process_semantic_search(
     formatted_prompt = PromptTemplate.from_template(enhanced_prompt).format(
         context=escape_curly_braces(context)
     )
+
+    # ---------- RATE‑LIMIT RESERVATION ----------
+    prompt_tokens = est_tokens(formatted_prompt)
+    history_tokens = sum(est_tokens(m["content"]) for m in chat_history_cleaned)
+    estimated_output = 700                      # adjust if you set max_tokens
+    total_needed = prompt_tokens + history_tokens + estimated_output
+    acquire_tokens(total_needed)
+# --------------------------------------------
+
 
     # -------------------- FINAL GENERATION --------------------
     prompt_template = ChatPromptTemplate.from_messages(
