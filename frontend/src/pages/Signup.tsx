@@ -332,16 +332,19 @@ const Signup: React.FC = () => {
             fullWidth
             disabled={resendCooldown > 0}
             sx={{
-              backgroundColor: resendCooldown ? "#9ca3af" : BORDER_BLUE,
-              color:           resendCooldown ? "#1e293b" : "#ffffff",
-              cursor: resendCooldown ? "not-allowed" : "pointer",
               fontWeight: 600,
-              ":hover": {
-                backgroundColor: resendCooldown ? "#9ca3af" : "#1565c0",
+              backgroundColor: BORDER_BLUE,
+              ":hover": { backgroundColor: "#1565c0" },
+
+              /* ---- styles when disabled ---- */
+              "&.Mui-disabled": {
+                backgroundColor: "#9ca3af",   // light grey, visible on dark bg
+                color: "#1e293b",             // dark text for contrast
+                cursor: "not-allowed",
               },
             }}
             onClick={async () => {
-              if (resendCooldown > 0) return;      // extra guard
+              if (resendCooldown > 0) return;
               try {
                 await resendConfirmation(form.email);
                 toast.success("Confirmation e‑mail sent");
@@ -351,8 +354,11 @@ const Signup: React.FC = () => {
               }
             }}
           >
-            {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Send again"}
+            {resendCooldown > 0
+              ? `Resend in ${resendCooldown}s`
+              : "Send again"}
           </Button>
+
 
         </Box>
       )}
