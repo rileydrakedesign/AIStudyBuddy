@@ -332,11 +332,12 @@ const Signup: React.FC = () => {
             fullWidth
             disabled={resendCooldown > 0}
             sx={{
-              backgroundColor: resendCooldown ? "#536878" : BORDER_BLUE,
+              backgroundColor: resendCooldown ? "#9ca3af" : BORDER_BLUE,
+              color:           resendCooldown ? "#1e293b" : "#ffffff",
               cursor: resendCooldown ? "not-allowed" : "pointer",
               fontWeight: 600,
               ":hover": {
-                backgroundColor: resendCooldown ? "#536878" : "#1565c0",
+                backgroundColor: resendCooldown ? "#9ca3af" : "#1565c0",
               },
             }}
             onClick={async () => {
