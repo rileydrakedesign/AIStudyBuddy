@@ -51,8 +51,7 @@ const Signup: React.FC = () => {
 
   useEffect(() => {
     const checkUser = async () => {
-      if (!auth?.user) return;                      // not logged‑in → stay on page
-  
+                        
       try {
         const data = await verifyUser();            // { emailVerified, email, … }
   
@@ -70,7 +69,7 @@ const Signup: React.FC = () => {
     };
   
     checkUser();
-  }, [auth?.user, navigate]);
+  }, [navigate]);
   
   
 
