@@ -56,7 +56,8 @@ const Signup: React.FC = () => {
         const data = await verifyUser();            // { emailVerified, email, … }
   
         if (data.emailVerified) {
-          navigate("/chat");                        // logged‑in *and* verified
+          window.location.replace("/chat");
+          return;                       
         } else {
           // logged‑in but NOT verified → show waiting panel + 30 s cooldown
           setForm((prev) => ({ ...prev, email: data.email }));
