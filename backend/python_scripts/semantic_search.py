@@ -89,6 +89,22 @@ SIMILARITY_THRESHOLD = 0.5
 # ──────────────────────────────────────────────────────────────
 SUMMARY_RE    = re.compile(r"\bsummar(?:y|ize|ise)\b", re.I)
 STUDYGUIDE_RE = re.compile(r"\b(study[-\s]?guide|make\s+me\s+a\s+guide)\b", re.I)
+# ------------- Quote-finding helpers -------------
+QUOTE_PATTERNS = [
+    r"\bfind(?:\s+me)?\s+(?:a\s+)?quote(?:s)?(?:\s+(?:on|about|for))?\b",
+    r"\bgive(?:\s+me)?\s+(?:a\s+)?quote(?:s)?(?:\s+(?:on|about|for))?\b",
+    r"\bquote(?:\s+(?:on|about|for))?\b",
+]
+QUOTE_PATTERN_RE = re.compile("|".join(QUOTE_PATTERNS), re.I)
+
+def strip_quote_phrases(query: str) -> str:
+    """Remove boiler-plate ‘find a quote …’ phrases."""
+    return re.sub(QUOTE_PATTERN_RE, "", query).strip()
+
+def has_sufficient_quote_context(cleaned_query: str) -> bool:
+    """Heuristic: ≥3 meaningful tokens after stripping filler."""
+    return len(cleaned_query.split()) >= 3
+
 
 def detect_query_mode(query: str) -> str:
     """
@@ -459,9 +475,43 @@ def process_semantic_search(
             "go on",
         ],
     )
-    rl = RouteLayer(encoder=OpenAIEncoder(), routes=[general_qa, generate_study_guide_route, generate_notes, follow_up])
+    quote_finding = Route(
+    name="quote_finding",
+    utterances=[
+        "Find a quote about photosynthesis",
+        "Give me a quote on industrial revolution",
+        "Quote on love",
+        "I need a quote for this essay",
+        "Provide a quotation about freedom",
+    ],
+)
+
+    rl = RouteLayer(encoder=OpenAIEncoder(), routes=[general_qa, generate_study_guide_route, generate_notes, follow_up, quote_finding])
     route = rl(user_query).name or "general_qa"
     log.debug(f"Prompt route: {route}")
+
+                
+    # ── Quote-finding pre-check ───────────────────────────────
+    if route == "quote_finding":
+        cleaned_query = strip_quote_phrases(user_query)
+        if not has_sufficient_quote_context(cleaned_query):
+            friendly = (
+                "Could you specify what the quote should relate to? "
+                "For example: “a quote about the impact of the industrial revolution on society”."
+            )
+            chat_history.append({"role": "assistant", "content": friendly})
+            return {
+                "message": friendly,
+                "status": "needs_context",
+                "citation": [],
+                "chats": chat_history,
+                "chunks": [],
+                "chunkReferences": [],
+            }
+        user_query_effective = cleaned_query
+    else:
+        user_query_effective = user_query
+
 
     # -------------------- History sanitisation --------------------
     # -----------------------------------------------------------
@@ -565,8 +615,8 @@ def process_semantic_search(
 
     if mode not in ("follow_up", "doc_summary", "class_summary"):
         # 1) Embed the user query
-        acquire_tokens(est_tokens(user_query))
-        query_vec = create_embedding(user_query)
+        acquire_tokens(est_tokens(user_query_effective))
+        query_vec = embedding_model.embed_query(user_query_effective)
 
         # 2) Build Mongo search filter to scope by user / class / doc
         filters = {"user_id": user_id}
@@ -712,15 +762,36 @@ def process_semantic_search(
         base_prompt = prompts.get("chrome_extension")
     else:
         base_prompt = prompts.get(route)
+
+    # ── Fallback for quote-finding (must run BEFORE we check for None) ──
+    if route == "quote_finding" and not base_prompt:
+        base_prompt = (
+            "You are an assistant that extracts **verbatim quotes** from the "
+            "context chunks that best satisfy the user's request. "
+            "Return **up to three** quotes. For each, include:\n"
+            "- The quote in quotation marks.\n"
+            "- An em-dash followed by any speaker/author info.\n"
+            "- End each quote with its chunk reference number in square brackets.\n\n"
+            "If no suitable quote exists, reply exactly: “No quote found.”\n\n"
+            "<context>\n{context}\n</context>"
+        )
+
+    # If we still don’t have a prompt, that’s an error.
     if not base_prompt:
         raise ValueError(f"Prompt for route '{route}' not found in prompts.json")
 
-    referencing_instruction = (
-        "Whenever you use content from a given chunk in your final answer, "
-        "place a bracketed reference [1], [2], [3], etc. at the end of the relevant sentence.\n\n"
-        "Please format your answer using Markdown. Write all mathematical expressions in LaTeX using '$' for "
-        "inline math and '$$' for display math. Ensure code is in triple backticks.\n\n"
-    )
+
+    # ---- Quote route: disable generic citation instruction ----
+    if route == "quote_finding":
+        referencing_instruction = ""
+    else:
+        referencing_instruction = (
+            "Whenever you use content from a given chunk in your final answer, "
+            "place a bracketed reference [1], [2], [3], etc. at the end of the relevant sentence.\n\n"
+            "Please format your answer using Markdown. Write all mathematical expressions in LaTeX using '$' for "
+            "inline math and '$$' for display math. Ensure code is in triple backticks.\n\n"
+        )
+
     enhanced_prompt = referencing_instruction + base_prompt
 
     # Build context from chunk_array
@@ -747,7 +818,12 @@ def process_semantic_search(
         [("system", formatted_prompt), MessagesPlaceholder("chat_history"), ("user", "{input}")]
     )
     try:
-        answer = construct_chain(prompt_template, user_query, chat_history_cleaned)
+        answer = construct_chain(
+            prompt_template,
+            user_query_effective if route == "quote_finding" else user_query,
+            chat_history_cleaned,
+        )
+
 
     # ---- 1) Context-length specific (still needs special copy) ----
     except (InvalidRequestError, BadRequestError) as oe:
