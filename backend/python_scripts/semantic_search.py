@@ -781,9 +781,15 @@ def process_semantic_search(
         raise ValueError(f"Prompt for route '{route}' not found in prompts.json")
 
 
-    # ---- Quote route: disable generic citation instruction ----
+    # ---- Quote route: enforce in-text chunk citations ----
     if route == "quote_finding":
-        referencing_instruction = ""
+        referencing_instruction = (
+            "After each quote, append a space followed by the chunk reference number(s) "
+            "in square brackets using the chunk list provided below (e.g., [1], [2]). "
+            "If multiple chunks support a single quote, include all consecutively like [1][3]. "
+            "Do not invent citations; only use numbers corresponding to the provided chunks."
+            "\n\n"
+        )
     else:
         referencing_instruction = (
             "Whenever you use content from a given chunk in your final answer, "
@@ -791,6 +797,7 @@ def process_semantic_search(
             "Please format your answer using Markdown. Write all mathematical expressions in LaTeX using '$' for "
             "inline math and '$$' for display math. Ensure code is in triple backticks.\n\n"
         )
+
 
     enhanced_prompt = referencing_instruction + base_prompt
 
