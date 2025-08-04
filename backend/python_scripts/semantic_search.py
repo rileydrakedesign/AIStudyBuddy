@@ -424,13 +424,13 @@ def process_semantic_search(
                 "citation": [], "chats": chat_history,
                 "chunks": [], "chunkReferences": []
             }
-    log.debug(f"Mode: {mode}")
+    log.info(f"Mode: {mode}")
 
     # ------------------------------------------------------------
     # 0) ROUTE  (regex → optional LLM tie-breaker)
     # ------------------------------------------------------------
     route = detect_route(user_query)
-    log.debug(f"Router → {route}")
+    log.info(f"Router → {route}")
                 
     # ── Quote-finding pre-check ───────────────────────────────
     if route == "quote_finding":
@@ -573,6 +573,8 @@ def process_semantic_search(
         similarity_results = [
             r for r in search_cursor if r.get("score", 0) >= SIMILARITY_THRESHOLD
         ]
+
+
 
         # 5) Build chunk_array for later prompt context
         for idx, r in enumerate(similarity_results):
@@ -773,6 +775,7 @@ def process_semantic_search(
         [("system", formatted_prompt), MessagesPlaceholder("chat_history"), ("user", "{input}")]
     )
     try:
+        log.info(f"[PROMPT] first 300 chars: {formatted_prompt[:300]!r}")
         answer = construct_chain(
             prompt_template,
             user_query_effective if route == "quote_finding" else user_query,
@@ -887,7 +890,7 @@ def main():
 
     try:
         result = process_semantic_search(user_id, class_name, doc_id, user_query, chat_history, source)
-        log.debug(json.dumps(result))
+        log.info(json.dumps(result))
     except Exception as e:
         log.error(f"Error: {str(e)}")
         sys.exit(1)
