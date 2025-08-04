@@ -574,7 +574,7 @@ def process_semantic_search(
             r for r in search_cursor if r.get("score", 0) >= SIMILARITY_THRESHOLD
         ]
 
-
+        log.info(f"[RETRIEVAL] hits={len(similarity_results)} | kept={(similarity_results)} ")
 
         # 5) Build chunk_array for later prompt context
         for idx, r in enumerate(similarity_results):
