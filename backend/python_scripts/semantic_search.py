@@ -778,12 +778,15 @@ def process_semantic_search(
         [("system", formatted_prompt), MessagesPlaceholder("chat_history"), ("user", "{input}")]
     )
     try:
-        log.info(f"[PROMPT] first 300 chars: {formatted_prompt[:300]!r}")
+        log.info(f"[PROMPT] first 800 chars: {formatted_prompt[:800]!r}")
         answer = construct_chain(
             prompt_template,
             user_query_effective if route == "quote_finding" else user_query,
             chat_history_cleaned,
         )
+
+        log.info(f"[ANSWER] len={len(answer)} | starts={answer[:80]!r}")
+
 
         # NEW — model signalled no relevant info
         if answer.strip() == "NO_HIT_MESSAGE":
