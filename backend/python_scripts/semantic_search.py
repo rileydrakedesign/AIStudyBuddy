@@ -1,7 +1,7 @@
 import os, re, json, sys, math
 from pathlib import Path
 from typing import List, Tuple
-
+from router import detect_route
 import boto3
 from urllib.parse import quote
 from botocore.exceptions import ClientError
@@ -16,7 +16,6 @@ from langchain_core.prompts import (
 )
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from pymongo import MongoClient
-
 from logger_setup import log
 import openai
 import traceback   # for last-chance logging
@@ -427,69 +426,11 @@ def process_semantic_search(
             }
     log.debug(f"Mode: {mode}")
 
-    # Existing router (kept intact for prompt selection)
-    from semantic_router import Route, RouteLayer
-    from semantic_router.encoders import OpenAIEncoder
-
-    # --- Router definition (unchanged) ---
-    general_qa = Route(
-        name="general_qa",
-        utterances=[
-            "Define the term 'mitosis'",
-            "When did the Civil War start?",
-            "What is the theory of relativity?",
-            "Explain the concept of supply and demand",
-            "Who discovered penicillin?",
-            "How does photosynthesis work?",
-        ],
-    )
-    generate_study_guide_route = Route(
-        name="generate_study_guide",
-        utterances=[
-            "Create a study guide for biology",
-            "Generate a study guide on World War II",
-            "Make a study guide for my chemistry class",
-            "Study guide for this chapter on genetics",
-            "Prepare a study guide for algebra",
-        ],
-    )
-    generate_notes = Route(
-        name="generate_notes",
-        utterances=[
-            "Write notes on the French Revolution",
-            "Generate notes for my physics lecture",
-            "Take notes for this chapter on cell biology",
-            "Notes for this topic on climate change",
-            "Summarize notes for my economics class",
-        ],
-    )
-    follow_up = Route(
-        name="follow_up",
-        utterances=[
-            "elaborate more on this",
-            "tell me more about that",
-            "expand on that",
-            "what do you mean by that",
-            "explain that again",
-            "what was that again",
-            "go on",
-        ],
-    )
-    quote_finding = Route(
-    name="quote_finding",
-    utterances=[
-        "Find a quote about photosynthesis",
-        "Give me a quote on industrial revolution",
-        "Quote on love",
-        "I need a quote for this essay",
-        "Provide a quotation about freedom",
-    ],
-)
-
-    rl = RouteLayer(encoder=OpenAIEncoder(), routes=[general_qa, generate_study_guide_route, generate_notes, follow_up, quote_finding])
-    route = rl(user_query).name or "general_qa"
-    log.debug(f"Prompt route: {route}")
-
+    # ------------------------------------------------------------
+    # 0) ROUTE  (regex → optional LLM tie-breaker)
+    # ------------------------------------------------------------
+    route = detect_route(user_query)
+    log.debug(f"Router → {route}")
                 
     # ── Quote-finding pre-check ───────────────────────────────
     if route == "quote_finding":
@@ -639,7 +580,7 @@ def process_semantic_search(
                 {
                     "_id": str(r["_id"]),
                     "chunkNumber": idx + 1,
-                    "text": r["text"],
+                    "text": escape_curly_braces(r["text"]),
                     "pageNumber": r.get("page_number"),
                     "docId": r.get("doc_id"),
                 }
@@ -797,9 +738,16 @@ def process_semantic_search(
             "Please format your answer using Markdown. Write all mathematical expressions in LaTeX using '$' for "
             "inline math and '$$' for display math. Ensure code is in triple backticks.\n\n"
         )
+    
+        # ---------- Clarify-question rubric (new) ----------
+    clarify_rubric = (
+        "If the context chunks do not fully answer the question **but** a single, precise follow-up "
+        "question would let you answer, ask that follow-up question instead of guessing. "
+        "If nothing in the context is relevant, reply exactly with NO_HIT_MESSAGE.\n\n"
+    )
 
 
-    enhanced_prompt = referencing_instruction + base_prompt
+    enhanced_prompt = clarify_rubric + referencing_instruction + base_prompt
 
     # Build context from chunk_array
     context = (
@@ -830,6 +778,22 @@ def process_semantic_search(
             user_query_effective if route == "quote_finding" else user_query,
             chat_history_cleaned,
         )
+
+        # NEW — model signalled no relevant info
+        if answer.strip() == "NO_HIT_MESSAGE":
+            suggestions = suggest_refine_queries()
+            chat_history.append(
+                {"role": "assistant", "content": suggestions[0], "suggestions": suggestions}
+            )
+            return {
+                "message": suggestions[0],
+                "status":  "no_hit",
+                "suggestions": suggestions,
+                "citation": [],
+                "chats": chat_history,
+                "chunks": [],
+                "chunkReferences": [],
+            }
 
 
     # ---- 1) Context-length specific (still needs special copy) ----
