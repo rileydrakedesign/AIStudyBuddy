@@ -588,6 +588,9 @@ def process_semantic_search(
                 }
             )
 
+        if chunk_array:
+            log.info(f"[CHUNKS] retained IDs={[c['chunkNumber'] for c in chunk_array]}")
+
         # ---------- Graceful “no-hit” handling ----------
         if not chunk_array:
             refine_message = (
