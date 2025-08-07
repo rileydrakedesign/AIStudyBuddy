@@ -727,6 +727,27 @@ def process_semantic_search(
         raise ValueError(f"Prompt for route '{route}' not found in prompts.json")
 
 
+    # ---------- Uniform prompt skeleton ---------- 
+    PROMPT_SKELETON = (
+    "### ROLE\n"
+    "You are an expert study assistant. Tasked with satisfying a user request based on the supplied context.\n\n"
+    "### TASK INSTRUCTIONS\n"
+    "{route_rules}\n\n"
+    "### CITATION GUIDELINES\n"
+    "{citing}\n\n"
+    "### CONTEXT CHUNKS\n"
+    "{context}\n\n"
+    "### USER QUESTION\n"
+    "{input}\n\n"
+    "### CLARIFY / NO-HIT LOGIC\n"
+    "If the context cannot fully answer but a single, precise follow-up question would enable an answer, "
+    "ask that question. If nothing is relevant, reply exactly with NO_HIT_MESSAGE.\n"
+    "### ANSWER REQUIREMENTS\n"
+    "Respond **only** with information that directly addresses the user question and is derived from the context above. "
+    "Do not introduce unrelated content.\n"
+)
+
+
     # ---- Quote route: enforce in-text chunk citations ----
     if route == "quote_finding":
         referencing_instruction = (
@@ -751,18 +772,21 @@ def process_semantic_search(
         "If nothing in the context is relevant, reply exactly with NO_HIT_MESSAGE.\n\n"
     )
 
+    # ---------- Build prompt via uniform skeleton ----------
+    citing      = referencing_instruction        # same content, shorter alias
+    route_rules = base_prompt
 
-    enhanced_prompt = clarify_rubric + referencing_instruction + base_prompt
+    filled_skeleton = PROMPT_SKELETON.format(
+        route_rules=route_rules,
+        citing=citing,
+        context="\n\n".join(
+            f"<chunk id='{i+1}'>\n{c['text']}\n</chunk>" for i, c in enumerate(chunk_array)
+        ) or "NULL",
+        input="{input}",        # kept as placeholder for ChatPromptTemplate
+    )
 
-    # Build context from chunk_array
-    context = (
-        "\n\n".join(f"Chunk {idx+1}: {c['text']}" for idx, c in enumerate(chunk_array))
-        if chunk_array
-        else ""
-    )
-    formatted_prompt = PromptTemplate.from_template(enhanced_prompt).format(
-        context=escape_curly_braces(context)
-    )
+    formatted_prompt = filled_skeleton
+
 
     # ---------- RATE‑LIMIT RESERVATION ----------
     prompt_tokens = est_tokens(formatted_prompt)

@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "envFiles": [".env.local"],
+
+  "mcpServers": {},
+
+  "git": {
+    "remotes": {
+      "origin":        "https://github.com/rileydrakedesign/AIStudyBuddy.git",
+      "heroku-node":   "https://git.heroku.com/class-chat-node.git",
+      "heroku-python": "https://git.heroku.com/class-chat-python.git"
+    }
+  },
+
+  "processes": {
+    "node-api": {
+      "cwd": "backend",
+      "command": "npm run build && node dist/index.js"
+    },
+
+    "fastapi-api": {
+      "cwd": "backend/python_scripts",
+      "command": "gunicorn semantic_service:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000"
+    },
+
+    "rq-worker": {
+      "cwd": "backend/python_scripts",
+      "command": "rq worker ingest --url $REDIS_URL?ssl_cert_reqs=none --with-scheduler"
+    }
+  },
+
+  "tasks": {
+    "deploy-node":   "git push heroku-node main",
+    "deploy-python": "git push heroku-python main"
+  }
+}
