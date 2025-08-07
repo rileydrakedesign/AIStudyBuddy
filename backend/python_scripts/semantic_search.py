@@ -704,25 +704,10 @@ def process_semantic_search(
 
     # -------------------- PROMPT SELECTION --------------------
     prompts = load_prompts()
-    if source == "chrome_extension":
-        base_prompt = prompts.get("chrome_extension")
-    else:
-        base_prompt = prompts.get(route)
-
-    # ── Fallback for quote-finding (must run BEFORE we check for None) ──
-    if route == "quote_finding" and not base_prompt:
-        base_prompt = (
-            "You are an assistant that extracts **verbatim quotes** from the "
-            "context chunks that best satisfy the user's request. "
-            "Return **up to three** quotes. For each, include:\n"
-            "- The quote in quotation marks.\n"
-            "- An em-dash followed by any speaker/author info.\n"
-            "- End each quote with its chunk reference number in square brackets.\n\n"
-            "If no suitable quote exists, reply exactly: “No quote found.”\n\n"
-            "<context>\n{context}\n</context>"
-        )
-
-    # If we still don’t have a prompt, that’s an error.
+    base_prompt = (
+        prompts.get("chrome_extension") if source == "chrome_extension"
+        else prompts.get(route)
+    )
     if not base_prompt:
         raise ValueError(f"Prompt for route '{route}' not found in prompts.json")
 
