@@ -1,0 +1,19 @@
+{
+  "name": "mcp-mongodb",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.js",
+  "bin": {
+    "mcp-mongodb": "index.js"
+  },
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.5",
+    "dotenv": "^17.2.2",
+    "mongodb": "^6.19.0",
+    "zod": "^3.25.76"
+  }
+}

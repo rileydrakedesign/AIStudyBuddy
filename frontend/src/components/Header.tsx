@@ -25,6 +25,7 @@ const Header: React.FC<HeaderProps> = () => {
 
   // Function to determine if a link is active
   const isActive = (path: string) => location.pathname === path;
+  const hideNav = location.pathname === "/login"; // Hide nav links on login page only
 
   return (
     <AppBar
@@ -44,54 +45,56 @@ const Header: React.FC<HeaderProps> = () => {
           <Logo />
         </Box>
 
-        {/* Right side: Navigation Links */}
-        <div style={{ display: "flex", gap: "10px" }}>
-          {auth?.isLoggedIn ? (
-            <>
-              <NavigationLink
-                bg={isActive("/chat") ? "#2D3748" : "#1d2d44"}
-                to="/chat"
-                text="Chat"
-                textColor={isActive("/chat") ? "#00B5D8" : "#D1D5DB"}
-                hoverTextColor="#00B5D8"
-                icon={<ChatBubble sx={{ color: "#00B5D8" }} />}
-              />
-              <NavigationLink
-                bg={isActive("/upload") ? "#2D3748" : "#1d2d44"}
-                to="/upload"
-                text="Upload"
-                textColor={isActive("/upload") ? "#00B5D8" : "#D1D5DB"}
-                hoverTextColor="#00B5D8"
-                icon={<DriveFolderUploadIcon sx={{ color: "#00B5D8" }} />}
-              />
-              <NavigationLink
-                bg={isActive("/profile") ? "#2D3748" : "#1d2d44"}
-                to="/profile"
-                text=""
-                icon={<AccountCircleIcon sx={{ color: "#00B5D8", fontSize: 40 }} />}
-              />
-            </>
-          ) : (
-            <>
-              <NavigationLink
-                bg="#00fffc"
-                to="/login"
-                text="Login"
-                textColor="#1A202C"
-                hoverTextColor="#00B5D8"
-                icon={<ChatBubble sx={{ color: "#00B5D8" }} />}
-              />
-              <NavigationLink
-                bg={isActive("/signup") ? "#2D3748" : "#51538f"}
-                to="/signup"
-                text="Signup"
-                textColor={isActive("/signup") ? "#F6AD55" : "#D1D5DB"}
-                hoverTextColor="#F6AD55"
-                icon={<StickyNote2Icon sx={{ color: "#F6AD55" }} />}
-              />
-            </>
-          )}
-        </div>
+        {/* Right side: Navigation Links (hidden on /login) */}
+        {!hideNav && (
+          <div style={{ display: "flex", gap: "10px" }}>
+            {auth?.isLoggedIn ? (
+              <>
+                <NavigationLink
+                  bg={isActive("/chat") ? "#2D3748" : "#1d2d44"}
+                  to="/chat"
+                  text="Chat"
+                  textColor={isActive("/chat") ? "#00B5D8" : "#D1D5DB"}
+                  hoverTextColor="#00B5D8"
+                  icon={<ChatBubble sx={{ color: "#00B5D8" }} />}
+                />
+                <NavigationLink
+                  bg={isActive("/upload") ? "#2D3748" : "#1d2d44"}
+                  to="/upload"
+                  text="Upload"
+                  textColor={isActive("/upload") ? "#00B5D8" : "#D1D5DB"}
+                  hoverTextColor="#00B5D8"
+                  icon={<DriveFolderUploadIcon sx={{ color: "#00B5D8" }} />}
+                />
+                <NavigationLink
+                  bg={isActive("/profile") ? "#2D3748" : "#1d2d44"}
+                  to="/profile"
+                  text=""
+                  icon={<AccountCircleIcon sx={{ color: "#00B5D8", fontSize: 40 }} />}
+                />
+              </>
+            ) : (
+              <>
+                <NavigationLink
+                  bg="#00fffc"
+                  to="/login"
+                  text="Login"
+                  textColor="#1A202C"
+                  hoverTextColor="#00B5D8"
+                  icon={<ChatBubble sx={{ color: "#00B5D8" }} />}
+                />
+                <NavigationLink
+                  bg={isActive("/signup") ? "#2D3748" : "#51538f"}
+                  to="/signup"
+                  text="Signup"
+                  textColor={isActive("/signup") ? "#F6AD55" : "#D1D5DB"}
+                  hoverTextColor="#F6AD55"
+                  icon={<StickyNote2Icon sx={{ color: "#F6AD55" }} />}
+                />
+              </>
+            )}
+          </div>
+        )}
       </Toolbar>
     </AppBar>
   );
