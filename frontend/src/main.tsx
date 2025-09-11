@@ -5,7 +5,7 @@ import './index.css'
 import { createTheme, ThemeProvider } from '@mui/material'
 import { BrowserRouter } from 'react-router-dom'
 import { AuthProvider } from "./context/authContext.tsx";
-import { Toaster } from "react-hot-toast";
+import { Toaster, ToastBar, toast } from "react-hot-toast";
 import axios from "axios";
 axios.defaults.baseURL = import.meta.env.VITE_API_URL;
 axios.defaults.withCredentials = true;
@@ -22,7 +22,44 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <AuthProvider>
       <BrowserRouter> 
         <ThemeProvider theme={theme}> 
-          <Toaster position="top-right" />
+          <Toaster
+            position="top-right"
+            toastOptions={{
+              style: {
+                background: "#0d1117",
+                color: "#e8e8e8",
+                border: "1px solid rgba(255,255,255,0.12)",
+              },
+            }}
+          >
+            {(t) => (
+              <ToastBar toast={t}>
+                {({ icon, message }) => (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
+                    {icon}
+                    <div style={{ flex: 1 }}>{message}</div>
+                    <button
+                      onClick={() => toast.dismiss(t.id)}
+                      aria-label="Close notification"
+                      title="Close"
+                      style={{
+                        appearance: "none",
+                        background: "transparent",
+                        border: "none",
+                        color: "#cbd5e1",
+                        cursor: "pointer",
+                        fontSize: 16,
+                        lineHeight: 1,
+                        padding: 4,
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+              </ToastBar>
+            )}
+          </Toaster>
           <App />
         </ThemeProvider>
       </BrowserRouter>
