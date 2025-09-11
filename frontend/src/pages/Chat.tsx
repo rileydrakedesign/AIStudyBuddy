@@ -15,6 +15,7 @@ import {
   ListItemIcon,
   Collapse,
   LinearProgress,
+  CircularProgress,
 } from "@mui/material";
 import red from "@mui/material/colors/red";
 import { useAuth } from "../context/authContext";
@@ -211,7 +212,6 @@ const Chat = () => {
     socketRef.current = socket;
 
     const handleDocumentReady = (data: { docId: string; fileName: string; className: string }) => {
-      toast.success(`${data.fileName} finished processing`, { id: `processing-${data.docId}` });
 
       setClassDocs((prev) => {
         const docs = prev[data.className] ?? [];
@@ -240,21 +240,7 @@ const Chat = () => {
     };
   }, [auth?.isLoggedIn]);
 
-  /* ------------------------------
-     toast loader for docs
-  ------------------------------ */
-  useEffect(() => {
-    Object.values(classDocs)
-      .flat()
-      .forEach((doc) => {
-        const id = `processing-${doc._id}`;
-        if (doc.isProcessing) {
-          toast.loading(`Processing ${doc.fileName}…`, { id });
-        } else {
-          toast.dismiss(id);
-        }
-      });
-  }, [classDocs]);
+  // Removed toast-based document processing status; we now show inline spinners.
 
   /* ------------------------------
      FETCH CLASSES ON LOAD
@@ -1052,6 +1038,9 @@ const Chat = () => {
                             >
                               {doc.fileName}
                             </Button>
+                            {doc.isProcessing && (
+                              <CircularProgress size={14} sx={{ ml: 1, color: "#90caf9" }} />
+                            )}
 
                             <IconButton
                               onClick={(e) => {
