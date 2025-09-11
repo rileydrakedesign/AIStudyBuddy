@@ -340,10 +340,16 @@ const ChatItem: React.FC<ChatItemProps> = ({
     segments.forEach((seg, i) => {
       if (bracketRegex.test(seg)) {
         const num = Number(seg.replace(/\D/g, ""));
+        if (role !== "assistant") {
+          // For user messages, render bracket numbers as plain text (not clickable)
+          result.push(<span key={`br-${i}`}>{seg}</span>);
+          return;
+        }
+
         result.push(
           <span
             key={`br-${i}`}
-            style={{ marginLeft: 4, color: "blue", cursor: "pointer" }}
+            style={{ marginLeft: 4, color: "#1976d2", cursor: "pointer" }}
             onClick={async (e) => {
               e.stopPropagation();
               const el = e.currentTarget;
