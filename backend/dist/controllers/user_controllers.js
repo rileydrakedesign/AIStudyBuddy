@@ -124,6 +124,7 @@ export const verifyUser = async (req, res, next) => {
             message: "OK",
             name: currentUser.name,
             email: currentUser.email,
+            emailVerified: currentUser.emailVerified,
             plan: currentUser.plan,
             chatRequestCount: currentUser.chatRequestCount,
         });

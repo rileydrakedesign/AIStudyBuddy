@@ -15,6 +15,7 @@ export const confirmEmail = async (req, res) => {
     found.emailToken = undefined;
     found.emailTokenExp = undefined;
     await found.save();
+    // Hard-code redirect to production app as before
     return res.redirect(302, "https://app.classchatai.com/chat");
 };
 /* ------------------------------------------------------------------ */
