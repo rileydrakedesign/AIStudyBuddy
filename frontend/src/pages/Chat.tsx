@@ -372,7 +372,7 @@ const Chat = () => {
      CLASS SELECT CHANGE
   ------------------------------ */
   const handleClassChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.value === "__upload__") {
+    if (event.target.value === "__new_class__") {
       navigate("/upload");
       return;
     }
@@ -1160,7 +1160,9 @@ const Chat = () => {
                     <em>All Classes</em>
                   </MenuItem>
                   {classes.length === 0 && (
-                    <MenuItem value="__upload__">Upload documents +</MenuItem>
+                    <MenuItem value="__new_class__">
+                      <AddIcon sx={{ mr: 1, fontSize: 18 }} /> New Class
+                    </MenuItem>
                   )}
                   {classes.map((cls) => (
                     <MenuItem key={cls._id} value={cls.name}>

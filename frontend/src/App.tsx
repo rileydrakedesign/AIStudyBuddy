@@ -1,7 +1,6 @@
 // src/App.tsx
 import Header from "./components/Header";
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
-import Loader from "./components/ui/loader";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Chat from "./pages/Chat";
@@ -16,7 +15,7 @@ function App() {
 
   // Guard for protecting routes
   const RequireAuth = ({ children }: { children: JSX.Element }) => {
-    if (auth?.loading) return <div style={{ marginTop: 120 }}><Loader /></div>;
+    if (auth?.loading) return null; // avoid showing loader globally
     if (!(auth?.isLoggedIn && auth.user)) {
       return <Navigate to="/login" replace state={{ from: location }} />;
     }
@@ -33,7 +32,7 @@ function App() {
           path="/"
           element={
             auth?.loading ? (
-              <div style={{ marginTop: 120 }}><Loader /></div>
+              <></>
             ) : auth?.isLoggedIn && auth.user ? (
               <Navigate to="/chat" replace />
             ) : (
