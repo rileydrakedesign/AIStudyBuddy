@@ -131,7 +131,8 @@ const UploadDocument: React.FC = () => {
 
   /* redirect if not logged in */
   useEffect(() => {
-    if (!auth?.isLoggedIn) navigate("/login");
+    if (!auth) return;
+    if (!auth.loading && !auth.isLoggedIn) navigate("/login");
   }, [auth, navigate]);
 
   /* ──────────────────── JSX */

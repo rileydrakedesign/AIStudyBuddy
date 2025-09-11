@@ -20,6 +20,7 @@ type User = {
 type UserAuth = {
   isLoggedIn: boolean;
   user: User | null;
+  loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   signup: (name: string, email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -29,6 +30,7 @@ const AuthContext = createContext<UserAuth | null>(null);
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   /* ----------------------------------------------------
      On first load, ask the server if our cookie is valid.
@@ -37,14 +39,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   ---------------------------------------------------- */
   useEffect(() => {
     async function checkStatus() {
-      const data = await checkAuthStatus();
-      if (data) {
-        setUser({ email: data.email, name: data.name });
-        setIsLoggedIn(true);
+      try {
+        const data = await checkAuthStatus();
+        if (data) {
+          setUser({ email: data.email, name: data.name });
+          setIsLoggedIn(true);
 
-        if (data.token) {
-          localStorage.setItem("token", data.token);
+          if (data.token) {
+            localStorage.setItem("token", data.token);
+          }
         }
+      } catch (e) {
+        // not logged in / token invalid – remain logged out
+      } finally {
+        setLoading(false);
       }
     }
     checkStatus();
@@ -85,6 +93,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const value = {
     user,
     isLoggedIn,
+    loading,
     login,
     logout,
     signup,
