@@ -25,7 +25,7 @@ const Header: React.FC<HeaderProps> = () => {
 
   // Function to determine if a link is active
   const isActive = (path: string) => location.pathname === path;
-  const hideNav = location.pathname === "/login"; // Hide nav links on login page only
+  const hideNav = location.pathname === "/login" || location.pathname === "/signup"; // Hide nav on auth pages
 
   return (
     <AppBar
