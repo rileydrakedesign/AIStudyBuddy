@@ -1112,7 +1112,7 @@ const Chat = () => {
           }}
         >
           {activeDocId ? (
-            <DocumentChat docId={activeDocId} onClose={() => setActiveDocId(null)} />
+            <DocumentChat key={activeDocId} docId={activeDocId} onClose={() => setActiveDocId(null)} />
           ) : (
             <>
               {/* Class Selector + free-plan chat counter */}

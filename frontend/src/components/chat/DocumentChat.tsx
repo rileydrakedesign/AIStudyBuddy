@@ -113,18 +113,36 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
   /* ------------------------------
      1) Fetch Document URL from S3
      ------------------------------ */
-  useEffect(() => {
-    getDocumentFile(docId)
-      .then((res) => {
-        if (res.url) {
-          setDocUrl(res.url);
-        }
-      })
-      .catch((err) => {
-        console.error("Error retrieving doc URL:", err);
-        toast.error("Could not retrieve document link");
-      });
-  }, [docId]);
+useEffect(() => {
+  // Reset URL so we don't briefly show the previous PDF
+  setDocUrl(null);
+  getDocumentFile(docId)
+    .then((res) => {
+      if (res.url) {
+        setDocUrl(res.url);
+      }
+    })
+    .catch((err) => {
+      console.error("Error retrieving doc URL:", err);
+      toast.error("Could not retrieve document link");
+    });
+}, [docId]);
+
+// When switching documents inside DocumentChat, start fresh
+useEffect(() => {
+  setDocSessionId(null);
+  setMessages([]);
+  setEphemeralChunks([]);
+  setIsGenerating(false);
+  setPartialAssistantMessage("");
+  setHighlightedPage(null);
+  setHighlightedText(null);
+  setVisibleStartPage(1);
+  setVisibleEndPage(3);
+  // Reset scroll positions
+  if (chatContainerRef.current) chatContainerRef.current.scrollTop = 0;
+  if (pdfContainerRef.current) pdfContainerRef.current.scrollTop = 0;
+}, [docId]);
 
   /* ------------------------------
      2) Chat Scrolling
