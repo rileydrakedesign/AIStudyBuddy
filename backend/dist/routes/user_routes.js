@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getAllUsers, userLogin, userSignup, verifyUser, userLogout, getUserClasses, deleteUserClass } from '../controllers/user_controllers.js';
+import { getAllUsers, userLogin, userSignup, verifyUser, userLogout, getUserClasses, deleteUserClass, googleAuth } from '../controllers/user_controllers.js';
 import { loginValidator, signupValidator, validate } from "../utils/validators.js";
 import { verifyToken } from "../utils/token_manager.js";
 import { confirmEmail, resendConfirmEmail } from "../controllers/user_confirm.js";
@@ -7,6 +7,7 @@ const userRoutes = Router();
 userRoutes.get("/", getAllUsers);
 userRoutes.post("/signup", validate(signupValidator), userSignup);
 userRoutes.post("/login", validate(loginValidator), userLogin);
+userRoutes.post("/google", googleAuth);
 userRoutes.get("/auth-status", verifyToken, verifyUser);
 userRoutes.get("/logout", verifyToken, userLogout);
 userRoutes.get("/classes", verifyToken, getUserClasses);

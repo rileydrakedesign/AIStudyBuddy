@@ -1,5 +1,5 @@
 // src/pages/Login.tsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Box,
   Button,
@@ -16,6 +16,12 @@ import { useNavigate, Link as RouterLink } from "react-router-dom";
 import toast from "react-hot-toast";
 import { useAuth } from "@/context/authContext";
 import { resendConfirmation } from "../helpers/api-communicators";
+
+declare global {
+  interface Window {
+    google?: any;
+  }
+}
 
 const extractErrorMsg = (err: any): string => {
   // express‑validator returns { errors: [ { msg, param, … } ] }
@@ -37,6 +43,9 @@ const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [unverified, setUnverified] = useState(false);
   const [resending, setResending] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+
+  const googleBtnRef = useRef<HTMLDivElement | null>(null);
 
   const navigate = useNavigate();
   const auth     = useAuth();
@@ -45,6 +54,54 @@ const Login: React.FC = () => {
   useEffect(() => {
     if (auth?.user) navigate("/chat");
   }, [auth?.user, navigate]);
+
+  // Initialize Google Identity Services button
+  useEffect(() => {
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+    if (!clientId) return; // no client ID configured
+
+    const init = () => {
+      if (!window.google || !googleBtnRef.current) return;
+      try {
+        window.google.accounts.id.initialize({
+          client_id: clientId,
+          callback: async (response: any) => {
+            const cred = response?.credential;
+            if (!cred) return;
+            try {
+              setGoogleLoading(true);
+              await auth?.loginWithGoogle(cred);
+              navigate("/chat");
+            } catch (e) {
+              toast.error("Google sign‑in failed");
+            } finally {
+              setGoogleLoading(false);
+            }
+          },
+        });
+        window.google.accounts.id.renderButton(googleBtnRef.current, {
+          theme: "outline",
+          size: "large",
+          width: 320,
+          type: "standard",
+        });
+      } catch (e) {
+        // ignore
+      }
+    };
+
+    // If script not ready yet, poll briefly
+    let tries = 0;
+    const id = setInterval(() => {
+      if (window.google && googleBtnRef.current) {
+        clearInterval(id);
+        init();
+      } else if (tries++ > 50) {
+        clearInterval(id);
+      }
+    }, 100);
+    return () => clearInterval(id);
+  }, [auth, navigate]);
 
   /* ---------- handlers ---------- */
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -233,19 +290,23 @@ const Login: React.FC = () => {
 
         {/* Google sign‑in */}
         <Box sx={{ display: "flex", justifyContent: "center", mt: 2 }}>
-          <IconButton
-            aria-label="Log in with Google"
-            size="large"
-            sx={{
-              color: "#fff",
-              border: "1px solid rgba(255,255,255,0.12)",
-              p: 1.5,
-              "&:hover": { bgcolor: "rgba(167,139,250,0.12)" },
-            }}
-            onClick={() => toast("Google sign‑in coming soon")}
-          >
-            <FaGoogle />
-          </IconButton>
+          {import.meta.env.VITE_GOOGLE_CLIENT_ID ? (
+            <div ref={googleBtnRef} />
+          ) : (
+            <IconButton
+              aria-label="Log in with Google"
+              size="large"
+              sx={{
+                color: "#fff",
+                border: "1px solid rgba(255,255,255,0.12)",
+                p: 1.5,
+                "&:hover": { bgcolor: "rgba(167,139,250,0.12)" },
+              }}
+              onClick={() => toast("Set VITE_GOOGLE_CLIENT_ID to enable Google sign‑in")}
+            >
+              <FaGoogle />
+            </IconButton>
+          )}
         </Box>
       </Box>
 

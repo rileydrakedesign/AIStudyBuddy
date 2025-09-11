@@ -11,6 +11,7 @@ import {
   loginUser,
   logoutUser,
   signupUser,
+  loginWithGoogle,
 } from "../helpers/api-communicators";
 
 type User = {
@@ -22,6 +23,7 @@ type UserAuth = {
   user: User | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  loginWithGoogle: (credential: string) => Promise<void>;
   signup: (name: string, email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 };
@@ -70,6 +72,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const loginGoogle = async (credential: string) => {
+    const data = await loginWithGoogle(credential);
+    if (data) {
+      setUser({ email: data.email, name: data.name });
+      setIsLoggedIn(true);
+    }
+  };
+
   const signup = async (name: string, email: string, password: string) => {
     const data = await signupUser(name, email, password);
     if (data) {
@@ -95,6 +105,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     isLoggedIn,
     loading,
     login,
+    loginWithGoogle: loginGoogle,
     logout,
     signup,
   };

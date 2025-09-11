@@ -7,6 +7,7 @@ import mongoose from "mongoose";
 import Document from "../models/documents.js";
 import ChatSession from "../models/chatSession.js";
 import { sendConfirmEmail } from "../utils/email.js";
+import { OAuth2Client } from "google-auth-library";
 
 export const getAllUsers = async (
   req: Request,
@@ -133,6 +134,106 @@ export const userLogin = async (
   } catch (error: any) {
     (req as any).log.error(error);
     return res.status(200).json({ message: "ERROR", cause: error.message });
+  }
+};
+
+/* ------------------------------------------------------------
+   Google Sign-In: verify ID token and upsert user
+------------------------------------------------------------ */
+export const googleAuth = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { credential } = req.body as { credential?: string };
+    if (!credential) {
+      return res.status(400).json({ message: "Missing Google credential" });
+    }
+
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    if (!clientId) {
+      return res.status(500).json({ message: "Server misconfigured (no GOOGLE_CLIENT_ID)" });
+    }
+
+    const oauthClient = new OAuth2Client(clientId);
+    const ticket = await oauthClient.verifyIdToken({ idToken: credential, audience: clientId });
+    const payload = ticket.getPayload();
+    if (!payload) {
+      return res.status(401).json({ message: "Invalid Google token" });
+    }
+
+    const email = payload.email;
+    const emailVerified = payload.email_verified;
+    const name = payload.name || `${payload.given_name ?? ""} ${payload.family_name ?? ""}`.trim();
+    const googleId = payload.sub;
+    const picture = payload.picture;
+
+    if (!email) {
+      return res.status(400).json({ message: "Google profile missing e‑mail" });
+    }
+
+    let existingUser = await user.findOne({ email });
+
+    if (!existingUser) {
+      existingUser = new user({
+        name: name || email.split("@")[0],
+        email,
+        authProvider: "google",
+        googleId,
+        picture,
+        emailVerified: !!emailVerified,
+      });
+      await existingUser.save();
+    } else {
+      let changed = false;
+      if (!existingUser.emailVerified && emailVerified) {
+        existingUser.emailVerified = true;
+        changed = true;
+      }
+      if (!existingUser.googleId && googleId) {
+        (existingUser as any).googleId = googleId;
+        changed = true;
+      }
+      if ((existingUser as any).authProvider !== "google") {
+        (existingUser as any).authProvider = "google";
+        changed = true;
+      }
+      if (picture && !(existingUser as any).picture) {
+        (existingUser as any).picture = picture;
+        changed = true;
+      }
+      if (changed) await existingUser.save();
+    }
+
+    /* ---------- auth cookie ---------- */
+    res.clearCookie(COOKIE_NAME, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "none",
+      signed: true,
+      path: "/",
+    });
+
+    const token = createToken(existingUser._id.toString(), existingUser.email, "7d");
+    const expires = new Date();
+    expires.setDate(expires.getDate() + 7);
+
+    res.cookie(COOKIE_NAME, token, {
+      path: "/",
+      expires,
+      secure: true,
+      sameSite: "none",
+      httpOnly: true,
+      signed: true,
+    });
+
+    return res
+      .status(200)
+      .json({ message: "OK", name: existingUser.name, email: existingUser.email });
+  } catch (error: any) {
+    (req as any).log.error(error, "Google auth failed");
+    return res.status(401).json({ message: "Google authentication failed" });
   }
 };
 

@@ -25,7 +25,24 @@ const userSchema = new mongoose.Schema({
   /* basic auth */
   name:     { type: String, required: true },
   email:    { type: String, required: true, unique: true },
-  password: { type: String, required: true },
+
+  /* auth provider info */
+  authProvider: {
+    type: String,
+    enum: ["credentials", "google"],
+    default: "credentials",
+  },
+  googleId: { type: String },
+  picture:  { type: String },
+
+  /* Password is required only for credentials-based accounts */
+  password: {
+    type: String,
+    required: function (this: any) {
+      return this.authProvider === "credentials";
+    },
+  },
+
   school:   { type: String, required: false },
 
   /* mailgun email info */

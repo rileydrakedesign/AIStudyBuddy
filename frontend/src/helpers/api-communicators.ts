@@ -11,6 +11,14 @@ export const loginUser = async (email: string, password: string) => {
   return data;
 };
 
+export const loginWithGoogle = async (credential: string) => {
+  const res = await axios.post("/user/google", { credential });
+  if (res.status !== 200) {
+    throw new Error("Unable to login with Google");
+  }
+  return res.data;
+};
+
 export interface SignupPayload {
   firstName: string;
   lastName:  string;
