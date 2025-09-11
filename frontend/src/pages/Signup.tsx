@@ -80,6 +80,27 @@ const Signup: React.FC = () => {
     return () => clearInterval(id);
   }, [resendCooldown]);
 
+  // Auto-navigate once the user confirms via e-mail (polling)
+  useEffect(() => {
+    if (!waitingConfirm) return;
+    let cancelled = false;
+    const id = setInterval(async () => {
+      try {
+        const data = await verifyUser(); // expects { emailVerified }
+        if (!cancelled && (data as any).emailVerified) {
+          clearInterval(id);
+          navigate("/chat");
+        }
+      } catch {
+        // ignore transient errors
+      }
+    }, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [waitingConfirm, navigate]);
+
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -325,6 +346,9 @@ const Signup: React.FC = () => {
           <Typography sx={{ mb: 4 }}>
             We sent a link to <strong>{form.email}</strong>.<br />
             Please click it to activate your account.
+          </Typography>
+          <Typography sx={{ mb: 3, color: "#9ca3af" }}>
+            reload the page after confirming
           </Typography>
       
           <Button
