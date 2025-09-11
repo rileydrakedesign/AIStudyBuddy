@@ -372,6 +372,10 @@ const Chat = () => {
      CLASS SELECT CHANGE
   ------------------------------ */
   const handleClassChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.value === "__upload__") {
+      navigate("/upload");
+      return;
+    }
     const c = event.target.value === "null" ? null : event.target.value;
     setSelectedClass(c);
   };
@@ -1155,6 +1159,9 @@ const Chat = () => {
                   <MenuItem value="null">
                     <em>All Classes</em>
                   </MenuItem>
+                  {classes.length === 0 && (
+                    <MenuItem value="__upload__">Upload documents +</MenuItem>
+                  )}
                   {classes.map((cls) => (
                     <MenuItem key={cls._id} value={cls.name}>
                       {cls.name}

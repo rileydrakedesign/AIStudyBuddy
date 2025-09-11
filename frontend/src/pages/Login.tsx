@@ -15,6 +15,7 @@ import { FaGoogle } from "react-icons/fa";
 import { useNavigate, Link as RouterLink } from "react-router-dom";
 import toast from "react-hot-toast";
 import { useAuth } from "@/context/authContext";
+import { resendConfirmation } from "../helpers/api-communicators";
 
 const extractErrorMsg = (err: any): string => {
   // express‑validator returns { errors: [ { msg, param, … } ] }
@@ -34,6 +35,8 @@ const Login: React.FC = () => {
   /* ---------- state ---------- */
   const [form, setForm] = useState({ email: "", password: "" });
   const [loading, setLoading] = useState(false);
+  const [unverified, setUnverified] = useState(false);
+  const [resending, setResending] = useState(false);
 
   const navigate = useNavigate();
   const auth     = useAuth();
@@ -60,7 +63,12 @@ const Login: React.FC = () => {
       await auth?.login(form.email, form.password);
       navigate("/chat");
     } catch (err: any) {
-      toast.error(extractErrorMsg(err));
+      const status = err?.response?.status;
+      const msg = extractErrorMsg(err);
+      if (status === 403 && typeof msg === "string" && msg.toLowerCase().includes("confirm")) {
+        setUnverified(true);
+      }
+      toast.error(msg);
     } finally {
       setLoading(false);
     }    
@@ -84,6 +92,43 @@ const Login: React.FC = () => {
       <Typography variant="h4" fontWeight={700} textAlign="center" gutterBottom>
         Login
       </Typography>
+
+      {/* Unverified email helper */}
+      {unverified && (
+        <Box
+          sx={{
+            mb: 2,
+            p: 2,
+            borderRadius: 2,
+            bgcolor: "rgba(25,118,210,0.1)",
+            border: "1px solid rgba(25,118,210,0.4)",
+            color: "#e8e8e8",
+          }}
+        >
+          <Typography sx={{ mb: 1 }}>
+            Your email isn’t verified yet. Please check your inbox for the confirmation link.
+          </Typography>
+          <Button
+            variant="outlined"
+            size="small"
+            disabled={resending}
+            onClick={async () => {
+              try {
+                setResending(true);
+                await resendConfirmation(form.email);
+                toast.success("Confirmation e‑mail sent");
+              } catch {
+                toast.error("Failed to resend e‑mail");
+              } finally {
+                setResending(false);
+              }
+            }}
+            sx={{ borderColor: "#1976d2", color: "#90caf9" }}
+          >
+            {resending ? "Sending…" : "Resend confirmation"}
+          </Button>
+        </Box>
+      )}
 
       <form onSubmit={handleSubmit}>
         <Grid container spacing={2}>

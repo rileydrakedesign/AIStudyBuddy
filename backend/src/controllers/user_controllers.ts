@@ -33,7 +33,7 @@ export const userSignup = async (
     const name = `${firstName} ${lastName}`.trim();
 
     const existingUser = await user.findOne({ email });
-    if (existingUser) return res.status(401).send("User already registered");
+    if (existingUser) return res.status(409).json({ message: "User already registered" });
 
     const hashedPassword = await hash(password, 10);
 
@@ -90,16 +90,16 @@ export const userLogin = async (
     const { email, password } = req.body;
     const currentUser = await user.findOne({ email });
     if (!currentUser) {
-      return res.status(401).send("User not registered");
+      return res.status(401).json({ message: "User not registered" });
     }
     if (!currentUser.emailVerified) {
-        return res
-          .status(403)
-          .send("Please confirm your email via the link we sent.");
+      return res
+        .status(403)
+        .json({ message: "Please confirm your email via the link we sent." });
     }
     const isPasswordCorrect = await compare(password, currentUser.password);
     if (!isPasswordCorrect) {
-      return res.status(403).send("Incorrect password");
+      return res.status(403).json({ message: "Incorrect password" });
     }
 
     res.clearCookie(COOKIE_NAME, {
