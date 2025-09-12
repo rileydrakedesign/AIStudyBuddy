@@ -1,18 +1,26 @@
 // src/pages/Signup.tsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Box,
   Button,
+  Divider,
   Grid,
+  IconButton,
   Link,
   TextField,
   Typography,
 } from "@mui/material";
+import { FaGoogle } from "react-icons/fa";
 import { useNavigate, Link as RouterLink } from "react-router-dom";
 import toast from "react-hot-toast";
 import { signupUser, resendConfirmation, verifyUser } from "../helpers/api-communicators";
 import { useAuth } from "@/context/authContext";
 
+declare global {
+  interface Window {
+    google?: any;
+  }
+}
 
 
 const extractErrorMsg = (err: any): string => {
@@ -42,9 +50,11 @@ const Signup: React.FC = () => {
     confirmPassword: "",
   });
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const navigate = useNavigate();
 
   const auth = useAuth();
+  const googleBtnRef = useRef<HTMLDivElement | null>(null);
 
   const [waitingConfirm, setWaitingConfirm] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
@@ -72,6 +82,53 @@ const Signup: React.FC = () => {
     checkUser();
   }, [navigate]);
   
+  // Initialize Google Identity Services button (same as Login page)
+  useEffect(() => {
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+    if (!clientId) return; // no client ID configured
+
+    const init = () => {
+      if (!window.google || !googleBtnRef.current) return;
+      try {
+        window.google.accounts.id.initialize({
+          client_id: clientId,
+          callback: async (response: any) => {
+            const cred = response?.credential;
+            if (!cred) return;
+            try {
+              setGoogleLoading(true);
+              await auth?.loginWithGoogle(cred);
+              navigate("/chat");
+            } catch (e) {
+              // keep toasts light on signup screen
+            } finally {
+              setGoogleLoading(false);
+            }
+          },
+        });
+        window.google.accounts.id.renderButton(googleBtnRef.current, {
+          theme: "outline",
+          size: "large",
+          width: 320,
+          type: "standard",
+        });
+      } catch (e) {
+        // ignore
+      }
+    };
+
+    let tries = 0;
+    const id = setInterval(() => {
+      if (window.google && googleBtnRef.current) {
+        clearInterval(id);
+        init();
+      } else if (tries++ > 50) {
+        clearInterval(id);
+      }
+    }, 100);
+    return () => clearInterval(id);
+  }, [auth, navigate]);
+
   
 
   useEffect(() => {
@@ -337,6 +394,42 @@ const Signup: React.FC = () => {
             </Grid>
           </Grid>
         </form>
+        {/* Social separator & Google sign-up */}
+        <Box sx={{ mt: 3 }}>
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              color: "#9ca3af",
+              fontSize: "0.875rem",
+            }}
+          >
+            <Divider sx={{ flex: 1, bgcolor: "#374151" }} />
+            <span>Sign up with social accounts</span>
+            <Divider sx={{ flex: 1, bgcolor: "#374151" }} />
+          </Box>
+
+          <Box sx={{ display: "flex", justifyContent: "center", mt: 2 }}>
+            {import.meta.env.VITE_GOOGLE_CLIENT_ID ? (
+              <div ref={googleBtnRef} />
+            ) : (
+              <IconButton
+                aria-label="Sign up with Google"
+                size="large"
+                sx={{
+                  color: "#fff",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  p: 1.5,
+                  "&:hover": { bgcolor: "rgba(167,139,250,0.12)" },
+                }}
+                onClick={() => {/* no-op if not configured */}}
+              >
+                <FaGoogle />
+              </IconButton>
+            )}
+          </Box>
+        </Box>
       ) : (
         /* ---------- WAITING‑FOR‑CONFIRMATION PANEL ---------- */
         <Box sx={{ textAlign: "center" }}>
