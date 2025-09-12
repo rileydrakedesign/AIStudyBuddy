@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { hash } from "bcrypt";
 import User from "../models/user.js";
 import { sendPasswordResetEmail } from "../utils/email.js";
+import { verifyToken } from "../utils/token_manager.js";
 
 /* ------------------------------------------------------------
    POST /api/v1/user/forgot-password
@@ -73,3 +74,30 @@ export const resetRedirect = async (req: Request, res: Response) => {
   return res.redirect(302, url);
 };
 
+/* ------------------------------------------------------------
+   POST /api/v1/user/send-password-reset  (auth required)
+   Sends reset email to the logged-in user's email on record
+------------------------------------------------------------ */
+export const sendResetForCurrentUser = [
+  verifyToken as any,
+  async (req: Request, res: Response) => {
+    try {
+      const userId = (res as any).locals.jwtData?.id;
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+      const found = await User.findById(userId);
+      if (!found) return res.status(401).json({ message: "Unauthorized" });
+
+      const now = Date.now();
+      if (found.passwordResetSentAt && now - found.passwordResetSentAt.getTime() < 60_000) {
+        return res.status(200).json({ message: "If the account exists, we sent a reset link" });
+      }
+
+      await sendPasswordResetEmail(found);
+      return res.status(200).json({ message: "If the account exists, we sent a reset link" });
+    } catch (error: any) {
+      (req as any).log?.error(error, "sendResetForCurrentUser error");
+      return res.status(200).json({ message: "If the account exists, we sent a reset link" });
+    }
+  }
+];

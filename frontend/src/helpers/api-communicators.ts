@@ -253,3 +253,9 @@ export const submitPasswordReset = async (
   if (res.status !== 200) throw new Error("Failed to reset password");
   return res.data;
 };
+
+export const sendPasswordResetForCurrentUser = async () => {
+  const res = await axios.post("/user/send-password-reset", {});
+  if (res.status !== 200) throw new Error("Failed to send reset link");
+  return res.data;
+};

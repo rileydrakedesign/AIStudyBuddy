@@ -12,6 +12,7 @@ import toast from "react-hot-toast";
 import {
   getUserProfile as apiGetUserProfile,
   logoutUser,
+  sendPasswordResetForCurrentUser,
 } from "../helpers/api-communicators";
 import { useNavigate } from "react-router-dom";
 
@@ -23,6 +24,7 @@ const Profile: React.FC = () => {
   const [editEmail, setEditEmail] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [resetLoading, setResetLoading] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -59,6 +61,19 @@ const Profile: React.FC = () => {
 
   const handleDelete = () => {
     toast("Delete account coming soon");
+  };
+
+  const handleChangePassword = async () => {
+    try {
+      setResetLoading(true);
+      await sendPasswordResetForCurrentUser();
+      toast.success("If the account exists, a reset link was sent");
+    } catch (e) {
+      // keep non-enumerating message
+      toast.success("If the account exists, a reset link was sent");
+    } finally {
+      setResetLoading(false);
+    }
   };
 
   if (loading) {
@@ -196,8 +211,10 @@ const Profile: React.FC = () => {
               variant="contained"
               fullWidth
               sx={{ backgroundColor: BORDER_BLUE }}
+              disabled={resetLoading}
+              onClick={handleChangePassword}
             >
-              Change Password
+              {resetLoading ? "Sending…" : "Change Password"}
             </Button>
           </Grid>
 

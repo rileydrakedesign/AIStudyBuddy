@@ -4,7 +4,7 @@ import { getAllUsers, userLogin, userSignup, verifyUser, userLogout, getUserClas
 import { loginValidator, signupValidator, validate, forgotPasswordValidator, resetPasswordValidator } from "../utils/validators.js"
 import { verifyToken } from "../utils/token_manager.js";
 import { confirmEmail, resendConfirmEmail } from "../controllers/user_confirm.js";
-import { forgotPassword, resetPassword } from "../controllers/password_reset.js";
+import { forgotPassword, resetPassword, sendResetForCurrentUser } from "../controllers/password_reset.js";
 
 const userRoutes = Router();
 
@@ -22,5 +22,7 @@ userRoutes.post("/resend-confirmation", resendConfirmEmail);
 // password reset (public)
 userRoutes.post("/forgot-password", validate(forgotPasswordValidator), forgotPassword);
 userRoutes.post("/reset-password", validate(resetPasswordValidator), resetPassword);
+// password reset (auth-only convenience)
+userRoutes.post("/send-password-reset", sendResetForCurrentUser);
 
 export default userRoutes;
