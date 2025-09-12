@@ -229,6 +229,7 @@ const Signup: React.FC = () => {
         Create your account
       </Typography>
       {!waitingConfirm ? (
+        <>
         <form onSubmit={handleSubmit}>
           <Grid container spacing={2}>
             {/* First & Last name on same line */}
@@ -430,6 +431,7 @@ const Signup: React.FC = () => {
             )}
           </Box>
         </Box>
+        </>
       ) : (
         /* ---------- WAITING‑FOR‑CONFIRMATION PANEL ---------- */
         <Box sx={{ textAlign: "center" }}>
