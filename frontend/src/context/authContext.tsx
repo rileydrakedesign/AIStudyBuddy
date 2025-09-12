@@ -73,10 +73,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const loginGoogle = async (credential: string) => {
-    const data = await loginWithGoogle(credential);
-    if (data) {
-      setUser({ email: data.email, name: data.name });
-      setIsLoggedIn(true);
+    try {
+      const data = await loginWithGoogle(credential);
+      if (data) {
+        setUser({ email: data.email, name: data.name });
+        setIsLoggedIn(true);
+      }
+    } catch (err) {
+      // Let pages decide how to show errors; keep a console for debugging
+      console.error("[Google] authContext.loginWithGoogle failed", err);
+      throw err;
     }
   };
 

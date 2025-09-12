@@ -1,5 +1,6 @@
 // src/pages/Signup.tsx
 import React, { useState, useEffect, useRef } from "react";
+import axios from "axios";
 import {
   Box,
   Button,
@@ -97,10 +98,16 @@ const Signup: React.FC = () => {
             if (!cred) return;
             try {
               setGoogleLoading(true);
+              console.log("[Google] GIS callback received credential (Signup)", {
+                baseURL: (axios as any)?.defaults?.baseURL,
+                credPrefix: cred?.slice?.(0, 12),
+              });
               await auth?.loginWithGoogle(cred);
               navigate("/chat");
             } catch (e) {
-              // keep toasts light on signup screen
+              console.error("[Google] Signup page Google sign‑in failed", e);
+              const msg = (e as any)?.response?.data?.message || (e as any)?.message || "Google sign‑in failed";
+              toast.error(msg);
             } finally {
               setGoogleLoading(false);
             }

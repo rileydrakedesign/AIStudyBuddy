@@ -147,6 +147,19 @@ export const googleAuth = async (
 ) => {
   try {
     const { credential } = req.body as { credential?: string };
+    // Basic request diagnostics (safe)
+    try {
+      (req as any).log?.info(
+        {
+          route: "/user/google",
+          origin: req.headers.origin,
+          hasCredential: !!credential,
+          credPrefix: credential ? credential.slice(0, 12) : undefined,
+          envHasClientId: !!process.env.GOOGLE_CLIENT_ID,
+        },
+        "Google auth request"
+      );
+    } catch {}
     if (!credential) {
       return res.status(400).json({ message: "Missing Google credential" });
     }
@@ -228,12 +241,13 @@ export const googleAuth = async (
       signed: true,
     });
 
+    (req as any).log?.info({ userId: existingUser._id, email: existingUser.email }, "Google auth success");
     return res
       .status(200)
       .json({ message: "OK", name: existingUser.name, email: existingUser.email });
   } catch (error: any) {
-    (req as any).log.error(error, "Google auth failed");
-    return res.status(401).json({ message: "Google authentication failed" });
+    (req as any).log?.error({ err: error, msg: error?.message }, "Google auth failed");
+    return res.status(401).json({ message: "Google authentication failed", cause: error?.message });
   }
 };
 

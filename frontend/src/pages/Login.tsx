@@ -1,5 +1,6 @@
 // src/pages/Login.tsx
 import React, { useState, useEffect, useRef } from "react";
+import axios from "axios";
 import {
   Box,
   Button,
@@ -70,10 +71,16 @@ const Login: React.FC = () => {
             if (!cred) return;
             try {
               setGoogleLoading(true);
+              console.log("[Google] GIS callback received credential", {
+                baseURL: (axios as any)?.defaults?.baseURL,
+                credPrefix: cred?.slice?.(0, 12),
+              });
               await auth?.loginWithGoogle(cred);
               navigate("/chat");
             } catch (e) {
-              toast.error("Google sign‑in failed");
+              console.error("[Google] Login page Google sign‑in failed", e);
+              const msg = (e as any)?.response?.data?.message || (e as any)?.message || "Google sign‑in failed";
+              toast.error(msg);
             } finally {
               setGoogleLoading(false);
             }

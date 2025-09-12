@@ -12,11 +12,19 @@ export const loginUser = async (email: string, password: string) => {
 };
 
 export const loginWithGoogle = async (credential: string) => {
-  const res = await axios.post("/user/google", { credential });
-  if (res.status !== 200) {
-    throw new Error("Unable to login with Google");
+  try {
+    const res = await axios.post("/user/google", { credential });
+    if (res.status !== 200) {
+      throw new Error("Unable to login with Google");
+    }
+    return res.data;
+  } catch (err: any) {
+    // Surface details to the caller for debugging
+    const status = err?.response?.status;
+    const data = err?.response?.data;
+    console.error("[Google] loginWithGoogle error", { status, data, baseURL: axios.defaults.baseURL });
+    throw err;
   }
-  return res.data;
 };
 
 export interface SignupPayload {
