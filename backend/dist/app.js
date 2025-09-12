@@ -9,6 +9,7 @@ import { v4 as uuid } from 'uuid';
 import logger from './utils/logger.js';
 /* ─────────────────────────────────────────── */
 import { confirmEmail } from "./controllers/user_confirm.js";
+import { resetRedirect } from "./controllers/password_reset.js";
 import appRouter from './routes/index.js';
 config(); // load .env
 const app = express();
@@ -63,6 +64,7 @@ app.use((req, res, next) => {
     next();
 });
 app.get("/confirm/:token", confirmEmail);
+app.get("/reset/:token", resetRedirect);
 /* routes ----------------------------------------------------------------- */
 app.use('/api/v1', appRouter);
 /* error handlers --------------------------------------------------------- */

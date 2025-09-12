@@ -51,6 +51,11 @@ const userSchema = new mongoose.Schema({
   emailTokenExp: { type: Date },
   confirmEmailSentAt: { type: Date },
 
+  /* password reset */
+  passwordResetToken: { type: String },
+  passwordResetExp:   { type: Date },
+  passwordResetSentAt:{ type: Date },
+
   /* subscription / usage */
   plan: {
     type: String,

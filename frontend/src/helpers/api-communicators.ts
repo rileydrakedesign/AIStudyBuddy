@@ -237,3 +237,19 @@ export const resendConfirmation = async (email: string) => {
   if (res.status !== 200) throw new Error("Failed to resend");
   return res.data;
 };
+
+export const requestPasswordReset = async (email: string) => {
+  const res = await axios.post("/user/forgot-password", { email });
+  if (res.status !== 200) throw new Error("Failed to send reset link");
+  return res.data;
+};
+
+export const submitPasswordReset = async (
+  token: string,
+  password: string,
+  confirmPassword: string
+) => {
+  const res = await axios.post("/user/reset-password", { token, password, confirmPassword });
+  if (res.status !== 200) throw new Error("Failed to reset password");
+  return res.data;
+};

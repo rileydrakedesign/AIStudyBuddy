@@ -73,6 +73,19 @@ export const signupValidator = [
     .withMessage("Passwords do not match"),
 ];
 
+/* ----------------------------------------------------------
+   PASSWORD RESET
+---------------------------------------------------------- */
+export const forgotPasswordValidator = [emailValidator];
+
+export const resetPasswordValidator = [
+  body("token").trim().notEmpty().withMessage("Reset token is required"),
+  passwordValidator,
+  body("confirmPassword")
+    .custom((value, { req }) => value === req.body.password)
+    .withMessage("Passwords do not match"),
+];
+
 
 export const chatCompletionValidator = [
   body("message")

@@ -7,6 +7,8 @@ import Chat from "./pages/Chat";
 import NotFound from "./pages/NotFound";
 import UploadDocument from "./pages/Upload";
 import Profile from "./pages/Profile";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import { useAuth } from "./context/authContext";
 
 function App() {
@@ -44,6 +46,8 @@ function App() {
         {/* auth-free routes */}
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
 
         {/* logged-in only (always defined, guarded) */}
         <Route
