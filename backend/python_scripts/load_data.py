@@ -172,10 +172,22 @@ def stream_chunks_to_atlas(
     Returns a tuple: (full_doc_text, summary_parts) for downstream summarisation.
     """
     q: SimpleQueue[list[tuple[str, dict]]] = SimpleQueue()
+    # Ingest metrics counters
+    pages_total = 0
+    pages_empty = 0
+    chunks_produced = 0
+    chunks_inserted = 0
+    duplicates_skipped = 0
+    embed_batches = 0
+    embed_latency_ms_total = 0
+    insert_retries_total = 0
+    total_chars = 0
+    max_chunk_chars = 0
 
     # ---------------- consumer ----------------
     # ---------------- consumer ----------------
     def consumer():
+        nonlocal embed_batches, embed_latency_ms_total, duplicates_skipped, chunks_inserted, insert_retries_total
         while True:
             batch = q.get()
             if batch is None:            # poison‑pill
@@ -186,7 +198,10 @@ def stream_chunks_to_atlas(
             # ① async embed (non‑blocking)
             tokens_needed = sum(int(len(t) * TOK_PER_CHAR) for t in texts)
             acquire_tokens(tokens_needed)          # NEW guard
+            t0 = time.time()
             vectors = embed_texts_sync(list(texts))
+            embed_batches += 1
+            embed_latency_ms_total += int((time.time() - t0) * 1000)
 
 
             # ② build docs and insert directly (since from_embeddings not present)
@@ -200,6 +215,7 @@ def stream_chunks_to_atlas(
                 norm = " ".join(txt.split()).lower()
                 h = hashlib.sha1(norm.encode("utf-8")).hexdigest()
                 if h in seen_hashes:
+                    duplicates_skipped += 1
                     continue
                 seen_hashes.add(h)
                 doc_record["chunk_hash"] = h
@@ -210,9 +226,11 @@ def stream_chunks_to_atlas(
                 while True:
                     try:
                         collection.insert_many(docs)
+                        chunks_inserted += len(docs)
                         break
                     except Exception as e:
                         attempts += 1
+                        insert_retries_total += 1
                         if attempts > 3:
                             log.error("insert_many failed after retries: %s", e)
                             break
@@ -242,9 +260,12 @@ def stream_chunks_to_atlas(
             batch.clear(); char_sum = 0
 
     def parse_page(idx: int):
+        nonlocal pages_total, pages_empty, chunks_produced, total_chars, max_chunk_chars
         page_md = doc.load_page(idx).get_text("markdown")
+        pages_total += 1
         if not page_md.strip():
             log.warning("Empty markdown on page %d; skipping (extracted=false)", idx + 1)
+            pages_empty += 1
             return []
         page_items = []
         docs = md_splitter.split_text(page_md) or RecursiveCharacterTextSplitter(
@@ -277,6 +298,10 @@ def stream_chunks_to_atlas(
                         },
                     )
                 )
+                chunks_produced += 1
+                total_chars += len(piece)
+                if len(piece) > max_chunk_chars:
+                    max_chunk_chars = len(piece)
         return page_items
 
     with ThreadPoolExecutor(max_workers=os.cpu_count() or 2) as ex:
@@ -292,6 +317,24 @@ def stream_chunks_to_atlas(
     flush_batch()    # final producer flush
     q.put(None)      # stop consumer
     t_cons.join()
+    # Emit final metrics for this ingest
+    try:
+        metrics = {
+            "doc_id": doc_id,
+            "pages_total": pages_total,
+            "pages_empty": pages_empty,
+            "chunks_produced": chunks_produced,
+            "chunks_inserted": chunks_inserted,
+            "duplicates_skipped": duplicates_skipped,
+            "embed_batches": embed_batches,
+            "embed_latency_ms_total": embed_latency_ms_total,
+            "insert_retries_total": insert_retries_total,
+            "total_chars": total_chars,
+            "max_chunk_chars": max_chunk_chars,
+        }
+        log.info("[METRICS] ingest %s", json.dumps(metrics))
+    except Exception:
+        pass
     log.info("Streaming ingest complete")
 
     return " ".join(summary_parts), summary_parts
@@ -357,10 +400,21 @@ def load_pdf_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
         return final or merged[:3000]
 
     summary_text = ""
+    method = "single"
     if est_tokens(full_doc_text) <= MAX_TOKENS_PER_REQUEST:
         summary_text = safe_sum(full_doc_text)
     if not summary_text:
         summary_text = map_reduce_summary(parts)
+        method = "map_reduce"
+    try:
+        log.info("[METRICS] summarizer %s", json.dumps({
+            "doc_id": doc_id,
+            "method": method,
+            "input_chars": len(full_doc_text),
+            "summary_chars": len(summary_text or "")
+        }))
+    except Exception:
+        pass
 
     if summary_text:
         summary_meta = {

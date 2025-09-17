@@ -18,6 +18,7 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from pymongo import MongoClient
 from bson import ObjectId
 from logger_setup import log
+from json import dumps as _json_dumps
 import openai
 import traceback   # for last-chance logging
 import time      
@@ -142,6 +143,14 @@ def suggest_refine_queries() -> List[str]:
         "Refer to a section number, e.g. “Summarise Section 3.4”.",
         "Break the question into a smaller part, e.g. “List the main theorems first”.",
     ]
+
+
+def log_metrics(tag: str, data: dict):
+    """Emit compact structured metrics for monitoring."""
+    try:
+        log.info("[METRICS] %s %s", tag, _json_dumps(data, ensure_ascii=False))
+    except Exception:
+        pass
 
 
 def _tpm_bucket_key() -> str:
@@ -558,6 +567,7 @@ def process_semantic_search(
     # Per-route knobs and LLM selection
     cfg = ROUTE_CONFIG.get(route, ROUTE_CONFIG["general_qa"])
     llm = get_llm(route)
+    metrics = {"route": route, "mode": mode, "k": cfg.get("k"), "numCandidates": cfg.get("numCandidates"), "temperature": cfg.get("temperature")}
 
     # Reuse previous chunks for follow-up
     if route == "follow_up":
@@ -590,6 +600,8 @@ def process_semantic_search(
         if not try_acquire_tokens(tokens_needed, max_wait_s=10.0):
             busy_msg = "System is busy processing other requests. Please retry in a few seconds."
             chat_history.append({"role": "assistant", "content": busy_msg})
+            metrics.update({"status": "busy"})
+            log_metrics("rag", metrics)
             return {"message": busy_msg, "status": "busy", "citation": [], "chats": chat_history, "chunks": [], "chunkReferences": []}
         query_vec = embedding_model.embed_query(user_query_effective)
         embed_ms = int((time.time() - embed_t0) * 1000)
@@ -607,6 +619,7 @@ def process_semantic_search(
 
         # 4) Remove similarity threshold gate; dedupe by (doc_id, page_number)
         raw_results = list(search_cursor)
+        metrics["hits_raw"] = len(raw_results)
         seen = set()
         similarity_results = []
         for r in raw_results:
@@ -619,8 +632,13 @@ def process_semantic_search(
         top_scores = [round(r.get("score", 0.0), 4) for r in similarity_results[:5]]
         log.info("[RETRIEVAL] route=%s k=%s cand=%s hits=%d top_scores=%s latency_ms(embed=%d, search=%d)",
                  route, cfg["k"], cfg["numCandidates"], len(similarity_results), top_scores, embed_ms, search_ms)
+        metrics["hits_unique"] = len(similarity_results)
+        metrics["embed_ms"] = embed_ms
+        metrics["search_ms"] = search_ms
 
         # Optional reranking (MMR) within the retrieved set for diversity
+        mmr_applied = False
+        mmr_ms = None
         try:
             mmr_start = time.time()
             texts = [r.get("text", "") for r in similarity_results]
@@ -653,9 +671,13 @@ def process_semantic_search(
                     rest.remove(best_i)
                 similarity_results = [similarity_results[i] for i in selected]
                 mmr_ms = int((time.time() - mmr_start) * 1000)
+                mmr_applied = True
                 log.info("[RERANK] MMR applied over %d candidates in %dms", len(texts), mmr_ms)
         except Exception as e:
             log.warning("[RERANK] skipped: %s", e)
+        metrics["mmr_applied"] = mmr_applied
+        if mmr_ms is not None:
+            metrics["mmr_ms"] = mmr_ms
 
         # 5) Build chunk_array for later prompt context
         for idx, r in enumerate(similarity_results):
@@ -671,6 +693,8 @@ def process_semantic_search(
 
         if chunk_array:
             log.info(f"[CHUNKS] retained IDs={[c['chunkNumber'] for c in chunk_array]}")
+        metrics["chunks_used"] = len(chunk_array)
+        metrics["context_chars"] = sum(len(c.get("text") or "") for c in chunk_array)
 
         # ---------- Graceful “no-hit” handling ----------
         if not chunk_array:
@@ -686,7 +710,7 @@ def process_semantic_search(
                     "suggestions": suggestions,
                 }
             )
-            return {
+            payload = {
                 "message": refine_message,
                 "suggestions": suggestions,
                 "status": "no_hit",
@@ -695,6 +719,9 @@ def process_semantic_search(
                 "chunks": [],
                 "chunkReferences": [],
             }
+            metrics.update({"status": "no_hit"})
+            log_metrics("rag", metrics)
+            return payload
 # ─────────────────────────────────────────────────────────
 
 
@@ -910,6 +937,11 @@ def process_semantic_search(
                 inner = inner.strip()
                 return any(inner and inner in t for t in chunk_texts)
             kept = [ln for ln in lines if is_verbatim(ln)]
+            try:
+                metrics["quote_total"] = len(lines)
+                metrics["quote_kept"] = len(kept)
+            except Exception:
+                pass
             if kept:
                 answer = "\n".join(kept)
             else:
@@ -918,6 +950,11 @@ def process_semantic_search(
                     "Could you narrow the topic or specify a section?"
                 )
                 chat_history.append({"role": "assistant", "content": friendly})
+                try:
+                    metrics.update({"status": "needs_context"})
+                    log_metrics("rag", metrics)
+                except Exception:
+                    pass
                 return {
                     "message": friendly,
                     "status":  "needs_context",
@@ -984,6 +1021,11 @@ def process_semantic_search(
             "Please hit **Try again**. If the issue persists, try later or contact support."
         )
         chat_history.append({"role": "assistant", "content": friendly})
+        try:
+            metrics.update({"status": "llm_error"})
+            log_metrics("rag", metrics)
+        except Exception:
+            pass
         return {
             "message": friendly,
             "status":  "llm_error",
@@ -1005,6 +1047,11 @@ def process_semantic_search(
     # Append assistant turn to history for future follow-ups
     chat_history.append({"role": "assistant", "content": answer, "chunkReferences": chunk_refs})
 
+    try:
+        metrics.update({"status": "ok", "answer_chars": len(answer)})
+        log_metrics("rag", metrics)
+    except Exception:
+        pass
     return {
         "message": answer,
         "citation": citation,
