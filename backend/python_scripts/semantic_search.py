@@ -847,14 +847,17 @@ def process_semantic_search(
         referencing_instruction = (
             "After each quote, append a space followed by the chunk reference number(s) "
             "in square brackets using the chunk list provided below (e.g., [1], [2]). "
-            "If multiple chunks support a single quote, include all consecutively like [1][3]. "
+            "If multiple chunks support a single quote, include all consecutively like [1][3] with no commas or punctuation. "
             "Do not invent citations; only use numbers corresponding to the provided chunks."
             "\n\n"
         )
     else:
         referencing_instruction = (
             "Whenever you use content from a given chunk in your final answer, "
-            "place a bracketed reference [1], [2], [3], etc. at the end of the relevant sentence.\n\n"
+            "place a single bracketed reference in the form [N] at the end of that sentence. "
+            "If multiple chunks support the same sentence, include each reference back-to-back with no punctuation, e.g., [1][3][4]. "
+            "Do NOT write lists like [1, 3, 4] or ranges like [1-3]; only separate [N] tokens are allowed. "
+            "Always use the numbering shown in the chunk list below (starting from 1).\n\n"
             "Please format your answer using Markdown. Write all mathematical expressions in LaTeX using '$' for "
             "inline math and '$$' for display math. Ensure code is in triple backticks.\n\n"
         )
@@ -910,6 +913,7 @@ def process_semantic_search(
 
         gen_ms = int((time.time() - gen_t0) * 1000)
         log.info(f"[ANSWER] len={len(answer)} | starts={answer[:80]!r} | latency_ms(generate={gen_ms})")
+        metrics["generate_ms"] = gen_ms
 
 
         # NEW — model signalled no relevant info
@@ -971,6 +975,41 @@ def process_semantic_search(
         # Per-sentence cite nudge for cite-critical routes
         if route in ("general_qa", "follow_up") and not re.search(r"\[\d+\]", answer):
             answer += "\n\nIf you want more precise citations, please specify a narrower section or term."
+
+        # Renumber [N] citations so they always start at [1] in order of first appearance.
+        def _renumber_citations(ans: str, chunks: list[dict]) -> tuple[str, list[dict]]:
+            nums = re.findall(r"\[(\d+)\]", ans)
+            if not nums:
+                return ans, chunks
+            nums_int = [int(n) for n in nums]
+            valid = {c["chunkNumber"] for c in chunks}
+            used_order: list[int] = []
+            mapping: dict[int,int] = {}
+            for n in nums_int:
+                if n not in valid:
+                    continue
+                if n not in mapping:
+                    mapping[n] = len(mapping) + 1
+                    used_order.append(n)
+            if not mapping:
+                return ans, chunks
+            def repl(m):
+                old = int(m.group(1))
+                return f"[{mapping.get(old, old)}]"
+            ans2 = re.sub(r"\[(\d+)\]", repl, ans)
+            by_num = {c["chunkNumber"]: c for c in chunks}
+            new_chunks: list[dict] = []
+            for old in used_order:
+                c = by_num.get(old)
+                if not c:
+                    continue
+                copy = dict(c)
+                copy["chunkNumber"] = mapping[old]
+                new_chunks.append(copy)
+            return ans2, new_chunks or chunks
+
+        if mode not in ("doc_summary", "class_summary"):
+            answer, chunk_array = _renumber_citations(answer, chunk_array)
 
 
     # ---- 1) Context-length specific (still needs special copy) ----
