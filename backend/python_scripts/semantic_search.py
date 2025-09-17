@@ -59,8 +59,8 @@ except ImportError:
 load_dotenv()
 
 # ─────────────  Rate‑limit guard (shared with ingest)  ─────────────
-# TLS verification enabled by default; no ssl_cert_reqs override
-r = redis.Redis.from_url(os.getenv("REDIS_URL"))
+# Restore previous behavior: allow self-signed Redis certs on Heroku
+r = redis.Redis.from_url(os.getenv("REDIS_URL"), ssl_cert_reqs=None)
 
 TPM_LIMIT    = int(os.getenv("OPENAI_TPM_LIMIT", "180000"))  # same org quota
 TOK_PER_CHAR = 1 / 4                                         # heuristic

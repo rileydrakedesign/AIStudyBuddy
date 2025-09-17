@@ -56,8 +56,8 @@ MAX_TOKENS_PER_REQUEST = 300_000
 est_tokens             = lambda txt: int(len(txt) * TOK_PER_CHAR)
 
 # ──────────────────  Rate‑limit guard  ──────────────────
-# TLS verification enabled by default
-r = redis.Redis.from_url(os.getenv("REDIS_URL"))
+# Allow self-signed Redis certs on Heroku
+r = redis.Redis.from_url(os.getenv("REDIS_URL"), ssl_cert_reqs=None)
 
 TPM_LIMIT = int(os.getenv("OPENAI_TPM_LIMIT", "180000"))
 
