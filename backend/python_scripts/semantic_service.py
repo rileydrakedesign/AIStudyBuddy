@@ -77,8 +77,7 @@ async def semantic_search(req: SearchRequest):
         # Task finished – stream the real JSON payload
         try:
             result = await search_task
-            # delimiter for final JSON to simplify client parsing
-            yield b"\n---\n"
+            # Emit only valid JSON so non-stream clients (Axios) can parse
             yield json.dumps(result).encode()
         except Exception as e:
             # Convert exceptions into a JSON error so caller still receives valid JSON
