@@ -607,7 +607,8 @@ def process_semantic_search(
         embed_ms = int((time.time() - embed_t0) * 1000)
 
         # 2) Build Mongo search filter to scope by user / class / doc
-        filters = {"user_id": user_id}
+        # Exclude summaries for specific/quote/general routes
+        filters = {"user_id": user_id, "is_summary": False}
         if doc_id and doc_id != "null":
             filters["doc_id"] = doc_id
         elif class_name not in (None, "", "null"):
