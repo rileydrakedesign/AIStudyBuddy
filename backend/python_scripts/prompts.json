@@ -1,5 +1,5 @@
 {
-    "general_qa": "Answer the question clearly and concisely, relying only on the supplied context.",
+    "general_qa": "Answer the question clearly and concisely, relying only on the supplied context. Keep the answer ≤250 words.",
     "generate_study_guide": "Create a well-structured study guide (≤1 200 words) that covers key concepts, definitions, formulas/diagrams, and 3–5 practice questions.",
     "generate_notes": "Produce concise, well-organised notes that capture all major points and supporting details.",
     "follow_up": "Answer the follow-up question, updating or expanding on prior information without repeating it verbatim.",

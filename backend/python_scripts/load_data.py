@@ -1,5 +1,6 @@
 # load_data.py  – 25 Jul 2025
 import os, argparse
+import hashlib
 from io import BytesIO
 from queue import SimpleQueue
 import threading
@@ -55,13 +56,10 @@ MAX_TOKENS_PER_REQUEST = 300_000
 est_tokens             = lambda txt: int(len(txt) * TOK_PER_CHAR)
 
 # ──────────────────  Rate‑limit guard  ──────────────────
-r = redis.Redis.from_url(os.getenv("REDIS_URL"), ssl_cert_reqs=None)
+# TLS verification enabled by default
+r = redis.Redis.from_url(os.getenv("REDIS_URL"))
 
-# Your org’s tokens‑per‑minute limit for text‑embedding‑3‑small
 TPM_LIMIT = int(os.getenv("OPENAI_TPM_LIMIT", "180000"))
-
-# Use the same heuristic as elsewhere
-TOK_PER_CHAR = 1 / 4
 
 
 
@@ -167,11 +165,11 @@ def stream_chunks_to_atlas(
     doc_id: str,
     file_name: str,
     batch_chars: int = 8_000,
-) -> str:
+) -> tuple[str, list[str]]:
     """
     Parse PDF pages in parallel, push small batches through a queue.
     Consumer thread embeds + inserts each batch immediately.
-    Returns the *full_doc_text* needed for summary generation.
+    Returns a tuple: (full_doc_text, summary_parts) for downstream summarisation.
     """
     q: SimpleQueue[list[tuple[str, dict]]] = SimpleQueue()
 
@@ -193,13 +191,32 @@ def stream_chunks_to_atlas(
 
             # ② build docs and insert directly (since from_embeddings not present)
             docs = []
+            seen_hashes: set[str] = set()
             for vec, txt, meta_d in zip(vectors, texts, metas):
                 doc_record = meta_d.copy()
                 doc_record["text"]      = txt
                 doc_record["embedding"] = vec
+                # Stable hash per doc for dedup within this ingest
+                norm = " ".join(txt.split()).lower()
+                h = hashlib.sha1(norm.encode("utf-8")).hexdigest()
+                if h in seen_hashes:
+                    continue
+                seen_hashes.add(h)
+                doc_record["chunk_hash"] = h
                 docs.append(doc_record)
 
-            collection.insert_many(docs)
+            if docs:
+                attempts = 0
+                while True:
+                    try:
+                        collection.insert_many(docs)
+                        break
+                    except Exception as e:
+                        attempts += 1
+                        if attempts > 3:
+                            log.error("insert_many failed after retries: %s", e)
+                            break
+                        time.sleep(0.75 * attempts)
 
     t_cons = threading.Thread(target=consumer, daemon=True)
     t_cons.start()
@@ -209,7 +226,7 @@ def stream_chunks_to_atlas(
 
     headers           = [("#","H1"),("##","H2"),("###","H3"),("####","H4"),("#####","H5"),("######","H6")]
     md_splitter       = MarkdownHeaderTextSplitter(headers)
-    semantic_splitter = SemanticChunker(OpenAIEmbeddings(), breakpoint_threshold_type="standard_deviation")
+    semantic_splitter = SemanticChunker(embeddings, breakpoint_threshold_type="standard_deviation")
 
     meta   = doc.metadata or {}
     title  = meta.get("title",  "Unknown")
@@ -227,18 +244,22 @@ def stream_chunks_to_atlas(
     def parse_page(idx: int):
         page_md = doc.load_page(idx).get_text("markdown")
         if not page_md.strip():
+            log.warning("Empty markdown on page %d; skipping (extracted=false)", idx + 1)
             return []
         page_items = []
         docs = md_splitter.split_text(page_md) or RecursiveCharacterTextSplitter(
-            chunk_size=1500, chunk_overlap=200
+            chunk_size=1200, chunk_overlap=120
         ).create_documents(page_md)
         for d in docs:
             text = d.page_content.strip()
             if not text:
                 continue
-            pieces = (
-                semantic_splitter.split_text(text) if len(text) > 1000 else [text]
-            )
+            if len(text) > 2000:
+                # Guard SemanticChunker embedding calls with the same token limiter
+                acquire_tokens(int(len(text) * TOK_PER_CHAR))
+                pieces = semantic_splitter.split_text(text)
+            else:
+                pieces = [text]
             for piece in pieces:
                 summary_parts.append(piece)
                 page_items.append(
@@ -273,7 +294,7 @@ def stream_chunks_to_atlas(
     t_cons.join()
     log.info("Streaming ingest complete")
 
-    return " ".join(summary_parts)
+    return " ".join(summary_parts), summary_parts
 
 # ──────────────────────────────────────────────────────────────
 # MAIN INGEST ENTRY
@@ -296,7 +317,7 @@ def load_pdf_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
     file_name = os.path.basename(s3_key)
 
     # ---------- producer → consumer pipeline ----------
-    full_doc_text = stream_chunks_to_atlas(
+    full_doc_text, parts = stream_chunks_to_atlas(
         pdf_stream,
         user_id=user_id,
         class_id=class_name,
@@ -305,18 +326,41 @@ def load_pdf_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
     )
 
     # ---------- summary generation ----------
-    def safe_sum(txt: str):
-        return summarize_document(txt) if est_tokens(txt) <= MAX_TOKENS_PER_REQUEST else None
+    def safe_sum(txt: str) -> str:
+        try:
+            return summarize_document(txt) if est_tokens(txt) <= MAX_TOKENS_PER_REQUEST else ""
+        except Exception:
+            return ""
 
-    summary_text = safe_sum(full_doc_text)
-    if summary_text is None:
-        # try half‑split fallback
-        tokens = full_doc_text.split()
-        mid    = len(tokens) // 2 or 1
-        s1 = safe_sum(" ".join(tokens[:mid]))
-        s2 = safe_sum(" ".join(tokens[mid:]))
-        if s1 and s2:
-            summary_text = f"{s1}\n\n---\n\n{s2}"
+    def map_reduce_summary(chunks: list[str]) -> str:
+        if not chunks:
+            return ""
+        # Group chunks into ~8k-char blocks, summarise each, then merge
+        block, acc, out_summaries = [], 0, []
+        for ch in chunks:
+            L = len(ch)
+            if acc + L > 8000 and block:
+                block_text = " \n\n".join(block)
+                sm = safe_sum(block_text)
+                if sm:
+                    out_summaries.append(sm)
+                block, acc = [], 0
+            block.append(ch); acc += L
+        if block:
+            sm = safe_sum(" \n\n".join(block))
+            if sm:
+                out_summaries.append(sm)
+        if not out_summaries:
+            return ""
+        merged = "\n\n---\n\n".join(out_summaries)
+        final = safe_sum(merged)
+        return final or merged[:3000]
+
+    summary_text = ""
+    if est_tokens(full_doc_text) <= MAX_TOKENS_PER_REQUEST:
+        summary_text = safe_sum(full_doc_text)
+    if not summary_text:
+        summary_text = map_reduce_summary(parts)
 
     if summary_text:
         summary_meta = {
@@ -355,3 +399,13 @@ if __name__ == "__main__":
     ap.add_argument("--doc_id", required=True)
     args = ap.parse_args()
     load_pdf_data(args.user_id, args.class_name, args.s3_key, args.doc_id)
+# Ensure unique index on (doc_id, chunk_hash) for cross-run dedup (only when chunk_hash exists)
+try:
+    collection.create_index(
+        [("doc_id", 1), ("chunk_hash", 1)],
+        unique=True,
+        partialFilterExpression={"chunk_hash": {"$exists": True}},
+        name="uniq_doc_chunkhash",
+    )
+except Exception as e:
+    log.warning("Index creation ignored: %s", e)

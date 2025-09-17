@@ -77,6 +77,8 @@ async def semantic_search(req: SearchRequest):
         # Task finished – stream the real JSON payload
         try:
             result = await search_task
+            # delimiter for final JSON to simplify client parsing
+            yield b"\n---\n"
             yield json.dumps(result).encode()
         except Exception as e:
             # Convert exceptions into a JSON error so caller still receives valid JSON
@@ -84,7 +86,10 @@ async def semantic_search(req: SearchRequest):
             err_payload = json.dumps({"error": str(e)})
             yield err_payload.encode()
 
-    return StreamingResponse(body_generator(), media_type="application/json")
+    resp = StreamingResponse(body_generator(), media_type="application/json")
+    # Explicit keepalive hint so client can ignore whitespace ticks
+    resp.headers["X-Keepalive"] = "1"
+    return resp
 
 # ──────────────────────────────────────────────────────────────────────────
 # /api/v1/process_upload  (unchanged – still enqueues ingest job)

@@ -16,6 +16,7 @@ from langchain_core.prompts import (
 )
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from pymongo import MongoClient
+from bson import ObjectId
 from logger_setup import log
 import openai
 import traceback   # for last-chance logging
@@ -57,7 +58,8 @@ except ImportError:
 load_dotenv()
 
 # ─────────────  Rate‑limit guard (shared with ingest)  ─────────────
-r = redis.Redis.from_url(os.getenv("REDIS_URL"), ssl_cert_reqs=None)
+# TLS verification enabled by default; no ssl_cert_reqs override
+r = redis.Redis.from_url(os.getenv("REDIS_URL"))
 
 TPM_LIMIT    = int(os.getenv("OPENAI_TPM_LIMIT", "180000"))  # same org quota
 TOK_PER_CHAR = 1 / 4                                         # heuristic
@@ -70,17 +72,30 @@ collection_name = "study_materials2"
 collection = client[db_name][collection_name]
 
 embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
-llm = ChatOpenAI(model="gpt-4.1-nano", temperature=0.5)
+
+# Route-tunable defaults
+ROUTE_CONFIG = {
+    "general_qa":           {"k": int(os.getenv("RAG_K", "12")),  "numCandidates": int(os.getenv("RAG_CANDIDATES", "1000")), "temperature": float(os.getenv("RAG_TEMP_GENERAL", "0.2")), "max_output_tokens": int(os.getenv("RAG_MAX_TOKENS", "700"))},
+    "follow_up":            {"k": int(os.getenv("RAG_K_FOLLOWUP", "10")), "numCandidates": int(os.getenv("RAG_CANDIDATES", "1000")), "temperature": float(os.getenv("RAG_TEMP_FOLLOWUP", "0.2")), "max_output_tokens": int(os.getenv("RAG_MAX_TOKENS", "700"))},
+    "quote_finding":        {"k": int(os.getenv("RAG_K_QUOTE", "20")), "numCandidates": int(os.getenv("RAG_CANDIDATES", "1200")), "temperature": float(os.getenv("RAG_TEMP_QUOTE", "0.0")), "max_output_tokens": int(os.getenv("RAG_MAX_TOKENS_QUOTE", "400"))},
+    "generate_study_guide": {"k": int(os.getenv("RAG_K_GUIDE", "8")),   "numCandidates": int(os.getenv("RAG_CANDIDATES", "800")),  "temperature": float(os.getenv("RAG_TEMP_GUIDE", "0.3")), "max_output_tokens": int(os.getenv("RAG_MAX_TOKENS_GUIDE", "1200"))},
+    "summary":              {"k": int(os.getenv("RAG_K_SUM", "8")),    "numCandidates": int(os.getenv("RAG_CANDIDATES", "800")),  "temperature": float(os.getenv("RAG_TEMP_SUM", "0.2")), "max_output_tokens": int(os.getenv("RAG_MAX_TOKENS_SUM", "600"))},
+}
+
+def get_llm(route: str) -> ChatOpenAI:
+    cfg = ROUTE_CONFIG.get(route, ROUTE_CONFIG["general_qa"])
+    return ChatOpenAI(model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4.1-nano"), temperature=cfg["temperature"])
 
 backend_url = os.getenv("BACKEND_URL", "https://localhost:3000/api/v1")
 
 # ------------------------------------------------------------------
 # Context-window guard-rails
 # ------------------------------------------------------------------
-MAX_PROMPT_TOKENS = 8_000          # safe ceiling for gpt-4-mini       # heuristic ≈ 4 chars/token
+MAX_PROMPT_TOKENS = int(os.getenv("MAX_PROMPT_TOKENS", "8000"))          # safe ceiling for gpt-4-mini       # heuristic ≈ 4 chars/token
 est_tokens        = lambda txt: int(len(txt) * TOK_PER_CHAR)
 
-SIMILARITY_THRESHOLD = 0.5
+# Keep defined for telemetry but do not gate by default
+SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.0"))
 
 
 # ──────────────────────────────────────────────────────────────
@@ -129,34 +144,39 @@ def suggest_refine_queries() -> List[str]:
     ]
 
 
-def reserve_tokens(tokens_needed: int, bucket_key: str = "openai:tpm") -> bool:
-    now = int(time.time())
+def _tpm_bucket_key() -> str:
+    return "openai:tpm:counter"
+
+def reserve_tokens(tokens_needed: int) -> tuple[bool, int]:
+    """Counter-based minute bucket using INCRBY + EXPIRE 70s.
+    Returns (ok, used_after).
+    """
+    key = _tpm_bucket_key()
     pipe = r.pipeline()
-    pipe.zremrangebyscore(bucket_key, 0, now - 60)   # leak 60‑s window
-    pipe.zcard(bucket_key)
-    current = pipe.execute()[-1]
-
-    if current + tokens_needed <= TPM_LIMIT:
-        pipe = r.pipeline()
-        for i in range(tokens_needed):
-            pipe.zadd(bucket_key, {f"{now}:{i}": now})
-        pipe.execute()
-        log.info("[RateLimit] Reserved %d tokens (remaining %d)",
-                 tokens_needed, TPM_LIMIT - (current + tokens_needed))
-        return True
-
-    log.warning("[RateLimit] Bucket full – need %d, have %d/%d",
-                tokens_needed, current, TPM_LIMIT)
-    return False
+    pipe.incrby(key, tokens_needed)
+    pipe.expire(key, 70)
+    used_after, _ = pipe.execute()
+    if used_after <= TPM_LIMIT:
+        return True, used_after
+    try:
+        r.decrby(key, tokens_needed)
+    except Exception:
+        pass
+    return False, used_after
 
 
-def acquire_tokens(tokens_needed: int):
+def try_acquire_tokens(tokens_needed: int, max_wait_s: float = 10.0) -> bool:
     waited = 0.0
-    while not reserve_tokens(tokens_needed):
+    ok, _ = reserve_tokens(tokens_needed)
+    if ok:
+        return True
+    while waited < max_wait_s:
         time.sleep(0.5)
         waited += 0.5
-        if waited % 5 == 0:
-            log.warning("[RateLimit] Still waiting (%.1fs)", waited)
+        ok, _ = reserve_tokens(tokens_needed)
+        if ok:
+            return True
+    return False
 
 
 
@@ -167,15 +187,15 @@ def create_embedding(text: str):
     return embedding_model.embed_query(text)
 
 
-def perform_semantic_search(query_vector, filters=None):
+def perform_semantic_search(query_vector, filters=None, *, limit: int = 12, numCandidates: int = 1000):
     pipeline = [
         {
             "$vectorSearch": {
                 "index": "PlotSemanticSearch",
                 "path": "embedding",
                 "queryVector": query_vector,
-                "numCandidates": 1000,
-                "limit": 3,
+                "numCandidates": numCandidates,
+                "limit": limit,
                 "filter": filters,
             }
         },
@@ -299,7 +319,7 @@ def fetch_chapter_text(
     return full_text, chunk_arr
 
 
-def condense_summary(summary_text: str, user_query: str) -> str:
+def condense_summary(summary_text: str, user_query: str, llm: ChatOpenAI) -> str:
     """
     Condense a long stored summary while taking into account the user's
     own instructions (e.g. 'bullet points', 'glossary', etc.).
@@ -337,7 +357,7 @@ def fetch_class_summaries(user_id: str, class_name: str):
         "is_summary": True
     }).sort("file_name", 1))
 
-def condense_class_summaries(text: str, user_query: str) -> str:
+def condense_class_summaries(text: str, user_query: str, llm: ChatOpenAI) -> str:
     prompt = PromptTemplate.from_template(
         "You are an expert study assistant.\n\n"
         "Below are multiple document summaries for one class, delimited by "
@@ -352,7 +372,7 @@ def condense_class_summaries(text: str, user_query: str) -> str:
     )
 
 # ------------ NEW  study-guide generation helper ------------
-def generate_study_guide(context_text: str, user_query: str) -> str:
+def generate_study_guide(context_text: str, user_query: str, llm: ChatOpenAI) -> str:
     """
     Build a markdown study guide with fixed sections.
     """
@@ -385,7 +405,7 @@ def load_prompts():
         return json.load(f)
 
 
-def construct_chain(prompt_template, user_query, chat_history):
+def construct_chain(prompt_template, user_query, chat_history, llm: ChatOpenAI):
     return (prompt_template | llm | StrOutputParser()).invoke(
         {"chat_history": chat_history, "input": user_query}
     )
@@ -465,7 +485,7 @@ def process_semantic_search(
             if summary_doc:
                 context_txt = summary_doc["text"]
                 if est_tokens(context_txt) > MAX_PROMPT_TOKENS:
-                    context_txt = condense_summary(context_txt, user_query)
+                    context_txt = condense_summary(context_txt, user_query, get_llm("summary"))
                     # ── NEW LOG ───────────────────────────────────────────
                 log.info(
                     "[PROC] Study-guide (doc) | summary_tokens=%d | will_condense=%s",
@@ -473,7 +493,7 @@ def process_semantic_search(
                     "YES" if est_tokens(context_txt) > MAX_PROMPT_TOKENS else "NO",
                 )
                 # ──────────────────────────────────────────────────────
-                guide = generate_study_guide(context_txt, user_query)
+                guide = generate_study_guide(context_txt, user_query, get_llm("generate_study_guide"))
 
                 chunk_array = [{
                     "_id": str(summary_doc["_id"]), "chunkNumber": 1,
@@ -494,7 +514,7 @@ def process_semantic_search(
             if docs:
                 combined = "\n\n---\n\n".join(d["text"] for d in docs)
                 if est_tokens(combined) > MAX_PROMPT_TOKENS:
-                    combined = condense_class_summaries(combined, user_query)
+                    combined = condense_class_summaries(combined, user_query, get_llm("summary"))
                     
                 # ── NEW LOG ───────────────────────────────────────────
                 log.info(
@@ -505,7 +525,7 @@ def process_semantic_search(
                 )
                 # ──────────────────────────────────────────────────────
 
-                guide = generate_study_guide(combined, user_query)
+                guide = generate_study_guide(combined, user_query, get_llm("generate_study_guide"))
 
                 chunk_array = [{
                     "_id": str(d["_id"]), "chunkNumber": i+1,
@@ -535,6 +555,10 @@ def process_semantic_search(
     chunk_array = []
     similarity_results = []
 
+    # Per-route knobs and LLM selection
+    cfg = ROUTE_CONFIG.get(route, ROUTE_CONFIG["general_qa"])
+    llm = get_llm(route)
+
     # Reuse previous chunks for follow-up
     if route == "follow_up":
         last_refs = next(
@@ -542,10 +566,15 @@ def process_semantic_search(
         )
         if last_refs:
             for ref in last_refs:
-                chunk_doc = collection.find_one({"_id": ref.get("chunkId")})
+                chunk_id_val = ref.get("chunkId")
+                try:
+                    obj_id = ObjectId(chunk_id_val) if isinstance(chunk_id_val, str) else chunk_id_val
+                except Exception:
+                    obj_id = chunk_id_val
+                chunk_doc = collection.find_one({"_id": obj_id})
                 chunk_array.append(
                     {
-                        "_id": ref.get("chunkId"),
+                        "_id": str(obj_id),
                         "chunkNumber": ref.get("displayNumber"),
                         "text": chunk_doc.get("text") if chunk_doc else None,
                         "pageNumber": ref.get("pageNumber"),
@@ -556,8 +585,14 @@ def process_semantic_search(
 
     if mode not in ("follow_up", "doc_summary", "class_summary"):
         # 1) Embed the user query
-        acquire_tokens(est_tokens(user_query_effective))
+        tokens_needed = est_tokens(user_query_effective)
+        embed_t0 = time.time()
+        if not try_acquire_tokens(tokens_needed, max_wait_s=10.0):
+            busy_msg = "System is busy processing other requests. Please retry in a few seconds."
+            chat_history.append({"role": "assistant", "content": busy_msg})
+            return {"message": busy_msg, "status": "busy", "citation": [], "chats": chat_history, "chunks": [], "chunkReferences": []}
         query_vec = embedding_model.embed_query(user_query_effective)
+        embed_ms = int((time.time() - embed_t0) * 1000)
 
         # 2) Build Mongo search filter to scope by user / class / doc
         filters = {"user_id": user_id}
@@ -567,14 +602,60 @@ def process_semantic_search(
             filters["class_id"] = class_name
 
         # 3) Run vector search
-        search_cursor = perform_semantic_search(query_vec, filters)
+        search_t0 = time.time()
+        search_cursor = perform_semantic_search(query_vec, filters, limit=cfg["k"], numCandidates=cfg["numCandidates"])
 
-        # 4) Keep only hits ≥ threshold
-        similarity_results = [
-            r for r in search_cursor if r.get("score", 0) >= SIMILARITY_THRESHOLD
-        ]
+        # 4) Remove similarity threshold gate; dedupe by (doc_id, page_number)
+        raw_results = list(search_cursor)
+        seen = set()
+        similarity_results = []
+        for r in raw_results:
+            key = (r.get("doc_id"), r.get("page_number"))
+            if key in seen:
+                continue
+            seen.add(key)
+            similarity_results.append(r)
+        search_ms = int((time.time() - search_t0) * 1000)
+        top_scores = [round(r.get("score", 0.0), 4) for r in similarity_results[:5]]
+        log.info("[RETRIEVAL] route=%s k=%s cand=%s hits=%d top_scores=%s latency_ms(embed=%d, search=%d)",
+                 route, cfg["k"], cfg["numCandidates"], len(similarity_results), top_scores, embed_ms, search_ms)
 
-        log.info(f"[RETRIEVAL] hits={len(similarity_results)} | kept={(similarity_results)} ")
+        # Optional reranking (MMR) within the retrieved set for diversity
+        try:
+            mmr_start = time.time()
+            texts = [r.get("text", "") for r in similarity_results]
+            token_need = sum(est_tokens(t) for t in texts)
+            if texts and try_acquire_tokens(token_need, max_wait_s=2.0):
+                doc_embs = embedding_model.embed_documents(texts)
+                # normalise
+                def _norm(v):
+                    n = math.sqrt(sum(x*x for x in v)) or 1.0
+                    return [x / n for x in v]
+                qn = _norm(query_vec)
+                dns = [_norm(v) for v in doc_embs]
+                def cos(u,v):
+                    return sum(a*b for a,b in zip(u,v))
+                lambda_ = 0.7
+                selected, rest = [], list(range(len(dns)))
+                # seed with best by query similarity
+                rest.sort(key=lambda i: cos(qn, dns[i]), reverse=True)
+                if rest:
+                    selected.append(rest.pop(0))
+                while rest:
+                    best_i, best_score = None, -1.0
+                    for i in rest:
+                        sim_q = cos(qn, dns[i])
+                        sim_d = max(cos(dns[i], dns[j]) for j in selected) if selected else 0.0
+                        score = lambda_ * sim_q - (1 - lambda_) * sim_d
+                        if score > best_score:
+                            best_i, best_score = i, score
+                    selected.append(best_i)
+                    rest.remove(best_i)
+                similarity_results = [similarity_results[i] for i in selected]
+                mmr_ms = int((time.time() - mmr_start) * 1000)
+                log.info("[RERANK] MMR applied over %d candidates in %dms", len(texts), mmr_ms)
+        except Exception as e:
+            log.warning("[RERANK] skipped: %s", e)
 
         # 5) Build chunk_array for later prompt context
         for idx, r in enumerate(similarity_results):
@@ -630,7 +711,7 @@ def process_semantic_search(
             # 1. Condense the long stored summary
             log.info(f"[FULL-MODE] passing stored summary (len={len(summary_doc['text'])}) to condenser")
 
-            condensed_text = condense_summary(summary_doc["text"], user_query)
+            condensed_text = condense_summary(summary_doc["text"], user_query, get_llm("summary"))
 
             # 2. Build minimal chunk/citation info so the front-end can still
             #    show “chunk 1” if desired.
@@ -669,7 +750,7 @@ def process_semantic_search(
             mode = "specific"            # fall through to normal retrieval
         else:
             combined = "\n\n---\n\n".join(d["text"] for d in docs)
-            condensed_text = condense_class_summaries(combined, user_query)
+            condensed_text = condense_class_summaries(combined, user_query, get_llm("summary"))
 
             chunk_array = [
                 {
@@ -776,9 +857,12 @@ def process_semantic_search(
     # ---------- RATE‑LIMIT RESERVATION ----------
     prompt_tokens = est_tokens(formatted_prompt)
     history_tokens = sum(est_tokens(m["content"]) for m in chat_history_cleaned)
-    estimated_output = 700                      # adjust if you set max_tokens
+    estimated_output = cfg.get("max_output_tokens", 700)
     total_needed = prompt_tokens + history_tokens + estimated_output
-    acquire_tokens(total_needed)
+    if not try_acquire_tokens(total_needed, max_wait_s=10.0):
+        busy_msg = "System is busy processing other requests. Please retry in a few seconds."
+        chat_history.append({"role": "assistant", "content": busy_msg})
+        return {"message": busy_msg, "status": "busy", "citation": [], "chats": chat_history, "chunks": [], "chunkReferences": []}
 # --------------------------------------------
 
 
@@ -788,13 +872,16 @@ def process_semantic_search(
     )
     try:
         log.info(f"[PROMPT] first 800 chars: {formatted_prompt[:800]!r}")
+        gen_t0 = time.time()
         answer = construct_chain(
             prompt_template,
             user_query_effective if route == "quote_finding" else user_query,
             chat_history_cleaned,
+            llm,
         )
 
-        log.info(f"[ANSWER] len={len(answer)} | starts={answer[:80]!r}")
+        gen_ms = int((time.time() - gen_t0) * 1000)
+        log.info(f"[ANSWER] len={len(answer)} | starts={answer[:80]!r} | latency_ms(generate={gen_ms})")
 
 
         # NEW — model signalled no relevant info
@@ -812,6 +899,40 @@ def process_semantic_search(
                 "chunks": [],
                 "chunkReferences": [],
             }
+
+        # Quote post-validation: ensure quotes are verbatim from selected chunks
+        if route == "quote_finding":
+            lines = [ln.strip() for ln in answer.splitlines() if ln.strip()]
+            chunk_texts = [c.get("text") or "" for c in chunk_array]
+            def is_verbatim(ln: str) -> bool:
+                m = re.search(r'“([^”]+)”|"([^"]+)"', ln)
+                inner = (m.group(1) or m.group(2)) if m else ln
+                inner = inner.strip()
+                return any(inner and inner in t for t in chunk_texts)
+            kept = [ln for ln in lines if is_verbatim(ln)]
+            if kept:
+                answer = "\n".join(kept)
+            else:
+                friendly = (
+                    "I couldn’t verify any exact quotes in the selected context. "
+                    "Could you narrow the topic or specify a section?"
+                )
+                chat_history.append({"role": "assistant", "content": friendly})
+                return {
+                    "message": friendly,
+                    "status":  "needs_context",
+                    "citation": get_file_citation(similarity_results),
+                    "chats":   chat_history,
+                    "chunks":  chunk_array,
+                    "chunkReferences": [
+                        {"chunkId": it["_id"], "displayNumber": it["chunkNumber"], "pageNumber": it.get("pageNumber")}
+                        for it in chunk_array
+                    ],
+                }
+
+        # Per-sentence cite nudge for cite-critical routes
+        if route in ("general_qa", "follow_up") and not re.search(r"\[\d+\]", answer):
+            answer += "\n\nIf you want more precise citations, please specify a narrower section or term."
 
 
     # ---- 1) Context-length specific (still needs special copy) ----

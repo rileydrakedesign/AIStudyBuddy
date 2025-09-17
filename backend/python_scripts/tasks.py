@@ -6,10 +6,7 @@ from typing import Any
 # ------------------------------------------------------------------
 # 1. Redis connection (Heroku injects REDIS_URL automatically)
 # ------------------------------------------------------------------
-redis_conn = Redis.from_url(
-    os.getenv("REDIS_URL"),
-    ssl_cert_reqs=None,      
-)
+redis_conn = Redis.from_url(os.getenv("REDIS_URL"))
 
 
 # ------------------------------------------------------------------
