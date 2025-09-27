@@ -1,12 +1,12 @@
 import os, ssl
-from redis import Redis
+from redis_setup import get_redis
 from rq import Queue
 from typing import Any
 
 # ------------------------------------------------------------------
-# 1. Redis connection (Heroku injects REDIS_URL automatically)
+# 1. Redis connection (uses TLS helper; honors REDIS_TLS_URL/REDIS_URL)
 # ------------------------------------------------------------------
-redis_conn = Redis.from_url(os.getenv("REDIS_URL"), ssl_cert_reqs=None)
+redis_conn = get_redis()
 
 
 # ------------------------------------------------------------------

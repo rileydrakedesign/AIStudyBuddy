@@ -23,7 +23,7 @@ from logger_setup import log
 import asyncio
 from openai import AsyncOpenAI, RateLimitError, APIConnectionError, Timeout as OpenAITimeout
 import time
-import redis                         
+from redis_setup import get_redis
 
 
 load_dotenv()
@@ -56,8 +56,8 @@ MAX_TOKENS_PER_REQUEST = 300_000
 est_tokens             = lambda txt: int(len(txt) * TOK_PER_CHAR)
 
 # ──────────────────  Rate‑limit guard  ──────────────────
-# Allow self-signed Redis certs on Heroku
-r = redis.Redis.from_url(os.getenv("REDIS_URL"), ssl_cert_reqs=None)
+# Use TLS-aware Redis client (verification on by default)
+r = get_redis()
 
 TPM_LIMIT = int(os.getenv("OPENAI_TPM_LIMIT", "180000"))
 

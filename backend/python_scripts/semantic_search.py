@@ -22,7 +22,7 @@ from json import dumps as _json_dumps
 import openai
 import traceback   # for last-chance logging
 import time      
-import redis      
+from redis_setup import get_redis
 
 
 # ------------------------------------------------------------------
@@ -59,8 +59,8 @@ except ImportError:
 load_dotenv()
 
 # ─────────────  Rate‑limit guard (shared with ingest)  ─────────────
-# Restore previous behavior: allow self-signed Redis certs on Heroku
-r = redis.Redis.from_url(os.getenv("REDIS_URL"), ssl_cert_reqs=None)
+# TLS-aware Redis client; verifies by default
+r = get_redis()
 
 TPM_LIMIT    = int(os.getenv("OPENAI_TPM_LIMIT", "180000"))  # same org quota
 TOK_PER_CHAR = 1 / 4                                         # heuristic
