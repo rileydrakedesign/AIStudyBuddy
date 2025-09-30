@@ -1,6 +1,7 @@
 import os
 import ssl
 import redis
+from urllib.parse import urlparse
 from logger_setup import log
 
 
@@ -45,10 +46,27 @@ def get_redis():
 
     try:
         client = redis.Redis.from_url(url, **kwargs)
-        # Simple ping to fail fast if misconfigured (optional)
-        # client.ping()
+
+        # Diagnostics (no secrets): host, port, scheme, verify, CA source
+        try:
+            u = urlparse(url)
+            ca_src = (
+                "file" if os.getenv("REDIS_SSL_CA_FILE") else
+                "env" if os.getenv("REDIS_SSL_CA_DATA") else
+                "none"
+            )
+            log.info(
+                "[RedisTLS] cfg host=%s port=%s scheme=%s verify=%s ca=%s",
+                u.hostname, u.port, u.scheme, verify, ca_src,
+            )
+        except Exception:
+            pass
+
+        # Optional early ping to surface TLS/CA errors sooner when enabled
+        if os.getenv("REDIS_DIAG", "0") in ("1", "true", "yes", "on"):
+            client.ping()
+
         return client
     except Exception as e:
         log.error("[RedisTLS] Connection init failed: %s", e)
         raise
-

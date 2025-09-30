@@ -2,6 +2,7 @@ import os, ssl
 from redis_setup import get_redis
 from rq import Queue
 from typing import Any
+from logger_setup import log
 
 # ------------------------------------------------------------------
 # 1. Redis connection (uses TLS helper; honors REDIS_TLS_URL/REDIS_URL)
@@ -33,6 +34,14 @@ def enqueue_ingest(
 
     Returns the RQ Job instance so callers can log / inspect if desired.
     """
+    # Preflight: ensure Redis is reachable so we fail fast with clear logs
+    try:
+        redis_conn.ping()
+        log.info("[RQ] Redis ping ok; enqueueing ingest job")
+    except Exception as e:
+        log.error("[RQ] Redis ping failed before enqueue: %s", e)
+        raise
+
     # Local import avoids importing PyMuPDF & LangChain in the web process
     from load_data import load_pdf_data
 
