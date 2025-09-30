@@ -44,7 +44,11 @@ def get_redis():
             except Exception as e:
                 log.warning("[RedisTLS] Failed to write REDIS_SSL_CA_DATA: %s", e)
 
-        kwargs["ssl"] = ssl_context
+        kwargs["ssl_certfile"] = None
+        kwargs["ssl_keyfile"] = None
+        kwargs["ssl_ca_certs"] = ca_path if ca_data else ca_file
+        kwargs["ssl_cert_reqs"] = ssl.CERT_REQUIRED
+        kwargs["ssl_check_hostname"] = False
     elif url.startswith("rediss://") and not verify:
         # Explicitly disable verification (legacy behavior)
         kwargs["ssl_cert_reqs"] = None
