@@ -25,6 +25,8 @@ def get_redis():
     kwargs: dict = {}
     if url.startswith("rediss://") and verify:
         kwargs["ssl_cert_reqs"] = ssl.CERT_REQUIRED
+        # Disable hostname checking since EC2 hostname != certificate hostname
+        kwargs["ssl_check_hostname"] = False
 
         ca_file = os.getenv("REDIS_SSL_CA_FILE")
         ca_data = os.getenv("REDIS_SSL_CA_DATA")
