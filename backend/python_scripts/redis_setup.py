@@ -24,24 +24,27 @@ def get_redis():
 
     kwargs: dict = {}
     if url.startswith("rediss://") and verify:
-        kwargs["ssl_cert_reqs"] = ssl.CERT_REQUIRED
-        # Disable hostname checking since EC2 hostname != certificate hostname
-        kwargs["ssl_check_hostname"] = False
-
         ca_file = os.getenv("REDIS_SSL_CA_FILE")
         ca_data = os.getenv("REDIS_SSL_CA_DATA")
 
+        # Create custom SSL context to disable hostname checking
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_REQUIRED
+
         if ca_file:
-            kwargs["ssl_ca_certs"] = ca_file
+            ssl_context.load_verify_locations(cafile=ca_file)
         elif ca_data:
-            # Write CA data to a temp file for redis-py to read
+            # Write CA data to a temp file for ssl context to read
             ca_path = "/tmp/redis_ca.pem"
             try:
                 with open(ca_path, "w") as f:
                     f.write(ca_data)
-                kwargs["ssl_ca_certs"] = ca_path
+                ssl_context.load_verify_locations(cafile=ca_path)
             except Exception as e:
                 log.warning("[RedisTLS] Failed to write REDIS_SSL_CA_DATA: %s", e)
+
+        kwargs["ssl"] = ssl_context
     elif url.startswith("rediss://") and not verify:
         # Explicitly disable verification (legacy behavior)
         kwargs["ssl_cert_reqs"] = None
