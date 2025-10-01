@@ -1204,7 +1204,7 @@ const Chat = () => {
                     textAlign: "center",
                   }}
                 >
-                  <Typography variant="h3" sx={{ mb: 3, fontWeight: 700 }}>
+                  <Typography variant="h2" sx={{ mb: 3, fontWeight: 700 }}>
                     How can Class Chat help?
                   </Typography>
 
@@ -1267,7 +1267,7 @@ const Chat = () => {
                         },
                       }}
                     >
-                      Create Study Guide
+                      📖 Create Study Guide
                     </Button>
 
                     <Button
@@ -1282,7 +1282,7 @@ const Chat = () => {
                         },
                       }}
                     >
-                      Generate Summary
+                      📝 Generate Summary
                     </Button>
                   </Box>
                 </Box>
