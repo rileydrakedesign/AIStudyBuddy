@@ -30,7 +30,8 @@ const Header: React.FC<HeaderProps> = () => {
   return (
     <AppBar
       sx={{
-        bgcolor: "rgba(0, 77, 86, 0.07)",
+        bgcolor: "rgba(0, 77, 86, 0.07) !important",
+        background: "rgba(0, 77, 86, 0.07) !important",
         backdropFilter: "blur(10px)",
         position: "fixed",
         top: 0,
