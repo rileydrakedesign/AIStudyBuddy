@@ -40,15 +40,10 @@ const Header: React.FC<HeaderProps> = () => {
         boxShadow: "0 1px 3px 0 rgba(0, 0, 0, 0.2)",
         borderBottom: "1px solid",
         borderColor: "divider",
-        zIndex: 1300,
+        zIndex: 1200,
       }}
     >
-      <Toolbar sx={{ display: "flex", justifyContent: "space-between", py: 1 }}>
-        {/* Left side: Logo only */}
-        <Box sx={{ display: "flex", alignItems: "center" }}>
-          <Logo />
-        </Box>
-
+      <Toolbar sx={{ display: "flex", justifyContent: "flex-end", py: 1 }}>
         {/* Right side: Navigation Links (hidden on /login) */}
         {!hideNav && (
           <div style={{ display: "flex", gap: "8px" }}>

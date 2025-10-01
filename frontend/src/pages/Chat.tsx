@@ -835,6 +835,8 @@ const Chat = () => {
           width: "100%",
           height: "calc(100vh - 64px)",
           marginTop: "64px",
+          marginLeft: sidebarOpen ? "300px" : "0",
+          transition: "margin-left 250ms cubic-bezier(0.4, 0, 0.2, 1)",
         }}
       >
         {/* -------------------- SIDEBAR -------------------- */}
@@ -850,8 +852,18 @@ const Chat = () => {
               borderRight: "1px solid",
               borderColor: "divider",
               overflowY: "auto",
+              position: "fixed",
+              top: 0,
+              left: 0,
+              height: "100vh",
+              zIndex: 1300,
             }}
           >
+            {/* Logo at top of sidebar */}
+            <Box sx={{ p: 2, borderBottom: "1px solid", borderColor: "divider" }}>
+              <Logo />
+            </Box>
+
             {/* Chats */}
             <List
               sx={{ color: "text.primary", mt: 2 }}
@@ -869,13 +881,15 @@ const Chat = () => {
                     justifyContent: "space-between",
                   }}
                 >
-                  <Box sx={{ display: "flex", alignItems: "center" }}>
-                    <ChatBubbleIcon sx={{ mr: 1 }} />
-                    Chats
+                  <Box sx={{ display: "flex", alignItems: "center", width: "100%", justifyContent: "space-between" }}>
+                    <Box sx={{ display: "flex", alignItems: "center" }}>
+                      <ChatBubbleIcon sx={{ mr: 1 }} />
+                      Chats
+                    </Box>
+                    <IconButton onClick={toggleSidebar} sx={{ color: "text.primary" }} size="small">
+                      <ChevronLeftIcon />
+                    </IconButton>
                   </Box>
-                  <IconButton onClick={toggleSidebar} sx={{ color: "white" }} size="small">
-                    {sidebarOpen ? <ChevronLeftIcon /> : <ChevronRightIcon />}
-                  </IconButton>
                 </ListSubheader>
               }
             >
@@ -1084,21 +1098,21 @@ const Chat = () => {
           <Box
             onClick={toggleSidebar}
             sx={{
-              position: "absolute",
+              position: "fixed",
               left: 0,
-              top: "64px",
+              top: 0,
               bottom: 0,
               width: "30px",
               backgroundColor: "transparent",
-              "&:hover": { backgroundColor: "#004d5612" },
+              "&:hover": { backgroundColor: "rgba(0, 77, 86, 0.07)" },
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               cursor: "pointer",
-              zIndex: 1200,
+              zIndex: 1250,
             }}
           >
-            <ChevronRightIcon sx={{ color: "white" }} />
+            <ChevronRightIcon sx={{ color: "text.primary" }} />
           </Box>
         )}
 
