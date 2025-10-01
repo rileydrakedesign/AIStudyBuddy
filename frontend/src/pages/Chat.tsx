@@ -1123,10 +1123,11 @@ const Chat = () => {
             display: "flex",
             flexDirection: "column",
             flex: 1,
+            width: "100%",
             height: "100%",
             overflow: "hidden",
-            p: 2,
-            boxSizing: "border-box",
+            alignItems: "center",
+            justifyContent: "flex-start",
           }}
         >
           {activeDocId ? (
@@ -1134,7 +1135,7 @@ const Chat = () => {
           ) : (
             <>
               {/* Class Selector + free-plan chat counter */}
-              <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
+              <Box sx={{ display: "flex", alignItems: "center", mb: 2, width: "100%", maxWidth: "1200px", px: 2 }}>
                 <TextField
                   id="class-select"
                   select
@@ -1202,6 +1203,9 @@ const Chat = () => {
                     justifyContent: "center",
                     flexGrow: 1,
                     textAlign: "center",
+                    width: "100%",
+                    maxWidth: "1200px",
+                    px: 2,
                   }}
                 >
                   <Typography variant="h4" sx={{ mb: 3 }}>
@@ -1286,6 +1290,9 @@ const Chat = () => {
                       boxSizing: "border-box",
                       position: "relative",
                       zIndex: 2,
+                      width: "100%",
+                      maxWidth: "1200px",
+                      px: 2,
                     }}
                   >
                     {chatMessages.map((chat, index) => (
@@ -1334,6 +1341,7 @@ const Chat = () => {
                   <Box
                     sx={{
                       width: "100%",
+                      maxWidth: "1200px",
                       borderRadius: 'var(--radius-md)',
                       backgroundColor: "background.paper",
                       border: "1px solid",
@@ -1341,6 +1349,7 @@ const Chat = () => {
                       display: "flex",
                       alignItems: "center",
                       mb: 2,
+                      px: 2,
                     }}
                   >
                     <textarea
