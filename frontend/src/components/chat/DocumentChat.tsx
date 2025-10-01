@@ -1,7 +1,9 @@
 // src/components/documentChat.tsx
 import React, { useEffect, useRef, useState } from "react";
-import { Box, IconButton, Typography } from "@mui/material";
+import { Box, IconButton, Typography, Button } from "@mui/material";
 import { IoMdSend } from "react-icons/io";
+import AddIcon from "@mui/icons-material/Add";
+import RemoveIcon from "@mui/icons-material/Remove";
 import Loader from "../ui/loader";
 import ChatItem from "../chat/chatItem";
 import toast from "react-hot-toast";
@@ -58,6 +60,7 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [visibleStartPage, setVisibleStartPage] = useState(1);
   const [visibleEndPage, setVisibleEndPage] = useState(3);
+  const [scale, setScale] = useState(1.0);
 
   // For highlighting in PDF
   const [highlightedPage, setHighlightedPage] = useState<number | null>(null);
@@ -373,47 +376,115 @@ const handleRetry = async (assistantIdx: number) => {
   };
 
   return (
-    <Box sx={{ display: "flex", height: "100%", overflow: "hidden" }}>
+    <Box sx={{ display: "flex", height: "100%", overflow: "hidden", gap: 2, p: 2 }}>
       {/* Left side: PDF viewer */}
       <Box
-        sx={{ flex: 1, borderRight: "1px solid #ccc", overflowY: "auto" }}
-        ref={pdfContainerRef}
+        sx={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          bgcolor: "background.paper",
+          borderRadius: "var(--radius-lg)",
+          border: "1px solid",
+          borderColor: "divider",
+          boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.4)",
+          overflow: "hidden",
+        }}
       >
-        {docUrl ? (
-          <div style={{ width: "100%", height: "100%", padding: "1rem" }}>
-            <Document file={docUrl} onLoadSuccess={onDocumentLoadSuccess}>
-              {numPages &&
-                Array.from(
-                  { length: visibleEndPage - visibleStartPage + 1 },
-                  (_, i) => {
-                    const pageNumber = visibleStartPage + i;
-                    return (
-                      <div
-                        key={`page_container_${pageNumber}`}
-                        id={`pdf-page-${pageNumber}`}
-                        style={{ marginBottom: "2rem" }}
-                      >
-                        <Page
-                          pageNumber={pageNumber}
-                          width={600}
-                          customTextRenderer={customTextRenderer(pageNumber)}
-                        />
-                      </div>
-                    );
-                  }
-                )}
-              {numPages && visibleEndPage < numPages && (
-                <Typography variant="body2" sx={{ color: "white" }}>
-                  Scroll down to load more pages...
-                </Typography>
-              )}
-            </Document>
-          </div>
-        ) : (
-          <Typography variant="body1" sx={{ m: 2, color: "white" }}>
-            Loading document...
+        {/* PDF Controls */}
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            p: 1.5,
+            borderBottom: "1px solid",
+            borderColor: "divider",
+            bgcolor: "rgba(0, 77, 86, 0.07)",
+          }}
+        >
+          <Typography variant="body2" sx={{ color: "text.primary", fontWeight: 600 }}>
+            {numPages ? `Page ${visibleStartPage} / ${numPages}` : "Loading..."}
           </Typography>
-        )}
+
+          <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+            <IconButton
+              size="small"
+              onClick={() => setScale((s) => Math.max(0.5, s - 0.1))}
+              sx={{
+                color: "text.primary",
+                bgcolor: "background.default",
+                "&:hover": { bgcolor: "neutral.700" },
+              }}
+            >
+              <RemoveIcon fontSize="small" />
+            </IconButton>
+
+            <Typography variant="body2" sx={{ color: "text.primary", minWidth: "50px", textAlign: "center" }}>
+              {Math.round(scale * 100)}%
+            </Typography>
+
+            <IconButton
+              size="small"
+              onClick={() => setScale((s) => Math.min(2.0, s + 0.1))}
+              sx={{
+                color: "text.primary",
+                bgcolor: "background.default",
+                "&:hover": { bgcolor: "neutral.700" },
+              }}
+            >
+              <AddIcon fontSize="small" />
+            </IconButton>
+          </Box>
+        </Box>
+
+        {/* PDF Content */}
+        <Box
+          sx={{
+            flex: 1,
+            overflowY: "auto",
+            display: "flex",
+            justifyContent: "center",
+            bgcolor: "background.default",
+          }}
+          ref={pdfContainerRef}
+        >
+          {docUrl ? (
+            <div style={{ width: "100%", height: "100%", padding: "1rem" }}>
+              <Document file={docUrl} onLoadSuccess={onDocumentLoadSuccess}>
+                {numPages &&
+                  Array.from(
+                    { length: visibleEndPage - visibleStartPage + 1 },
+                    (_, i) => {
+                      const pageNumber = visibleStartPage + i;
+                      return (
+                        <div
+                          key={`page_container_${pageNumber}`}
+                          id={`pdf-page-${pageNumber}`}
+                          style={{ marginBottom: "2rem", display: "flex", justifyContent: "center" }}
+                        >
+                          <Page
+                            pageNumber={pageNumber}
+                            width={600 * scale}
+                            customTextRenderer={customTextRenderer(pageNumber)}
+                          />
+                        </div>
+                      );
+                    }
+                  )}
+                {numPages && visibleEndPage < numPages && (
+                  <Typography variant="body2" sx={{ color: "text.secondary", textAlign: "center" }}>
+                    Scroll down to load more pages...
+                  </Typography>
+                )}
+              </Document>
+            </div>
+          ) : (
+            <Typography variant="body1" sx={{ m: 2, color: "text.primary" }}>
+              Loading document...
+            </Typography>
+          )}
+        </Box>
       </Box>
 
       {/* Right side: chat area */}
