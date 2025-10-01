@@ -1212,10 +1212,13 @@ const Chat = () => {
                     <Box
                       sx={{
                         width: "100%",
-                        borderRadius: 2,
-                        backgroundColor: "rgb(17,27,39)",
+                        borderRadius: 'var(--radius-lg)',
+                        backgroundColor: "background.paper",
+                        border: "2px solid",
+                        borderColor: "primary.main",
                         display: "flex",
                         alignItems: "center",
+                        boxShadow: "0 0 20px rgba(14, 165, 233, 0.3)",
                       }}
                     >
                       <textarea
@@ -1256,6 +1259,13 @@ const Chat = () => {
                       variant="contained"
                       disabled={isGenerating}
                       onClick={() => handlePresetPrompt("Create a study guide for this class")}
+                      sx={{
+                        color: "white",
+                        backgroundColor: "primary.main",
+                        "&:hover": {
+                          backgroundColor: "primary.dark",
+                        },
+                      }}
                     >
                       Create Study Guide
                     </Button>
@@ -1264,6 +1274,13 @@ const Chat = () => {
                       variant="contained"
                       disabled={isGenerating}
                       onClick={() => handlePresetPrompt("Summarize this class")}
+                      sx={{
+                        color: "white",
+                        backgroundColor: "primary.main",
+                        "&:hover": {
+                          backgroundColor: "primary.dark",
+                        },
+                      }}
                     >
                       Generate Summary
                     </Button>
