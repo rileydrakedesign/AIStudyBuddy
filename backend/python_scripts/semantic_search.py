@@ -248,7 +248,7 @@ def get_file_citation(search_results):
         if s3_key and s3_key not in seen_files:
             seen_files.add(s3_key)
             encoded_s3_key = quote(s3_key, safe="")
-            download_url = f"{backend_url}/download?s3_key={encoded_s3_key}"
+            download_url = f"{backend_url}/api/v1/download?s3_key={encoded_s3_key}"
             citations.append(
                 {"href": download_url, "text": file_title, "docId": doc_id}
             )
