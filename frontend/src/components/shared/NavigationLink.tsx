@@ -16,11 +16,11 @@ interface NavigationLinkProps {
 const NavigationLink: React.FC<NavigationLinkProps> = ({
   to,
   text,
-  textColor = '#D1D5DB', // Default to text-gray-300
-  bg = '#1d2d44', // Default background color
+  textColor = 'neutral.300',
+  bg = 'neutral.700',
   onClick,
   icon,
-  hoverTextColor = '#00B5D8', // Default hover text color (e.g., text-cyan-400)
+  hoverTextColor = 'neutral.100',
 }) => {
   return (
     <Button
@@ -32,26 +32,38 @@ const NavigationLink: React.FC<NavigationLinkProps> = ({
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: '8px', // Equivalent to gap-2
+        gap: 1,
         backgroundColor: bg,
         color: textColor,
-        padding: '0 16px', // Equivalent to px-4
-        height: '36px', // Equivalent to h-9 (36px)
-        borderRadius: '8px', // Equivalent to rounded-lg
-        fontSize: '0.875rem', // Equivalent to text-sm
-        fontWeight: '500', // Equivalent to font-medium
-        transition: 'background-color 0.3s, color 0.3s',
+        px: 2,
+        py: 0.75,
+        minHeight: '36px',
+        borderRadius: 'var(--radius-md)',
+        fontSize: '0.875rem',
+        fontWeight: 600,
+        textTransform: 'none',
+        letterSpacing: '0.025em',
+        transition: 'all 150ms cubic-bezier(0.0, 0, 0.2, 1)',
+        boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.3)',
         '&:hover': {
-          backgroundColor: '#4a5568', // Equivalent to hover:bg-gray-700
-          color: hoverTextColor, // Changes text color on hover
+          backgroundColor: 'neutral.600',
+          color: hoverTextColor,
+          transform: 'translateY(-1px)',
+          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.4)',
+        },
+        '&:active': {
+          transform: 'translateY(0)',
+          boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.3)',
         },
         '&:focus-visible': {
-          outline: 'none',
-          boxShadow: '0 0 0 2px #3182ce', // Equivalent to focus-visible:ring-2 ring-ring
+          outline: '2px solid',
+          outlineColor: 'primary.main',
+          outlineOffset: '2px',
+          boxShadow: '0 0 20px rgba(14, 165, 233, 0.4)',
         },
         '&:disabled': {
           pointerEvents: 'none',
-          opacity: 0.5, // Equivalent to disabled:opacity-50
+          opacity: 0.5,
         },
       }}
     >

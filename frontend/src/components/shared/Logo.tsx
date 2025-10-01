@@ -16,26 +16,32 @@ const Logo = () => {
         sx={{
           display: { md: "block", sm: "none", xs: "none" },
           fontWeight: 800,
-          textShadow: "2px 2px 20px #000",
-          fontFamily: "sans-serif",
-          // any other typography styling you want
+          textShadow: "0 2px 10px rgba(0, 0, 0, 0.5)",
+          fontFamily: "var(--font-primary)",
+          letterSpacing: '-0.025em',
         }}
       >
         {/* "classchat" in plain text */}
-        <span style={{ fontSize: "20px" }}>classchat</span>
+        <span style={{
+          fontSize: "22px",
+          color: "#CBD5E1",
+        }}>
+          classchat
+        </span>
         {/* "AI" in a blue, rounded box */}
         <Box
           component="span"
           sx={{
             display: "inline-block",
-            ml: 0.75,              // margin-left: 1
-            px: 1.2,            // horizontal padding
-            py: 0.15,            // vertical padding
-            borderRadius: 2,    // numeric => theme spacing; or e.g., "5px"
-            backgroundColor: "blue",
+            ml: 1,
+            px: 1.2,
+            py: 0.25,
+            borderRadius: 'var(--radius-md)',
+            backgroundColor: "primary.main",
             color: "white",
-            fontWeight: "bold",
+            fontWeight: 700,
             fontSize: "1rem",
+            boxShadow: '0 0 20px rgba(14, 165, 233, 0.4)',
           }}
         >
           AI

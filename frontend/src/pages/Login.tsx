@@ -146,11 +146,12 @@ const Login: React.FC = () => {
         mx: "auto",
         maxWidth: 400,
         p: 4,
-        borderRadius: 3,
-        backgroundColor: "#0d1117",
-        color: "#e8e8e8",
-        boxShadow: 3,
-        border: "2px dotted #e8e8e8",
+        borderRadius: 'var(--radius-lg)',
+        backgroundColor: "background.paper",
+        color: "text.primary",
+        boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.5)",
+        border: "1px solid",
+        borderColor: "divider",
       }}
     >
       <Typography variant="h4" fontWeight={700} textAlign="center" gutterBottom>
@@ -163,10 +164,11 @@ const Login: React.FC = () => {
           sx={{
             mb: 2,
             p: 2,
-            borderRadius: 2,
-            bgcolor: "rgba(25,118,210,0.1)",
-            border: "1px solid rgba(25,118,210,0.4)",
-            color: "#e8e8e8",
+            borderRadius: 'var(--radius-md)',
+            bgcolor: "rgba(14, 165, 233, 0.1)",
+            border: "1px solid",
+            borderColor: "primary.main",
+            color: "text.primary",
           }}
         >
           <Typography sx={{ mb: 1 }}>
@@ -208,13 +210,19 @@ const Login: React.FC = () => {
               onChange={handleChange}
               sx={{
                 "& .MuiOutlinedInput-root": {
-                  bgcolor: "#111827",
-                  color: "#e8e8e8",
-                  "& fieldset": { borderColor: "#374151" },
-                  "&:hover fieldset": { borderColor: "#1976d2" },
-                  "&.Mui-focused fieldset": { borderColor: "#1976d2" },
+                  bgcolor: "background.default",
+                  color: "text.primary",
+                  "& fieldset": { borderColor: "divider" },
+                  "&:hover fieldset": { borderColor: "neutral.500" },
+                  "&.Mui-focused fieldset": {
+                    borderColor: "primary.main",
+                    borderWidth: "2px",
+                  },
                 },
-                "& .MuiInputLabel-root": { color: "#9ca3af" },
+                "& .MuiInputLabel-root": {
+                  color: "text.secondary",
+                  "&.Mui-focused": { color: "primary.main" },
+                },
               }}
             />
           </Grid>
@@ -231,13 +239,19 @@ const Login: React.FC = () => {
               onChange={handleChange}
               sx={{
                 "& .MuiOutlinedInput-root": {
-                  bgcolor: "#111827",
-                  color: "#e8e8e8",
-                  "& fieldset": { borderColor: "#374151" },
-                  "&:hover fieldset": { borderColor: "#1976d2" },
-                  "&.Mui-focused fieldset": { borderColor: "#1976d2" },
+                  bgcolor: "background.default",
+                  color: "text.primary",
+                  "& fieldset": { borderColor: "divider" },
+                  "&:hover fieldset": { borderColor: "neutral.500" },
+                  "&.Mui-focused fieldset": {
+                    borderColor: "primary.main",
+                    borderWidth: "2px",
+                  },
                 },
-                "& .MuiInputLabel-root": { color: "#9ca3af" },
+                "& .MuiInputLabel-root": {
+                  color: "text.secondary",
+                  "&.Mui-focused": { color: "primary.main" },
+                },
               }}
             />
             <Box
@@ -252,7 +266,7 @@ const Login: React.FC = () => {
                 component={RouterLink}
                 to="/forgot-password"
                 underline="hover"
-                sx={{ color: "#9ca3af", "&:hover": { color: "#1976d2" } }}
+                sx={{ color: "text.secondary", "&:hover": { color: "primary.main" } }}
               >
                 Forgot Password&nbsp;?
               </Link>
@@ -268,9 +282,18 @@ const Login: React.FC = () => {
               disabled={loading}
               startIcon={<IoIosLogIn />}
               sx={{
-                backgroundColor: "#1976d2",
+                backgroundColor: "primary.main",
                 fontWeight: 600,
-                ":hover": { backgroundColor: "#1565c0" },
+                boxShadow: "0 1px 2px 0 rgba(0, 0, 0, 0.3)",
+                transition: "all 200ms cubic-bezier(0.0, 0, 0.2, 1)",
+                "&:hover": {
+                  backgroundColor: "primary.dark",
+                  transform: "translateY(-1px)",
+                  boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.4)",
+                },
+                "&:active": {
+                  transform: "translateY(0)",
+                },
               }}
             >
               {loading ? "Signing in..." : "Sign in"}

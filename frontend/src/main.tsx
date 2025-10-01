@@ -2,20 +2,15 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
 import './index.css'
-import { createTheme, ThemeProvider } from '@mui/material'
+import { ThemeProvider } from '@mui/material'
 import { BrowserRouter } from 'react-router-dom'
 import { AuthProvider } from "./context/authContext.tsx";
 import { Toaster, ToastBar, toast } from "react-hot-toast";
 import axios from "axios";
+import { theme } from "./theme/muiTheme";
+
 axios.defaults.baseURL = import.meta.env.VITE_API_URL;
 axios.defaults.withCredentials = true;
-
-const theme = createTheme({
-  typography: {
-    fontFamily: "sans-serif",
-    allVariants: { color: "white" },
-  },
-});
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -26,9 +21,23 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             position="top-right"
             toastOptions={{
               style: {
-                background: "#0d1117",
-                color: "#e8e8e8",
-                border: "1px solid rgba(255,255,255,0.12)",
+                background: "#1E293B",
+                color: "#CBD5E1",
+                border: "1px solid #475569",
+                borderRadius: "0.5rem",
+                boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.4)",
+              },
+              success: {
+                iconTheme: {
+                  primary: "#10B981",
+                  secondary: "white",
+                },
+              },
+              error: {
+                iconTheme: {
+                  primary: "#EF4444",
+                  secondary: "white",
+                },
               },
             }}
           >

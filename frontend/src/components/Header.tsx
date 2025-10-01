@@ -30,16 +30,18 @@ const Header: React.FC<HeaderProps> = () => {
   return (
     <AppBar
       sx={{
-        bgcolor: "#061520",
+        bgcolor: "background.default",
         position: "fixed",
         top: 0,
         left: 0,
         width: "100%",
-        boxShadow: "none",
-        zIndex: 1300, // Higher z-index so it stays above the sidebar
+        boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.4)",
+        borderBottom: "1px solid",
+        borderColor: "divider",
+        zIndex: 1300,
       }}
     >
-      <Toolbar sx={{ display: "flex", justifyContent: "space-between" }}>
+      <Toolbar sx={{ display: "flex", justifyContent: "space-between", py: 1 }}>
         {/* Left side: Logo only */}
         <Box sx={{ display: "flex", alignItems: "center" }}>
           <Logo />
@@ -47,49 +49,49 @@ const Header: React.FC<HeaderProps> = () => {
 
         {/* Right side: Navigation Links (hidden on /login) */}
         {!hideNav && (
-          <div style={{ display: "flex", gap: "10px" }}>
+          <div style={{ display: "flex", gap: "8px" }}>
             {auth?.isLoggedIn ? (
               <>
                 <NavigationLink
-                  bg={isActive("/chat") ? "#2D3748" : "#1d2d44"}
+                  bg={isActive("/chat") ? "primary.bg" : "neutral.700"}
                   to="/chat"
                   text="Chat"
-                  textColor={isActive("/chat") ? "#00B5D8" : "#D1D5DB"}
-                  hoverTextColor="#00B5D8"
-                  icon={<ChatBubble sx={{ color: "#00B5D8" }} />}
+                  textColor={isActive("/chat") ? "primary.light" : "neutral.300"}
+                  hoverTextColor="neutral.100"
+                  icon={<ChatBubble sx={{ color: "primary.main", fontSize: 20 }} />}
                 />
                 <NavigationLink
-                  bg={isActive("/upload") ? "#2D3748" : "#1d2d44"}
+                  bg={isActive("/upload") ? "primary.bg" : "neutral.700"}
                   to="/upload"
                   text="Upload"
-                  textColor={isActive("/upload") ? "#00B5D8" : "#D1D5DB"}
-                  hoverTextColor="#00B5D8"
-                  icon={<DriveFolderUploadIcon sx={{ color: "#00B5D8" }} />}
+                  textColor={isActive("/upload") ? "primary.light" : "neutral.300"}
+                  hoverTextColor="neutral.100"
+                  icon={<DriveFolderUploadIcon sx={{ color: "primary.main", fontSize: 20 }} />}
                 />
                 <NavigationLink
-                  bg={isActive("/profile") ? "#2D3748" : "#1d2d44"}
+                  bg={isActive("/profile") ? "primary.bg" : "neutral.700"}
                   to="/profile"
                   text=""
-                  icon={<AccountCircleIcon sx={{ color: "#00B5D8", fontSize: 40 }} />}
+                  icon={<AccountCircleIcon sx={{ color: "primary.main", fontSize: 36 }} />}
                 />
               </>
             ) : (
               <>
                 <NavigationLink
-                  bg="#00fffc"
+                  bg="primary.main"
                   to="/login"
                   text="Login"
-                  textColor="#1A202C"
-                  hoverTextColor="#00B5D8"
-                  icon={<ChatBubble sx={{ color: "#00B5D8" }} />}
+                  textColor="white"
+                  hoverTextColor="white"
+                  icon={<ChatBubble sx={{ color: "white", fontSize: 20 }} />}
                 />
                 <NavigationLink
-                  bg={isActive("/signup") ? "#2D3748" : "#51538f"}
+                  bg={isActive("/signup") ? "primary.bg" : "neutral.700"}
                   to="/signup"
                   text="Signup"
-                  textColor={isActive("/signup") ? "#F6AD55" : "#D1D5DB"}
-                  hoverTextColor="#F6AD55"
-                  icon={<StickyNote2Icon sx={{ color: "#F6AD55" }} />}
+                  textColor={isActive("/signup") ? "primary.light" : "neutral.300"}
+                  hoverTextColor="neutral.100"
+                  icon={<StickyNote2Icon sx={{ color: "primary.main", fontSize: 20 }} />}
                 />
               </>
             )}

@@ -844,21 +844,24 @@ const Chat = () => {
               display: "flex",
               flex: "0 0 300px",
               flexDirection: "column",
-              boxShadow: "2px 0 5px rgba(0,0,0,0.8)",
-              bgcolor: "#004d5612",
+              boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.4)",
+              bgcolor: "rgba(0, 77, 86, 0.07)",
+              backdropFilter: "blur(10px)",
+              borderRight: "1px solid",
+              borderColor: "divider",
               overflowY: "auto",
             }}
           >
             {/* Chats */}
             <List
-              sx={{ color: "white", mt: 2 }}
+              sx={{ color: "text.primary", mt: 2 }}
               subheader={
                 <ListSubheader
                   component="div"
                   id="chats-list-subheader"
                   sx={{
-                    bgcolor: "inherit",
-                    color: "white",
+                    bgcolor: "transparent",
+                    color: "text.primary",
                     fontSize: "1.2em",
                     fontWeight: "bold",
                     display: "flex",
@@ -968,14 +971,14 @@ const Chat = () => {
 
             {/* Classes */}
             <List
-              sx={{ color: "white" }}
+              sx={{ color: "text.primary" }}
               subheader={
                 <ListSubheader
                   component="div"
                   id="classes-list-subheader"
                   sx={{
-                    bgcolor: "inherit",
-                    color: "white",
+                    bgcolor: "transparent",
+                    color: "text.primary",
                     fontSize: "1.2em",
                     fontWeight: "bold",
                   }}
@@ -1316,8 +1319,10 @@ const Chat = () => {
                   <Box
                     sx={{
                       width: "100%",
-                      borderRadius: 2,
-                      backgroundColor: "#1d2d44",
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: "background.paper",
+                      border: "1px solid",
+                      borderColor: "divider",
                       display: "flex",
                       alignItems: "center",
                       mb: 2,
