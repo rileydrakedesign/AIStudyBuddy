@@ -45,6 +45,7 @@ import { ExpandLess, ExpandMore } from "@mui/icons-material";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import Header from "../components/Header.tsx";
+import Logo from "../components/shared/Logo";
 import DocumentChat from "../components/chat/DocumentChat.tsx";
 import { initializeSocket } from "../helpers/socketClient";
 import { Socket } from "socket.io-client";
