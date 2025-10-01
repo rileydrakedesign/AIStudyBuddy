@@ -1204,7 +1204,7 @@ const Chat = () => {
                     textAlign: "center",
                   }}
                 >
-                  <Typography variant="h4" sx={{ mb: 3 }}>
+                  <Typography variant="h3" sx={{ mb: 3, fontWeight: 700 }}>
                     How can Class Chat help?
                   </Typography>
 
