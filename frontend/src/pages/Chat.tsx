@@ -836,16 +836,15 @@ const Chat = () => {
           width: "100%",
           height: "calc(100vh - 64px)",
           marginTop: "64px",
-          marginLeft: sidebarOpen ? "300px" : "0",
-          transition: "margin-left 250ms cubic-bezier(0.4, 0, 0.2, 1)",
         }}
       >
         {/* -------------------- SIDEBAR -------------------- */}
         {sidebarOpen && (
           <Box
             sx={{
+              width: "280px",
+              flexShrink: 0,
               display: "flex",
-              flex: "0 0 300px",
               flexDirection: "column",
               boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.4)",
               bgcolor: "rgba(0, 77, 86, 0.07)",
@@ -1123,11 +1122,12 @@ const Chat = () => {
             display: "flex",
             flexDirection: "column",
             flex: 1,
-            width: "100%",
             height: "100%",
             overflow: "hidden",
-            alignItems: "center",
-            justifyContent: "flex-start",
+            marginLeft: sidebarOpen ? "280px" : "0",
+            transition: "margin-left 250ms cubic-bezier(0.4, 0, 0.2, 1)",
+            p: 2,
+            boxSizing: "border-box",
           }}
         >
           {activeDocId ? (
@@ -1135,7 +1135,7 @@ const Chat = () => {
           ) : (
             <>
               {/* Class Selector + free-plan chat counter */}
-              <Box sx={{ display: "flex", alignItems: "center", mb: 2, width: "100%", maxWidth: "1200px", px: 2 }}>
+              <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
                 <TextField
                   id="class-select"
                   select
@@ -1203,9 +1203,6 @@ const Chat = () => {
                     justifyContent: "center",
                     flexGrow: 1,
                     textAlign: "center",
-                    width: "100%",
-                    maxWidth: "1200px",
-                    px: 2,
                   }}
                 >
                   <Typography variant="h4" sx={{ mb: 3 }}>
@@ -1290,9 +1287,6 @@ const Chat = () => {
                       boxSizing: "border-box",
                       position: "relative",
                       zIndex: 2,
-                      width: "100%",
-                      maxWidth: "1200px",
-                      px: 2,
                     }}
                   >
                     {chatMessages.map((chat, index) => (
@@ -1341,7 +1335,6 @@ const Chat = () => {
                   <Box
                     sx={{
                       width: "100%",
-                      maxWidth: "1200px",
                       borderRadius: 'var(--radius-md)',
                       backgroundColor: "background.paper",
                       border: "1px solid",
@@ -1349,7 +1342,6 @@ const Chat = () => {
                       display: "flex",
                       alignItems: "center",
                       mb: 2,
-                      px: 2,
                     }}
                   >
                     <textarea
