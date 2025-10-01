@@ -860,7 +860,7 @@ const Chat = () => {
             }}
           >
             {/* Logo at top of sidebar */}
-            <Box sx={{ p: 2, borderBottom: "1px solid", borderColor: "divider" }}>
+            <Box sx={{ p: 3 }}>
               <Logo />
             </Box>
 
@@ -981,7 +981,6 @@ const Chat = () => {
               ))}
             </List>
 
-            <Divider sx={{ backgroundColor: "white", my: 2 }} />
 
             {/* Classes */}
             <List

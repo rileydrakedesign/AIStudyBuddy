@@ -14,7 +14,7 @@ const Logo = () => {
     >
       <Typography
         sx={{
-          display: { md: "block", sm: "none", xs: "none" },
+          display: "block",
           fontWeight: 800,
           textShadow: "0 2px 10px rgba(0, 0, 0, 0.5)",
           fontFamily: "var(--font-primary)",
@@ -23,7 +23,7 @@ const Logo = () => {
       >
         {/* "classchat" in plain text */}
         <span style={{
-          fontSize: "22px",
+          fontSize: "28px",
           color: "#CBD5E1",
         }}>
           classchat
@@ -34,13 +34,13 @@ const Logo = () => {
           sx={{
             display: "inline-block",
             ml: 1,
-            px: 1.2,
-            py: 0.25,
+            px: 1.5,
+            py: 0.35,
             borderRadius: 'var(--radius-md)',
             backgroundColor: "primary.main",
             color: "white",
             fontWeight: 700,
-            fontSize: "1rem",
+            fontSize: "1.25rem",
             boxShadow: '0 0 20px rgba(14, 165, 233, 0.4)',
           }}
         >
