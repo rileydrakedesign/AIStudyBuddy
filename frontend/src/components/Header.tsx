@@ -1,6 +1,6 @@
 // src/components/Header.tsx
 import React from "react";
-import { AppBar, Toolbar, Box } from "@mui/material";
+import { AppBar, Toolbar, Box, IconButton } from "@mui/material";
 import { useAuth } from "../context/authContext";
 import NavigationLink from "./shared/NavigationLink";
 import Logo from "./shared/Logo";
@@ -9,6 +9,7 @@ import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import { useLocation } from "react-router-dom";
 import ChatBubble from "@mui/icons-material/ChatBubble";
 import DriveFolderUploadIcon from "@mui/icons-material/DriveFolderUpload";
+import ViewSidebarIcon from "@mui/icons-material/ViewSidebar";
 
 /** 
  * Props are now **optional** so `<Header />` can be used without
@@ -19,13 +20,16 @@ interface HeaderProps {
   onToggleSidebar?: () => void;
 }
 
-const Header: React.FC<HeaderProps> = () => {
+const Header: React.FC<HeaderProps> = ({ sidebarOpen, onToggleSidebar }) => {
   const auth = useAuth();
   const location = useLocation();
 
   // Function to determine if a link is active
   const isActive = (path: string) => location.pathname === path;
   const hideNav = location.pathname === "/login" || location.pathname === "/signup"; // Hide nav on auth pages
+
+  // Show sidebar toggle only on chat page
+  const showSidebarToggle = location.pathname === "/chat";
 
   return (
     <AppBar
@@ -43,7 +47,22 @@ const Header: React.FC<HeaderProps> = () => {
         zIndex: 1200,
       }}
     >
-      <Toolbar sx={{ display: "flex", justifyContent: "flex-end", py: 1 }}>
+      <Toolbar sx={{ display: "flex", justifyContent: "space-between", py: 1 }}>
+        {/* Left side: Sidebar toggle (only on chat page) */}
+        <Box sx={{ display: "flex", alignItems: "center" }}>
+          {showSidebarToggle && (
+            <IconButton
+              onClick={onToggleSidebar}
+              sx={{
+                color: "text.primary",
+                "&:hover": { bgcolor: "rgba(255, 255, 255, 0.08)" },
+              }}
+            >
+              <ViewSidebarIcon />
+            </IconButton>
+          )}
+        </Box>
+
         {/* Right side: Navigation Links (hidden on /login) */}
         {!hideNav && (
           <div style={{ display: "flex", gap: "8px" }}>

@@ -899,24 +899,17 @@ const Chat = () => {
                   fontWeight: "bold",
                   display: "flex",
                   alignItems: "center",
-                  justifyContent: sidebarOpen ? "space-between" : "center",
+                  justifyContent: sidebarOpen ? "flex-start" : "center",
                   px: sidebarOpen ? 2 : 0,
                 }}
               >
                 {sidebarOpen ? (
-                  <Box sx={{ display: "flex", alignItems: "center", width: "100%", justifyContent: "space-between" }}>
-                    <Box sx={{ display: "flex", alignItems: "center" }}>
-                      <ChatBubbleIcon sx={{ mr: 1 }} />
-                      Chats
-                    </Box>
-                    <IconButton onClick={toggleSidebar} sx={{ color: "text.primary" }} size="small">
-                      <ChevronLeftIcon />
-                    </IconButton>
+                  <Box sx={{ display: "flex", alignItems: "center" }}>
+                    <ChatBubbleIcon sx={{ mr: 1 }} />
+                    Chats
                   </Box>
                 ) : (
-                  <IconButton onClick={toggleSidebar} sx={{ color: "text.primary" }} size="small">
-                    <ChatBubbleIcon />
-                  </IconButton>
+                  <ChatBubbleIcon />
                 )}
               </ListSubheader>
             }
