@@ -147,6 +147,9 @@ const Chat = () => {
   // Free-plan usage counter
   const [chatUsage, setChatUsage] = useState<{ count: number; limit: number } | null>(null);
 
+  // User info for profile section
+  const [userPlan, setUserPlan] = useState<string>("free");
+
   const socketRef = useRef<Socket | null>(null);
 
   // Track in‑flight deletions  (add below your existing state hooks)
@@ -266,12 +269,13 @@ const Chat = () => {
   }, [auth]);
 
   /* ------------------------------
-     FETCH USAGE COUNTER (free plan)
+     FETCH USAGE COUNTER (free plan) & USER PLAN
   ------------------------------ */
   useEffect(() => {
     const fetchUsage = async () => {
       try {
         const data = await verifyUser();
+        setUserPlan(data.plan || "free");
         if (data.plan === "free") setChatUsage({ count: data.chatRequestCount, limit: 25 });
       } catch (err) {
         console.error("Failed to fetch usage", err);
@@ -1120,6 +1124,60 @@ const Chat = () => {
                 </React.Fragment>
               ))}
             </List>
+
+            {/* Profile Section at Bottom */}
+            <Box
+              sx={{
+                mt: "auto",
+                p: 2,
+                borderTop: "1px solid",
+                borderColor: "divider",
+              }}
+            >
+              <Box
+                onClick={() => navigate("/profile")}
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: sidebarOpen ? 2 : 0,
+                  justifyContent: sidebarOpen ? "flex-start" : "center",
+                  cursor: "pointer",
+                  p: 1,
+                  borderRadius: "var(--radius-md)",
+                  transition: "background 150ms ease",
+                  "&:hover": {
+                    bgcolor: "rgba(255, 255, 255, 0.05)",
+                  },
+                }}
+              >
+                <AccountCircleIcon sx={{ color: "primary.main", fontSize: 40 }} />
+                {sidebarOpen && (
+                  <Box sx={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                    <Typography
+                      variant="body2"
+                      sx={{
+                        color: "text.primary",
+                        fontWeight: 600,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {auth?.user?.email}
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: "text.secondary",
+                        textTransform: "capitalize",
+                      }}
+                    >
+                      {userPlan} Plan
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+            </Box>
           </Box>
 
         {/* -------------------- MAIN CHAT -------------------- */}
