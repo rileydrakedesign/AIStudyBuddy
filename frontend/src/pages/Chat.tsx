@@ -839,48 +839,71 @@ const Chat = () => {
         }}
       >
         {/* -------------------- SIDEBAR -------------------- */}
-        {sidebarOpen && (
-          <Box
-            sx={{
-              width: "280px",
-              flexShrink: 0,
-              display: "flex",
-              flexDirection: "column",
-              boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.4)",
-              bgcolor: "rgba(0, 77, 86, 0.07)",
-              backdropFilter: "blur(10px)",
-              borderRight: "1px solid",
-              borderColor: "divider",
-              overflowY: "auto",
-              position: "fixed",
-              top: 0,
-              left: 0,
-              height: "100vh",
-              zIndex: 1300,
-            }}
-          >
-            {/* Logo at top of sidebar */}
-            <Box sx={{ p: 3 }}>
+        <Box
+          sx={{
+            width: sidebarOpen ? "280px" : "70px",
+            flexShrink: 0,
+            display: "flex",
+            flexDirection: "column",
+            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.4)",
+            bgcolor: "rgba(0, 77, 86, 0.07)",
+            backdropFilter: "blur(10px)",
+            borderRight: "1px solid",
+            borderColor: "divider",
+            overflowY: "auto",
+            overflowX: "hidden",
+            position: "fixed",
+            top: 0,
+            left: 0,
+            height: "100vh",
+            zIndex: 1300,
+            transition: "width 250ms cubic-bezier(0.4, 0, 0.2, 1)",
+          }}
+        >
+          {/* Logo at top of sidebar */}
+          <Box sx={{ p: sidebarOpen ? 3 : 1.5, display: "flex", justifyContent: sidebarOpen ? "flex-start" : "center" }}>
+            {sidebarOpen ? (
               <Logo />
-            </Box>
+            ) : (
+              <Box
+                sx={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: "var(--radius-md)",
+                  backgroundColor: "primary.main",
+                  color: "white",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontWeight: 700,
+                  fontSize: "1.25rem",
+                  boxShadow: "0 0 20px rgba(14, 165, 233, 0.4)",
+                }}
+              >
+                AI
+              </Box>
+            )}
+          </Box>
 
-            {/* Chats */}
-            <List
-              sx={{ color: "text.primary", mt: 2 }}
-              subheader={
-                <ListSubheader
-                  component="div"
-                  id="chats-list-subheader"
-                  sx={{
-                    bgcolor: "transparent",
-                    color: "text.primary",
-                    fontSize: "1.2em",
-                    fontWeight: "bold",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  }}
-                >
+          {/* Chats */}
+          <List
+            sx={{ color: "text.primary", mt: 2 }}
+            subheader={
+              <ListSubheader
+                component="div"
+                id="chats-list-subheader"
+                sx={{
+                  bgcolor: "transparent",
+                  color: "text.primary",
+                  fontSize: "1.2em",
+                  fontWeight: "bold",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: sidebarOpen ? "space-between" : "center",
+                  px: sidebarOpen ? 2 : 0,
+                }}
+              >
+                {sidebarOpen ? (
                   <Box sx={{ display: "flex", alignItems: "center", width: "100%", justifyContent: "space-between" }}>
                     <Box sx={{ display: "flex", alignItems: "center" }}>
                       <ChatBubbleIcon sx={{ mr: 1 }} />
@@ -890,9 +913,14 @@ const Chat = () => {
                       <ChevronLeftIcon />
                     </IconButton>
                   </Box>
-                </ListSubheader>
-              }
-            >
+                ) : (
+                  <IconButton onClick={toggleSidebar} sx={{ color: "text.primary" }} size="small">
+                    <ChatBubbleIcon />
+                  </IconButton>
+                )}
+              </ListSubheader>
+            }
+          >
               {isNamingChat ? (
                 <Box
                   sx={{
@@ -994,10 +1022,20 @@ const Chat = () => {
                     color: "text.primary",
                     fontSize: "1.2em",
                     fontWeight: "bold",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: sidebarOpen ? "flex-start" : "center",
+                    px: sidebarOpen ? 2 : 0,
                   }}
                 >
-                  <StyleIcon sx={{ mr: 1 }} />
-                  Classes
+                  {sidebarOpen ? (
+                    <>
+                      <StyleIcon sx={{ mr: 1 }} />
+                      Classes
+                    </>
+                  ) : (
+                    <StyleIcon />
+                  )}
                 </ListSubheader>
               }
             >
@@ -1090,30 +1128,6 @@ const Chat = () => {
               ))}
             </List>
           </Box>
-        )}
-
-        {/* Hover toggle area when sidebar is closed */}
-        {!sidebarOpen && (
-          <Box
-            onClick={toggleSidebar}
-            sx={{
-              position: "fixed",
-              left: 0,
-              top: 0,
-              bottom: 0,
-              width: "30px",
-              backgroundColor: "transparent",
-              "&:hover": { backgroundColor: "rgba(0, 77, 86, 0.07)" },
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              zIndex: 1250,
-            }}
-          >
-            <ChevronRightIcon sx={{ color: "text.primary" }} />
-          </Box>
-        )}
 
         {/* -------------------- MAIN CHAT -------------------- */}
         <Box
@@ -1123,7 +1137,7 @@ const Chat = () => {
             flex: 1,
             height: "100%",
             overflow: "hidden",
-            marginLeft: sidebarOpen ? "280px" : "0",
+            marginLeft: sidebarOpen ? "280px" : "70px",
             transition: "margin-left 250ms cubic-bezier(0.4, 0, 0.2, 1)",
             p: 2,
             boxSizing: "border-box",
