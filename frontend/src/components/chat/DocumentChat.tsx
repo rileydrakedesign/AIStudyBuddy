@@ -488,28 +488,55 @@ const handleRetry = async (assistantIdx: number) => {
       </Box>
 
       {/* Right side: chat area */}
-      <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
+      <Box
+        sx={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          bgcolor: "background.paper",
+          borderRadius: "var(--radius-lg)",
+          border: "1px solid",
+          borderColor: "divider",
+          boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.4)",
+          overflow: "hidden",
+        }}
+      >
         {/* Top bar */}
         <Box
           sx={{
-            p: 1,
-            borderBottom: "1px solid #444",
+            p: 2,
+            borderBottom: "1px solid",
+            borderColor: "divider",
             display: "flex",
             justifyContent: "space-between",
+            alignItems: "center",
+            bgcolor: "rgba(0, 77, 86, 0.07)",
           }}
         >
-          <Typography variant="h6" sx={{ color: "white" }}>
+          <Typography variant="h6" sx={{ color: "text.primary", fontWeight: 600 }}>
             Document Chat
           </Typography>
-          <button onClick={onClose} style={{ padding: "6px 12px", cursor: "pointer" }}>
+          <Button
+            onClick={onClose}
+            variant="outlined"
+            size="small"
+            sx={{
+              color: "text.primary",
+              borderColor: "divider",
+              "&:hover": {
+                borderColor: "primary.main",
+                bgcolor: "rgba(14, 165, 233, 0.1)",
+              },
+            }}
+          >
             Back
-          </button>
+          </Button>
         </Box>
 
         {/* Chat messages */}
         <Box
           ref={chatContainerRef}
-          sx={{ flexGrow: 1, overflowY: "auto", p: 2, backgroundColor: "#2E2E2E" }}
+          sx={{ flexGrow: 1, overflowY: "auto", p: 2, bgcolor: "background.default" }}
         >
           {messages.map((msg, index) => (
             <ChatItem
@@ -567,39 +594,51 @@ const handleRetry = async (assistantIdx: number) => {
         <Box
           sx={{
             p: 2,
-            display: "flex",
-            borderTop: "1px solid #444",
-            backgroundColor: "#1d2d44",
+            borderTop: "1px solid",
+            borderColor: "divider",
           }}
         >
-          <textarea
-            ref={inputRef}
-            disabled={isGenerating}
-            placeholder="Ask away..." 
-            onKeyDown={handleKeyDown}
-            onInput={handleInput}
-            onPaste={handlePaste}
-            style={{
-              flex: 1,
-              backgroundColor: "transparent",
-              border: "none",
-              outline: "none",
-              color: "white",
-              fontSize: "16px",
-              resize: "none",
-              overflowY: "auto",
-              maxHeight: "150px",
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              bgcolor: "background.default",
+              border: "1px solid",
+              borderColor: "divider",
+              borderRadius: "var(--radius-md)",
+              p: 1,
             }}
-          />
-          {!isGenerating ? (
-            <IconButton onClick={handleSend} sx={{ color: "white", ml: 1 }}>
-              <IoMdSend />
-            </IconButton>
-          ) : (
-            <IconButton onClick={handleStop} sx={{ color: "white", ml: 1 }}>
-              <Box sx={{ width: 16, height: 16, backgroundColor: "white" }} />
-            </IconButton>
-          )}
+          >
+            <textarea
+              ref={inputRef}
+              disabled={isGenerating}
+              placeholder="Ask about this document..."
+              onKeyDown={handleKeyDown}
+              onInput={handleInput}
+              onPaste={handlePaste}
+              style={{
+                flex: 1,
+                backgroundColor: "transparent",
+                border: "none",
+                outline: "none",
+                color: "#CBD5E1",
+                fontSize: "16px",
+                resize: "none",
+                overflowY: "auto",
+                maxHeight: "150px",
+                fontFamily: "var(--font-primary)",
+              }}
+            />
+            {!isGenerating ? (
+              <IconButton onClick={handleSend} sx={{ color: "primary.main", ml: 1 }}>
+                <IoMdSend />
+              </IconButton>
+            ) : (
+              <IconButton onClick={handleStop} sx={{ color: "text.primary", ml: 1 }}>
+                <Box sx={{ width: 16, height: 16, bgcolor: "text.primary" }} />
+              </IconButton>
+            )}
+          </Box>
         </Box>
       </Box>
     </Box>
