@@ -49,7 +49,7 @@ const Header: React.FC<HeaderProps> = ({ sidebarOpen, onToggleSidebar }) => {
     >
       <Toolbar sx={{ display: "flex", justifyContent: "space-between", py: 1 }}>
         {/* Left side: Sidebar toggle (only on chat page) */}
-        <Box sx={{ display: "flex", alignItems: "center" }}>
+        <Box sx={{ display: "flex", alignItems: "center", marginLeft: showSidebarToggle && sidebarOpen ? "280px" : showSidebarToggle ? "70px" : "0", transition: "margin-left 250ms cubic-bezier(0.4, 0, 0.2, 1)" }}>
           {showSidebarToggle && (
             <IconButton
               onClick={onToggleSidebar}
