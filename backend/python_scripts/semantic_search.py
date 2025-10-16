@@ -1,13 +1,14 @@
-import os, re, json, sys, math
+import re
+import json
+import sys
+import math
+import time
+import traceback
 from pathlib import Path
 from typing import List, Tuple
-from router import detect_route
-import boto3
 from urllib.parse import quote
-from botocore.exceptions import ClientError
-from dotenv import load_dotenv
-from langchain.chains import create_history_aware_retriever
-from langchain_core.messages import HumanMessage, AIMessage
+from json import dumps as _json_dumps
+
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import (
     PromptTemplate,
@@ -17,11 +18,10 @@ from langchain_core.prompts import (
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from pymongo import MongoClient
 from bson import ObjectId
+
+import config
 from logger_setup import log
-from json import dumps as _json_dumps
-import openai
-import traceback   # for last-chance logging
-import time      
+from router import detect_route
 from redis_setup import get_redis
 
 
@@ -54,49 +54,77 @@ except ImportError:
         InvalidRequestError = BadRequestError = RateLimitError = APIConnectionError = APIStatusError = OpenAITimeout = Exception  # type: ignore
 
 # ──────────────────────────────────────────────────────────────
-# ENV + CLIENTS
+# CLIENTS & CONNECTIONS
 # ──────────────────────────────────────────────────────────────
-load_dotenv()
 
-# ─────────────  Rate‑limit guard (shared with ingest)  ─────────────
 # TLS-aware Redis client; verifies by default
 r = get_redis()
 
-TPM_LIMIT    = int(os.getenv("OPENAI_TPM_LIMIT", "180000"))  # same org quota
-TOK_PER_CHAR = 1 / 4                                         # heuristic
+# Rate-limit configuration
+TPM_LIMIT = config.OPENAI_TPM_LIMIT
+TOK_PER_CHAR = 1 / 4  # heuristic for token estimation
 
-
-connection_string = os.getenv("MONGO_CONNECTION_STRING")
-client = MongoClient(connection_string)
+# MongoDB connection
+client = MongoClient(config.MONGO_CONNECTION_STRING)
 db_name = "study_buddy_demo"
 collection_name = "study_materials2"
 collection = client[db_name][collection_name]
 
+# OpenAI embedding model
 embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
 
-# Route-tunable defaults
+# Route-specific RAG configuration
 ROUTE_CONFIG = {
-    "general_qa":           {"k": int(os.getenv("RAG_K", "12")),  "numCandidates": int(os.getenv("RAG_CANDIDATES", "1000")), "temperature": float(os.getenv("RAG_TEMP_GENERAL", "0.2")), "max_output_tokens": int(os.getenv("RAG_MAX_TOKENS", "700"))},
-    "follow_up":            {"k": int(os.getenv("RAG_K_FOLLOWUP", "10")), "numCandidates": int(os.getenv("RAG_CANDIDATES", "1000")), "temperature": float(os.getenv("RAG_TEMP_FOLLOWUP", "0.2")), "max_output_tokens": int(os.getenv("RAG_MAX_TOKENS", "700"))},
-    "quote_finding":        {"k": int(os.getenv("RAG_K_QUOTE", "20")), "numCandidates": int(os.getenv("RAG_CANDIDATES", "1200")), "temperature": float(os.getenv("RAG_TEMP_QUOTE", "0.0")), "max_output_tokens": int(os.getenv("RAG_MAX_TOKENS_QUOTE", "400"))},
-    "generate_study_guide": {"k": int(os.getenv("RAG_K_GUIDE", "8")),   "numCandidates": int(os.getenv("RAG_CANDIDATES", "800")),  "temperature": float(os.getenv("RAG_TEMP_GUIDE", "0.3")), "max_output_tokens": int(os.getenv("RAG_MAX_TOKENS_GUIDE", "1200"))},
-    "summary":              {"k": int(os.getenv("RAG_K_SUM", "8")),    "numCandidates": int(os.getenv("RAG_CANDIDATES", "800")),  "temperature": float(os.getenv("RAG_TEMP_SUM", "0.2")), "max_output_tokens": int(os.getenv("RAG_MAX_TOKENS_SUM", "600"))},
+    "general_qa": {
+        "k": config.RAG_K,
+        "numCandidates": config.RAG_CANDIDATES,
+        "temperature": config.RAG_TEMP_GENERAL,
+        "max_output_tokens": config.RAG_MAX_TOKENS,
+    },
+    "follow_up": {
+        "k": config.RAG_K_FOLLOWUP,
+        "numCandidates": config.RAG_CANDIDATES,
+        "temperature": config.RAG_TEMP_FOLLOWUP,
+        "max_output_tokens": config.RAG_MAX_TOKENS,
+    },
+    "quote_finding": {
+        "k": config.RAG_K_QUOTE,
+        "numCandidates": 1200,  # Higher for quote finding
+        "temperature": config.RAG_TEMP_QUOTE,
+        "max_output_tokens": config.RAG_MAX_TOKENS_QUOTE,
+    },
+    "generate_study_guide": {
+        "k": config.RAG_K_GUIDE,
+        "numCandidates": 800,
+        "temperature": config.RAG_TEMP_GUIDE,
+        "max_output_tokens": config.RAG_MAX_TOKENS_GUIDE,
+    },
+    "summary": {
+        "k": config.RAG_K_SUM,
+        "numCandidates": 800,
+        "temperature": config.RAG_TEMP_SUM,
+        "max_output_tokens": config.RAG_MAX_TOKENS_SUM,
+    },
 }
 
-def get_llm(route: str) -> ChatOpenAI:
-    cfg = ROUTE_CONFIG.get(route, ROUTE_CONFIG["general_qa"])
-    return ChatOpenAI(model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4.1-nano"), temperature=cfg["temperature"])
 
-backend_url = os.getenv("BACKEND_URL", "https://localhost:3000/api/v1")
+def get_llm(route: str) -> ChatOpenAI:
+    """Get a ChatOpenAI instance configured for the specified route."""
+    cfg = ROUTE_CONFIG.get(route, ROUTE_CONFIG["general_qa"])
+    return ChatOpenAI(model=config.OPENAI_CHAT_MODEL, temperature=cfg["temperature"])
+
+
+# Backend URL for file citations
+backend_url = config.BACKEND_URL
 
 # ------------------------------------------------------------------
 # Context-window guard-rails
 # ------------------------------------------------------------------
-MAX_PROMPT_TOKENS = int(os.getenv("MAX_PROMPT_TOKENS", "8000"))          # safe ceiling for gpt-4-mini       # heuristic ≈ 4 chars/token
-est_tokens        = lambda txt: int(len(txt) * TOK_PER_CHAR)
+MAX_PROMPT_TOKENS = config.MAX_PROMPT_TOKENS  # safe ceiling for context window
+est_tokens = lambda txt: int(len(txt) * TOK_PER_CHAR)  # heuristic token estimation
 
 # Keep defined for telemetry but do not gate by default
-SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.0"))
+SIMILARITY_THRESHOLD = config.SIMILARITY_THRESHOLD
 
 
 # ──────────────────────────────────────────────────────────────
@@ -228,17 +256,10 @@ def perform_semantic_search(query_vector, filters=None, *, limit: int = 12, numC
 
 def get_file_citation(search_results):
     """
-    Generate unique file citations with S3 download links.
+    Generate unique file citations with download links via backend proxy.
     """
     citations = []
     seen_files = set()
-    s3_client = boto3.client(
-        "s3",
-        aws_access_key_id=os.getenv("AWS_ACCESS_KEY"),
-        aws_secret_access_key=os.getenv("AWS_SECRET"),
-        region_name=os.getenv("AWS_REGION"),
-    )
-    bucket_name = os.getenv("AWS_S3_BUCKET_NAME")
 
     for result in search_results:
         s3_key = result.get("file_name")

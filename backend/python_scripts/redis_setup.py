@@ -1,31 +1,32 @@
-import os
 import ssl
 import redis
 from urllib.parse import urlparse
 from logger_setup import log
+import config
 
 
 def get_redis():
     """
     Create a Redis client with optional TLS verification.
 
-    Env vars:
+    Configuration from config module:
     - REDIS_TLS_URL: preferred TLS URL (e.g., rediss://...)
     - REDIS_URL:     fallback if TLS URL not present
-    - REDIS_SSL_VERIFY: 'true'|'false' (default: 'true')
+    - REDIS_SSL_VERIFY: true|false (default: true)
     - REDIS_SSL_CA_FILE: path to CA bundle file (optional)
     - REDIS_SSL_CA_DATA: PEM content of CA bundle (optional alternative to file)
+    - REDIS_DIAG: enable diagnostic ping on connection (default: false)
     """
-    url = os.getenv("REDIS_TLS_URL") or os.getenv("REDIS_URL")
+    url = config.REDIS_TLS_URL or config.REDIS_URL
     if not url:
-        raise RuntimeError("REDIS_URL/REDIS_TLS_URL not set")
+        raise RuntimeError("REDIS_URL/REDIS_TLS_URL not set in configuration")
 
-    verify = (os.getenv("REDIS_SSL_VERIFY", "true").lower() in ("1", "true", "yes", "on"))
+    verify = config.REDIS_SSL_VERIFY
 
     kwargs: dict = {}
     if url.startswith("rediss://") and verify:
-        ca_file = os.getenv("REDIS_SSL_CA_FILE")
-        ca_data = os.getenv("REDIS_SSL_CA_DATA")
+        ca_file = config.REDIS_SSL_CA_FILE
+        ca_data = config.REDIS_SSL_CA_DATA
 
         # Create custom SSL context to disable hostname checking
         ssl_context = ssl.create_default_context()
@@ -60,8 +61,8 @@ def get_redis():
         try:
             u = urlparse(url)
             ca_src = (
-                "file" if os.getenv("REDIS_SSL_CA_FILE") else
-                "env" if os.getenv("REDIS_SSL_CA_DATA") else
+                "file" if config.REDIS_SSL_CA_FILE else
+                "env" if config.REDIS_SSL_CA_DATA else
                 "none"
             )
             log.info(
@@ -72,7 +73,7 @@ def get_redis():
             pass
 
         # Optional early ping to surface TLS/CA errors sooner when enabled
-        if os.getenv("REDIS_DIAG", "0") in ("1", "true", "yes", "on"):
+        if config.REDIS_DIAG:
             client.ping()
 
         return client

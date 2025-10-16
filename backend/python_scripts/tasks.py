@@ -1,7 +1,5 @@
-import os, ssl
 from redis_setup import get_redis
 from rq import Queue
-from typing import Any
 from logger_setup import log
 
 # ------------------------------------------------------------------

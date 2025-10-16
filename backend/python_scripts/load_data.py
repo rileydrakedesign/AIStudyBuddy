@@ -7,7 +7,6 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from bson import ObjectId
-from dotenv import load_dotenv
 from pymongo import MongoClient
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_text_splitters import (
@@ -18,48 +17,45 @@ from langchain_experimental.text_splitter import SemanticChunker
 from langchain_core.output_parsers import StrOutputParser
 from langchain.prompts import PromptTemplate
 from langchain_mongodb import MongoDBAtlasVectorSearch
-import boto3, pymupdf
-from logger_setup import log
-import asyncio
 from openai import AsyncOpenAI, RateLimitError, APIConnectionError, Timeout as OpenAITimeout
-import time
+
+import config
+from logger_setup import log
 from redis_setup import get_redis
-
-
-load_dotenv()
 
 # ──────────────────────────────────────────────────────────────
 # CONSTANTS & CLIENTS
 # ──────────────────────────────────────────────────────────────
-CONNECTION_STRING         = os.getenv("MONGO_CONNECTION_STRING")
-DB_NAME                   = "study_buddy_demo"
-COLLECTION_NAME           = "study_materials2"
-MAIN_FILE_DB_NAME         = "test"
+DB_NAME = "study_buddy_demo"
+COLLECTION_NAME = "study_materials2"
+MAIN_FILE_DB_NAME = "test"
 MAIN_FILE_COLLECTION_NAME = "documents"
 
-client          = MongoClient(CONNECTION_STRING)
-collection      = client[DB_NAME][COLLECTION_NAME]
+# MongoDB clients
+client = MongoClient(config.MONGO_CONNECTION_STRING)
+collection = client[DB_NAME][COLLECTION_NAME]
 main_collection = client[MAIN_FILE_DB_NAME][MAIN_FILE_COLLECTION_NAME]
 
+# S3 client
 s3_client = boto3.client(
     "s3",
-    aws_access_key_id=os.getenv("AWS_ACCESS_KEY"),
-    aws_secret_access_key=os.getenv("AWS_SECRET"),
-    region_name=os.getenv("AWS_REGION"),
+    aws_access_key_id=config.AWS_ACCESS_KEY,
+    aws_secret_access_key=config.AWS_SECRET,
+    region_name=config.AWS_REGION,
 )
 
-llm         = ChatOpenAI(model="gpt-4.1-nano", temperature=0)
-embeddings  = OpenAIEmbeddings(model="text-embedding-3-small")
+# LLM and embedding models
+llm = ChatOpenAI(model=config.OPENAI_CHAT_MODEL, temperature=0)
+embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 
-TOK_PER_CHAR           = 1 / 4
+# Token estimation configuration
+TOK_PER_CHAR = 1 / 4
 MAX_TOKENS_PER_REQUEST = 300_000
-est_tokens             = lambda txt: int(len(txt) * TOK_PER_CHAR)
+est_tokens = lambda txt: int(len(txt) * TOK_PER_CHAR)
 
-# ──────────────────  Rate‑limit guard  ──────────────────
-# Use TLS-aware Redis client (verification on by default)
+# Rate-limit guard using Redis
 r = get_redis()
-
-TPM_LIMIT = int(os.getenv("OPENAI_TPM_LIMIT", "180000"))
+TPM_LIMIT = config.OPENAI_TPM_LIMIT
 
 
 
@@ -346,7 +342,7 @@ def load_pdf_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
 
     try:
         obj = s3_client.get_object(
-            Bucket=os.getenv("AWS_S3_BUCKET_NAME"), Key=s3_key
+            Bucket=config.AWS_S3_BUCKET_NAME, Key=s3_key
         )
     except Exception:
         log.error("Error downloading %s from S3", s3_key, exc_info=True); return
