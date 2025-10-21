@@ -6,6 +6,10 @@ from queue import SimpleQueue
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import boto3  # AWS S3 client
+import pymupdf
+import asyncio
+import time
+import json
 
 from bson import ObjectId
 from pymongo import MongoClient
