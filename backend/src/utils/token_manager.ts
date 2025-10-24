@@ -8,7 +8,11 @@ import logger from "./logger.js";  // root pino instance
 
 export const createToken = (id: string, email: string, expiresIn: string) => {
   const payload = { id, email };
-  const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn });
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error("JWT_SECRET is not defined in environment variables");
+  }
+  const token = jwt.sign(payload, secret, { expiresIn } as jwt.SignOptions);
   return token;
 };
 
@@ -22,8 +26,13 @@ export const verifyToken = async (
     return res.status(401).json({ message: "Token Not Received" });
   }
 
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    return res.status(500).json({ message: "JWT_SECRET is not configured" });
+  }
+
   return new Promise<void>((resolve, reject) => {
-    jwt.verify(token, process.env.JWT_SECRET, (err, decoded: any) => {
+    jwt.verify(token, secret, (err, decoded: any) => {
       if (err) {
         reject(err.message);
         return res.status(401).json({ message: "Token Expired" });

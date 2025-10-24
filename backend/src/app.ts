@@ -1,5 +1,4 @@
 import express from 'express';
-import { config } from 'dotenv';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 
@@ -15,12 +14,12 @@ import { resetRedirect } from "./controllers/password_reset.js";
 
 import appRouter from './routes/index.js';
 
-config();                                    // load .env
 const app = express();
 
 // -------- CORS allow-list ------------
 const allowedExact = new Set<string>([
   'http://localhost:5173',
+  'https://localhost:5173',  // Local dev with HTTPS
   'chrome-extension://fgammdbnfifiohdnmdlcgofflpgbhklk',
   'https://class-chat-frontend.vercel.app',
   'https://app.classchatai.com',

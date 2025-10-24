@@ -1,3 +1,16 @@
+# Load environment variables FIRST, before any other imports that might use them
+import os
+from dotenv import load_dotenv
+from pathlib import Path
+
+# In production (Heroku), env vars are set via config vars, not .env files
+# In local development, load from .env.local if it exists
+env_file = Path('.env.local')
+if env_file.exists():
+    load_dotenv(env_file)
+elif Path('.env').exists():
+    load_dotenv('.env')
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel

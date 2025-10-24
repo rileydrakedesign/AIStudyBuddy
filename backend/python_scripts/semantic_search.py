@@ -5,7 +5,6 @@ from router import detect_route
 import boto3
 from urllib.parse import quote
 from botocore.exceptions import ClientError
-from dotenv import load_dotenv
 from langchain.chains import create_history_aware_retriever
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser
@@ -56,7 +55,7 @@ except ImportError:
 # ──────────────────────────────────────────────────────────────
 # ENV + CLIENTS
 # ──────────────────────────────────────────────────────────────
-load_dotenv()
+# Note: Environment variables are now loaded in semantic_service.py before any imports
 
 # ─────────────  Rate‑limit guard (shared with ingest)  ─────────────
 # TLS-aware Redis client; verifies by default

@@ -1,12 +1,17 @@
 import Mailgun from "mailgun.js";
 import formData from "form-data";
 import crypto from "crypto";
-import dotenv from "dotenv";
-dotenv.config();
-const mg = new Mailgun(formData).client({
-    username: "api",
-    key: process.env.MAILGUN_API_KEY,
-});
+// Lazy initialization - only create client when needed, after env vars are loaded
+let mg = null;
+const getMailgunClient = () => {
+    if (!mg) {
+        mg = new Mailgun(formData).client({
+            username: "api",
+            key: process.env.MAILGUN_API_KEY,
+        });
+    }
+    return mg;
+};
 const canSendEmail = () => {
     const enabled = (process.env.EMAIL_ENABLED ?? "true").toLowerCase() !== "false";
     const hasKey = !!process.env.MAILGUN_API_KEY;
@@ -24,7 +29,7 @@ export const sendConfirmEmail = async (user) => {
         console.warn("[email] Skipping confirm email — EMAIL_ENABLED false or Mailgun not configured");
         return;
     }
-    await mg.messages.create(process.env.MAILGUN_DOMAIN, {
+    await getMailgunClient().messages.create(process.env.MAILGUN_DOMAIN, {
         from: "ClassChat <no-reply@classchat.ai>",
         to: user.email,
         subject: "Confirm your email",
@@ -35,7 +40,7 @@ export const sendConfirmEmail = async (user) => {
          style="background:#1976d2;color:#fff;padding:10px 18px;border-radius:4px;text-decoration:none;font-weight:600">
         Confirm Email
       </a>
-      <p>If the button doesn’t work, copy this link:</p>
+      <p>If the button doesn't work, copy this link:</p>
       <p>${url}</p>`,
     });
 };
@@ -52,7 +57,7 @@ export const sendPasswordResetEmail = async (user) => {
         console.warn("[email] Skipping reset email — EMAIL_ENABLED false or Mailgun not configured");
         return;
     }
-    await mg.messages.create(process.env.MAILGUN_DOMAIN, {
+    await getMailgunClient().messages.create(process.env.MAILGUN_DOMAIN, {
         from: "ClassChat <no-reply@classchat.ai>",
         to: user.email,
         subject: "Reset your password",
@@ -63,9 +68,9 @@ export const sendPasswordResetEmail = async (user) => {
          style="background:#1976d2;color:#fff;padding:10px 18px;border-radius:4px;text-decoration:none;font-weight:600">
         Reset Password
       </a>
-      <p>If the button doesn’t work, copy this link:</p>
+      <p>If the button doesn't work, copy this link:</p>
       <p>${url}</p>
-      <p>If you didn’t request this, you can safely ignore this email.</p>
+      <p>If you didn't request this, you can safely ignore this email.</p>
     `,
     });
 };
