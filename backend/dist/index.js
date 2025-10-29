@@ -1,3 +1,7 @@
+// Load environment variables FIRST, before any other imports
+import { config } from 'dotenv';
+const envFile = process.env.NODE_ENV === 'production' ? '.env' : '.env.local';
+config({ path: envFile });
 import fs from "fs";
 import http from "http";
 import https from "https";

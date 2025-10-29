@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import List, Tuple
 from urllib.parse import quote
 from json import dumps as _json_dumps
-
+from botocore.exceptions import ClientError
+from langchain.chains import create_history_aware_retriever
+from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import (
     PromptTemplate,
@@ -56,6 +58,7 @@ except ImportError:
 # ──────────────────────────────────────────────────────────────
 # CLIENTS & CONNECTIONS
 # ──────────────────────────────────────────────────────────────
+# Note: Environment variables are now loaded in semantic_service.py before any imports
 
 # TLS-aware Redis client; verifies by default
 r = get_redis()

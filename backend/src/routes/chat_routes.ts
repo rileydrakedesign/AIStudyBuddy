@@ -9,6 +9,7 @@ import {
 import {
   createNewChatSession,
   getUserChatSessions,
+  updateChatSession,
   generateChatCompletion,
   deleteChatSession,
   deleteAllChatSessions,
@@ -47,6 +48,9 @@ chatRoutes.post(
 
 // Get all chat sessions for the user
 chatRoutes.get("/sessions", verifyToken, getUserChatSessions);
+
+// Update a chat session (rename)
+chatRoutes.patch("/session/:chatSessionId", verifyToken, updateChatSession);
 
 // Delete a specific chat session
 chatRoutes.delete("/session/:chatSessionId", verifyToken, deleteChatSession);
