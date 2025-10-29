@@ -16,8 +16,9 @@ export const createNewChatSession = async (req, res, next) => {
     const sourceHeader = req.headers["x-source"];
     const source = sourceHeader === "chrome_extension" ? "chrome_extension" : "main_app";
 
-    // 1) Capture the requested chat session name
+    // 1) Capture the requested chat session name and optional class
     let desiredName = req.body.name || "New Chat";
+    const assignedClass = req.body.assignedClass || null;
 
     // 2) Check if any existing chat session has the exact same name
     //    or the same name with a numeric suffix (e.g., "New Chat (1)").
@@ -62,6 +63,7 @@ export const createNewChatSession = async (req, res, next) => {
       sessionName: desiredName,
       messages: [],
       source,
+      assignedClass,
     });
 
     return res
@@ -92,6 +94,44 @@ export const getUserChatSessions = async (req, res, next) => {
 
     const chatSessions = await ChatSession.find(query);
     return res.status(200).json({ chatSessions });
+  } catch (error) {
+    (req as any).log.error(error);
+    return res.status(500).json({ message: "ERROR", cause: error.message });
+  }
+};
+
+export const updateChatSession = async (req, res, next) => {
+  try {
+    const currentUser = await User.findById(res.locals.jwtData.id);
+    if (!currentUser) {
+      return res.status(401).send("User not registered or token malfunctioned");
+    }
+
+    const { chatSessionId } = req.params;
+    const { sessionName } = req.body;
+
+    if (!sessionName || !sessionName.trim()) {
+      return res.status(400).json({ message: "Session name is required" });
+    }
+
+    // Find the chat session
+    const chatSession = await ChatSession.findOne({
+      _id: chatSessionId,
+      userId: currentUser._id,
+    });
+
+    if (!chatSession) {
+      return res.status(404).json({ message: "Chat session not found" });
+    }
+
+    // Update the session name
+    chatSession.sessionName = sessionName.trim();
+    await chatSession.save();
+
+    return res.status(200).json({
+      message: "Chat session updated",
+      chatSession
+    });
   } catch (error) {
     (req as any).log.error(error);
     return res.status(500).json({ message: "ERROR", cause: error.message });

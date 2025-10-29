@@ -1,4 +1,5 @@
 // src/App.tsx
+import { useState, useEffect } from "react";
 import Header from "./components/Header";
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import Login from "./pages/Login";
@@ -9,11 +10,13 @@ import UploadDocument from "./pages/Upload";
 import Profile from "./pages/Profile";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
+import MobileBlockingPage from "./components/shared/MobileBlockingPage";
 import { useAuth } from "./context/authContext";
 
 function App() {
   const auth = useAuth();
   const location = useLocation();
+  const [isMobile, setIsMobile] = useState(false);
 
   // Guard for protecting routes
   const RequireAuth = ({ children }: { children: JSX.Element }) => {
@@ -23,6 +26,29 @@ function App() {
     }
     return children;
   };
+
+  // Mobile detection: check viewport width and user agent
+  useEffect(() => {
+    const checkMobile = () => {
+      const isMobileViewport = window.innerWidth < 768;
+      const isMobileUserAgent = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+        navigator.userAgent
+      );
+      setIsMobile(isMobileViewport || isMobileUserAgent);
+    };
+
+    // Check on mount
+    checkMobile();
+
+    // Check on resize
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
+
+  // Show mobile blocking page if mobile detected
+  if (isMobile) {
+    return <MobileBlockingPage />;
+  }
 
   return (
     <main>

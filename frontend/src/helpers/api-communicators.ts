@@ -97,10 +97,18 @@ export const getUserChatSessions = async () => {
   return res.data; // Should return { chatSessions }
 };
 
-export const createChatSession = async (name: string) => {
-  const res = await axios.post("/chat/new-session", { name });
+export const createChatSession = async (name: string, assignedClass?: string | null) => {
+  const res = await axios.post("/chat/new-session", { name, assignedClass });
   if (res.status !== 201) {
     throw new Error("Unable to create chat session");
+  }
+  return res.data; // Should return { chatSession }
+};
+
+export const updateChatSession = async (chatSessionId: string, sessionName: string) => {
+  const res = await axios.patch(`/chat/session/${chatSessionId}`, { sessionName });
+  if (res.status !== 200) {
+    throw new Error("Unable to update chat session");
   }
   return res.data; // Should return { chatSession }
 };

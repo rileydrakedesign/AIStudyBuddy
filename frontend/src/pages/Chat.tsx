@@ -5,19 +5,9 @@ import {
   Button,
   IconButton,
   MenuItem,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemText,
   TextField,
-  ListSubheader,
-  Divider,
-  ListItemIcon,
-  Collapse,
   LinearProgress,
-  CircularProgress,
 } from "@mui/material";
-import red from "@mui/material/colors/red";
 import { useAuth } from "../context/authContext";
 import ChatItem from "../components/chat/chatItem";
 import { IoMdSend } from "react-icons/io";
@@ -26,7 +16,6 @@ import {
   getUserChatSessions,
   createChatSession,
   deleteChatSession,
-  deleteAllChatSessions,
   sendChatRequest,
   getUserClasses,
   getClassDocuments,
@@ -36,18 +25,11 @@ import {
   setReaction,
 } from "../helpers/api-communicators";
 import toast from "react-hot-toast";
-import ChatBubbleIcon from "@mui/icons-material/ChatBubble";
-import StyleIcon from "@mui/icons-material/Style";
-import AddIcon from "@mui/icons-material/Add";
-import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
-import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import Loader from "../components/ui/loader";
-import { ExpandLess, ExpandMore } from "@mui/icons-material";
-import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
-import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import AddIcon from "@mui/icons-material/Add";
 import Header from "../components/Header.tsx";
-import Logo from "../components/shared/Logo";
 import DocumentChat from "../components/chat/DocumentChat.tsx";
+import ChatSidebar from "../components/chat/ChatSidebar";
 import { initializeSocket } from "../helpers/socketClient";
 import { Socket } from "socket.io-client";
 
@@ -82,11 +64,6 @@ type ChatSession = {
 type ClassOption = {
   name: string;
   _id: string;
-};
-
-type Chunk = {
-  chunkNumber: number;
-  text: string;
 };
 
 type DocumentItem = {
@@ -128,9 +105,6 @@ const Chat = () => {
   // Typewriter partial
   const [partialAssistantMessage, setPartialAssistantMessage] = useState("");
   const typeIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Chunks for bracket references (ephemeral)
-  const [chunks, setChunks] = useState<Chunk[]>([]);
 
   // Sidebar
   const [expandedClass, setExpandedClass] = useState<string | null>(null);
@@ -445,8 +419,6 @@ const Chat = () => {
         prev ? { ...prev, count: Math.min(prev.count + 1, prev.limit) } : prev
       );
 
-      setChunks(chatData.chunks || []);
-
       setChatSessions((prev) => {
         const updatedSessions = prev.map((session) =>
           session._id === chatData.chatSessionId
@@ -467,7 +439,6 @@ const Chat = () => {
       });
 
       const allMessages = chatData.messages;
-      const collapsed = collapseRetries(allMessages);
 
       const finalAssistantMsg =
         allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
@@ -519,15 +490,12 @@ const Chat = () => {
     }
   };
 
-  // ─────────────────────────────────────────────────────────
-  // PATCH 2 – helper to send a fixed prompt
-  // ─────────────────────────────────────────────────────────
   const handlePresetPrompt = (prompt: string) => {
-    if (isGenerating) return;                // guard while streaming
+    if (isGenerating) return; // guard while streaming
     if (inputRef.current) {
-      inputRef.current.value = prompt;       // seed the textarea
+      inputRef.current.value = prompt; // seed the textarea
     }
-    handleSubmit();                          // reuse the normal path
+    handleSubmit(); // reuse the normal path
   };
 
 
@@ -546,16 +514,17 @@ const Chat = () => {
       return;
     }
     try {
-      const data = await createChatSession(newChatName.trim());
+      // Pass the currently selected class to assign the chat to that class
+      const data = await createChatSession(newChatName.trim(), selectedClass);
       const newSession = {
         ...data.chatSession,
-        assignedClass: null,
+        assignedClass: selectedClass,
         lastUpdated: Date.now(),
       };
       setChatSessions((prev) => [newSession, ...prev]);
       setCurrentChatSessionId(newSession._id);
       setChatMessages([]);
-      setSelectedClass(null);
+      // Keep the selected class instead of resetting to null
       setIsNamingChat(false);
       setNewChatName("");
     } catch (err) {
@@ -582,6 +551,19 @@ const Chat = () => {
       setChatMessages(collapseRetries(session.messages)); 
       setSelectedClass(session.assignedClass || null);
     }
+  };
+
+  /* ------------------------------
+     RENAME A CHAT SESSION
+  ------------------------------ */
+  const handleRenameChatSession = (chatSessionId: string, newName: string) => {
+    setChatSessions((prev) =>
+      prev.map((session) =>
+        session._id === chatSessionId
+          ? { ...session, sessionName: newName }
+          : session
+      )
+    );
   };
 
   /* ------------------------------
@@ -806,23 +788,6 @@ const Chat = () => {
     return out;
   };  
 
-  /* ------------------------------
-     DELETE ALL CHAT SESSIONS
-  ------------------------------ */
-  const handleDeleteAllChatSessions = async () => {
-    try {
-      await deleteAllChatSessions();
-      setChatSessions([]);
-      setCurrentChatSessionId(null);
-      setChatMessages([]);
-      setSelectedClass(null);
-      toast.success("All chat sessions deleted");
-    } catch (error) {
-      console.error("Error deleting all chat sessions:", error);
-      toast.error("Failed to delete all chat sessions");
-    }
-  };
-
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
 
   if (!auth?.isLoggedIn) return null;
@@ -844,342 +809,37 @@ const Chat = () => {
         }}
       >
         {/* -------------------- SIDEBAR -------------------- */}
-        <Box
-          sx={{
-            width: sidebarOpen ? "280px" : "70px",
-            flexShrink: 0,
-            display: "flex",
-            flexDirection: "column",
-            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.4)",
-            bgcolor: "rgba(0, 77, 86, 0.07)",
-            backdropFilter: "blur(10px)",
-            borderRight: "1px solid",
-            borderColor: "divider",
-            overflowY: "auto",
-            overflowX: "hidden",
-            position: "fixed",
-            top: 0,
-            left: 0,
-            height: "100vh",
-            zIndex: 1300,
-            transition: "width 250ms cubic-bezier(0.4, 0, 0.2, 1)",
-          }}
-        >
-          {/* Logo at top of sidebar */}
-          <Box sx={{ p: sidebarOpen ? 3 : 1.5, display: "flex", justifyContent: sidebarOpen ? "flex-start" : "center" }}>
-            {sidebarOpen ? (
-              <Logo />
-            ) : (
-              <Box
-                sx={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: "var(--radius-md)",
-                  backgroundColor: "primary.main",
-                  color: "white",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontWeight: 700,
-                  fontSize: "1.25rem",
-                  boxShadow: "0 0 20px rgba(14, 165, 233, 0.4)",
-                }}
-              >
-                AI
-              </Box>
-            )}
-          </Box>
-
-          {/* Chats */}
-          <List
-            sx={{ color: "text.primary", mt: 2 }}
-            subheader={
-              <ListSubheader
-                component="div"
-                id="chats-list-subheader"
-                sx={{
-                  bgcolor: "transparent",
-                  color: "text.primary",
-                  fontSize: "1.2em",
-                  fontWeight: "bold",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: sidebarOpen ? "flex-start" : "center",
-                  px: sidebarOpen ? 2 : 0,
-                }}
-              >
-                {sidebarOpen ? (
-                  <Box sx={{ display: "flex", alignItems: "center" }}>
-                    <ChatBubbleIcon sx={{ mr: 1 }} />
-                    Chats
-                  </Box>
-                ) : (
-                  <ChatBubbleIcon />
-                )}
-              </ListSubheader>
-            }
-          >
-              {isNamingChat ? (
-                <Box
-                  sx={{
-                    mx: "auto",
-                    my: 2,
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                  }}
-                >
-                  <input
-                    type="text"
-                    value={newChatName}
-                    onChange={(e) => setNewChatName(e.target.value)}
-                    placeholder="Enter chat name"
-                    style={{
-                      width: "200px",
-                      padding: "8px",
-                      borderRadius: "4px",
-                      border: "1px solid #ccc",
-                      marginBottom: "8px",
-                      color: "black",
-                    }}
-                  />
-                  <Box sx={{ display: "flex", gap: 1 }}>
-                    <Button
-                      onClick={handleSubmitNewChatName}
-                      sx={{
-                        color: "white",
-                        fontWeight: "700",
-                        borderRadius: 3,
-                        bgcolor: "blue",
-                        ":hover": { bgcolor: "darkblue" },
-                      }}
-                    >
-                      Create
-                    </Button>
-                    <Button
-                      onClick={handleCancelNewChat}
-                      sx={{
-                        color: "white",
-                        fontWeight: "700",
-                        borderRadius: 3,
-                        bgcolor: red[300],
-                        ":hover": { bgcolor: red.A400 },
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                  </Box>
-                </Box>
-              ) : (
-                <ListItemButton onClick={handleCreateNewChatSession} disabled={isGenerating} sx={{ pl: 2 }}>
-                  <ListItemIcon sx={{ color: "white" }}>
-                    <AddIcon />
-                  </ListItemIcon>
-                  <ListItemText primary="New Chat" sx={{ color: "white" }} />
-                </ListItemButton>
-              )}
-
-              {chatSessions.map((session) => (
-                <ListItemButton
-                  key={session._id}
-                  className="chat-list-item"
-                  selected={session._id === currentChatSessionId}
-                  disabled={isGenerating}
-                  onClick={() => handleSelectChatSession(session._id)}
-                  sx={{ pl: 3 }}
-                >
-                  <ListItemText primary={session.sessionName} />
-                  <IconButton
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteChatSession(session._id);
-                    }}
-                    sx={{
-                      color: "red",
-                      opacity: 0,
-                      transition: "opacity 0.3s",
-                      ".chat-list-item:hover &": { opacity: 1 },
-                    }}
-                  >
-                    <DeleteOutlineIcon />
-                  </IconButton>
-                </ListItemButton>
-              ))}
-            </List>
-
-
-            {/* Classes */}
-            <List
-              sx={{ color: "text.primary" }}
-              subheader={
-                <ListSubheader
-                  component="div"
-                  id="classes-list-subheader"
-                  sx={{
-                    bgcolor: "transparent",
-                    color: "text.primary",
-                    fontSize: "1.2em",
-                    fontWeight: "bold",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: sidebarOpen ? "flex-start" : "center",
-                    px: sidebarOpen ? 2 : 0,
-                  }}
-                >
-                  {sidebarOpen ? (
-                    <>
-                      <StyleIcon sx={{ mr: 1 }} />
-                      Classes
-                    </>
-                  ) : (
-                    <StyleIcon />
-                  )}
-                </ListSubheader>
-              }
-            >
-              <ListItemButton sx={{ pl: 2 }} disabled={isGenerating} onClick={() => navigate("/upload")}>
-                <ListItemIcon sx={{ color: "white" }}>
-                  <AddIcon />
-                </ListItemIcon>
-                <ListItemText primary="New Class" sx={{ color: "white" }} />
-              </ListItemButton>
-
-              {classes.map((cls) => (
-                <React.Fragment key={cls._id}>
-                  <ListItemButton
-                    sx={{ pl: 2 }}
-                    className="class-list-item"
-                    onClick={() => handleToggleClass(cls.name)}
-                  >
-                    <ListItemIcon sx={{ color: "white" }}>
-                      {expandedClass === cls.name ? <ExpandLess /> : <ExpandMore />}
-                    </ListItemIcon>
-                    <ListItemText primary={cls.name} sx={{ color: "white" }} />
-
-                    <IconButton
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteClass(cls._id);
-                      }}
-                      sx={{
-                        color: "red",
-                        opacity: 0,
-                        transition: "opacity 0.3s",
-                        ".class-list-item:hover &": { opacity: 1 },
-                      }}
-                    >
-                      <DeleteOutlineIcon />
-                    </IconButton>
-                  </ListItemButton>
-
-                  <Collapse in={expandedClass === cls.name} timeout="auto" unmountOnExit>
-                    <List component="div" disablePadding sx={{ pl: 6 }}>
-                      {classDocs[cls.name] && classDocs[cls.name].length > 0 ? (
-                        classDocs[cls.name].map((doc) => (
-                          <ListItem key={doc._id} sx={{ color: "white" }} className="doc-list-item">
-                            <Button
-                              disabled={isGenerating || doc.isProcessing}
-                              onClick={() => handleOpenDocumentChat(doc._id)}
-                              sx={{
-                                color: "#1976d2",
-                                textTransform: "none",
-                                "&.Mui-disabled": {
-                                  color: "rgba(25,118,210, 0.5)",
-                                },
-                              }}
-                            >
-                              {doc.fileName}
-                            </Button>
-                            {doc.isProcessing && (
-                              <CircularProgress size={14} sx={{ ml: 1, color: "#90caf9" }} />
-                            )}
-
-                            <IconButton
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteDocument(doc._id, doc.className);
-                              }}
-                              sx={{
-                                color: "red",
-                                ml: 1,
-                                opacity: 0,
-                                transition: "opacity 0.3s",
-                                ".doc-list-item:hover &": { opacity: 1 },
-                              }}
-                            >
-                              <DeleteOutlineIcon />
-                            </IconButton>
-                          </ListItem>
-                        ))
-                      ) : classDocs[cls.name] ? (
-                        <ListItem sx={{ color: "gray" }}>
-                          <ListItemText primary="No documents found" />
-                        </ListItem>
-                      ) : (
-                        <ListItem sx={{ color: "gray" }}>
-                          <ListItemText primary="Loading documents..." />
-                        </ListItem>
-                      )}
-                    </List>
-                  </Collapse>
-                </React.Fragment>
-              ))}
-            </List>
-
-            {/* Profile Section at Bottom */}
-            <Box
-              sx={{
-                mt: "auto",
-                p: 2,
-                borderTop: "1px solid",
-                borderColor: "divider",
-              }}
-            >
-              <Box
-                onClick={() => navigate("/profile")}
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: sidebarOpen ? 2 : 0,
-                  justifyContent: sidebarOpen ? "flex-start" : "center",
-                  cursor: "pointer",
-                  p: 1,
-                  borderRadius: "var(--radius-md)",
-                  transition: "background 150ms ease",
-                  "&:hover": {
-                    bgcolor: "rgba(255, 255, 255, 0.05)",
-                  },
-                }}
-              >
-                <AccountCircleIcon sx={{ color: "primary.main", fontSize: 40 }} />
-                {sidebarOpen && (
-                  <Box sx={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
-                    <Typography
-                      variant="body2"
-                      sx={{
-                        color: "text.primary",
-                        fontWeight: 600,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                    >
-                      {auth?.user?.email}
-                    </Typography>
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        color: "text.secondary",
-                        textTransform: "capitalize",
-                      }}
-                    >
-                      {userPlan} Plan
-                    </Typography>
-                  </Box>
-                )}
-              </Box>
-            </Box>
-          </Box>
+        <ChatSidebar
+          sidebarOpen={sidebarOpen}
+          chatSessions={chatSessions}
+          currentChatSessionId={currentChatSessionId}
+          onSelectChatSession={handleSelectChatSession}
+          onDeleteChatSession={handleDeleteChatSession}
+          onCreateNewChatSession={handleCreateNewChatSession}
+          isNamingChat={isNamingChat}
+          newChatName={newChatName}
+          onNewChatNameChange={setNewChatName}
+          onSubmitNewChatName={handleSubmitNewChatName}
+          onCancelNewChat={handleCancelNewChat}
+          onRenameChatSession={handleRenameChatSession}
+          classes={classes}
+          selectedClass={selectedClass}
+          onSelectClass={setSelectedClass}
+          onCreateNewClass={() => navigate("/upload")}
+          classDocs={classDocs}
+          expandedClass={expandedClass}
+          onToggleClass={handleToggleClass}
+          onOpenDocumentChat={handleOpenDocumentChat}
+          onDeleteDocument={handleDeleteDocument}
+          onDeleteClass={handleDeleteClass}
+          isGenerating={isGenerating}
+          deletingChatIds={deletingChatIds}
+          deletingDocIds={deletingDocIds}
+          deletingClassIds={deletingClassIds}
+          userEmail={auth?.user?.email || ""}
+          userPlan={userPlan}
+          onNavigateToProfile={() => navigate("/profile")}
+        />
 
         {/* -------------------- MAIN CHAT -------------------- */}
         <Box
@@ -1229,9 +889,6 @@ const Chat = () => {
                     },
                   }}
                 >
-                  <MenuItem value="null">
-                    <em>All Classes</em>
-                  </MenuItem>
                   {classes.length === 0 && (
                     <MenuItem value="__new_class__">
                       <AddIcon sx={{ mr: 1, fontSize: 18 }} /> New Class
