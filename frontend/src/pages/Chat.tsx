@@ -231,10 +231,22 @@ const Chat = () => {
         setClasses(classes);
 
         const storedClass = localStorage.getItem("selectedClass");
-        if (storedClass === "null") {
+
+        // Auto-select first class if user has classes but no valid selection
+        if (classes.length > 0) {
+          if (storedClass === "null" || !storedClass) {
+            // No class selected but classes exist - auto-select first class
+            setSelectedClass(classes[0].name);
+          } else if (classes.some((cls) => cls.name === storedClass)) {
+            // Stored class is valid - use it
+            setSelectedClass(storedClass);
+          } else {
+            // Stored class is invalid - auto-select first class
+            setSelectedClass(classes[0].name);
+          }
+        } else {
+          // No classes exist - set to null
           setSelectedClass(null);
-        } else if (storedClass && classes.some((cls) => cls.name === storedClass)) {
-          setSelectedClass(storedClass);
         }
       } catch (error) {
         console.error("Error fetching classes", error);
@@ -258,6 +270,31 @@ const Chat = () => {
     };
     if (auth?.isLoggedIn) fetchUsage();
   }, [auth]);
+
+  /* ------------------------------
+     AUTO-SELECT FIRST CLASS IF NEEDED
+  ------------------------------ */
+  useEffect(() => {
+    // When classes change, ensure a valid class is selected if classes exist
+    if (classes.length > 0) {
+      setSelectedClass((currentSelection) => {
+        // Check if current selection is valid
+        const hasValidSelection = currentSelection && classes.some((cls) => cls.name === currentSelection);
+
+        if (!hasValidSelection) {
+          // No valid selection - auto-select first class
+          return classes[0].name;
+        }
+
+        return currentSelection;
+      });
+    } else if (classes.length === 0) {
+      setSelectedClass((currentSelection) => {
+        // No classes exist - clear selection if not already null
+        return currentSelection !== null ? null : currentSelection;
+      });
+    }
+  }, [classes]); // Only depend on classes array
 
   /* ------------------------------
      SAVE SELECTED CLASS LOCALLY

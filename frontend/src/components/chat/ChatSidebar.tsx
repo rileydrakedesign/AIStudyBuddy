@@ -165,12 +165,35 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingChatName, setEditingChatName] = useState("");
 
+  // Helper: Get the actual class to display (fallback to first class if selectedClass is invalid)
+  const getDisplayClass = (): string | null => {
+    // If no classes, return null
+    if (classes.length === 0) return null;
+
+    // If selectedClass is valid, use it
+    if (selectedClass && classes.some((cls) => cls.name === selectedClass)) {
+      return selectedClass;
+    }
+
+    // Otherwise, use first class as fallback
+    return classes[0].name;
+  };
+
+  const displayClass = getDisplayClass();
+
   // Fetch documents when class is selected
   useEffect(() => {
-    if (selectedClass && !classDocs[selectedClass]) {
-      onToggleClass(selectedClass);
+    if (displayClass && !classDocs[displayClass]) {
+      onToggleClass(displayClass);
     }
-  }, [selectedClass, classDocs, onToggleClass]);
+  }, [displayClass, classDocs, onToggleClass]);
+
+  // Notify parent if displayClass differs from selectedClass (auto-select first class)
+  useEffect(() => {
+    if (displayClass && displayClass !== selectedClass) {
+      onSelectClass(displayClass);
+    }
+  }, [displayClass, selectedClass, onSelectClass]);
 
   // Get class badge color based on class name (simple hash-based color)
   const getClassColor = (className: string): string => {
@@ -191,14 +214,14 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
 
   // Get chats filtered by selected class
   const getClassScopedChats = () => {
-    if (!selectedClass) return [];
-    return chatSessions.filter((session) => session.assignedClass === selectedClass);
+    if (!displayClass) return [];
+    return chatSessions.filter((session) => session.assignedClass === displayClass);
   };
 
   // Get documents for selected class
   const getClassScopedDocuments = () => {
-    if (!selectedClass) return [];
-    return classDocs[selectedClass] || [];
+    if (!displayClass) return [];
+    return classDocs[displayClass] || [];
   };
 
   // Handle class selection from dropdown
@@ -496,9 +519,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
             <Box sx={{ px: 2, mb: 2 }}>
               <Select
                 fullWidth
-                value={selectedClass || "null"}
+                value={displayClass || classes[0]?.name || ""}
                 onChange={handleClassSelect}
-                displayEmpty
                 sx={{
                   borderRadius: "8px",
                   bgcolor: "background.paper",
@@ -525,7 +547,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
           )}
 
           {/* Class-Scoped Sections (only show if a class is selected) */}
-          {selectedClass && (
+          {displayClass && (
             <>
               {/* Chats Section */}
               <Box sx={{ px: 2, mb: 2 }}>
