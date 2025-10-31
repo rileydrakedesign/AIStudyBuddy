@@ -13,6 +13,11 @@ import {
   CircularProgress,
   Select,
   Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from "@mui/material";
 import red from "@mui/material/colors/red";
 import {
@@ -142,7 +147,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   onToggleClass,
   onOpenDocumentChat,
   onDeleteDocument,
-  onDeleteClass: _onDeleteClass,
+  onDeleteClass,
   isGenerating,
   deletingChatIds: _deletingChatIds,
   deletingDocIds: _deletingDocIds,
@@ -162,6 +167,10 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   // State for editing chat names
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingChatName, setEditingChatName] = useState("");
+
+  // State for delete class confirmation dialog
+  const [deleteClassDialogOpen, setDeleteClassDialogOpen] = useState(false);
+  const [classToDelete, setClassToDelete] = useState<{ id: string; name: string } | null>(null);
 
   // Helper: Get the actual class to display (fallback to first class if selectedClass is invalid)
   const getDisplayClass = (): string | null => {
@@ -300,6 +309,28 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
       setEditingChatId(null);
       setEditingChatName("");
     }
+  };
+
+  // Handle delete class click
+  const handleDeleteClassClick = (classId: string, className: string, event: React.MouseEvent) => {
+    event.stopPropagation(); // Prevent Select from closing
+    setClassToDelete({ id: classId, name: className });
+    setDeleteClassDialogOpen(true);
+  };
+
+  // Handle confirm delete class
+  const handleConfirmDeleteClass = () => {
+    if (classToDelete) {
+      onDeleteClass(classToDelete.id);
+      setDeleteClassDialogOpen(false);
+      setClassToDelete(null);
+    }
+  };
+
+  // Handle cancel delete class
+  const handleCancelDeleteClass = () => {
+    setDeleteClassDialogOpen(false);
+    setClassToDelete(null);
   };
 
   return (
@@ -525,8 +556,35 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                 }}
               >
                 {classes.map((cls) => (
-                  <MenuItem key={cls._id} value={cls.name}>
-                    {cls.name}
+                  <MenuItem
+                    key={cls._id}
+                    value={cls.name}
+                    className="class-menu-item"
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      "&:hover .delete-class-btn": {
+                        opacity: 1,
+                      },
+                    }}
+                  >
+                    <span>{cls.name}</span>
+                    <IconButton
+                      className="delete-class-btn"
+                      size="small"
+                      onClick={(e) => handleDeleteClassClick(cls._id, cls.name, e)}
+                      sx={{
+                        opacity: 0,
+                        transition: "opacity 0.2s",
+                        color: "error.main",
+                        "&:hover": {
+                          bgcolor: "rgba(211, 47, 47, 0.1)",
+                        },
+                      }}
+                    >
+                      <DeleteOutlineIcon fontSize="small" />
+                    </IconButton>
                   </MenuItem>
                 ))}
                 <MenuItem value="__new_class__">
@@ -860,6 +918,34 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
           )}
         </Box>
       </Box>
+
+      {/* Delete Class Confirmation Dialog */}
+      <Dialog
+        open={deleteClassDialogOpen}
+        onClose={handleCancelDeleteClass}
+        PaperProps={{
+          sx: {
+            bgcolor: "background.paper",
+            borderRadius: "8px",
+          },
+        }}
+      >
+        <DialogTitle sx={{ color: "text.primary" }}>Delete Class</DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ color: "text.secondary" }}>
+            Are you sure you want to delete the class "{classToDelete?.name}"? This action cannot be
+            undone and will delete all associated chats and documents.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={handleCancelDeleteClass} sx={{ color: "text.secondary" }}>
+            Cancel
+          </Button>
+          <Button onClick={handleConfirmDeleteClass} variant="contained" color="error" autoFocus>
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
