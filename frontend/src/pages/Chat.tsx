@@ -4,8 +4,6 @@ import {
   Typography,
   Button,
   IconButton,
-  MenuItem,
-  TextField,
   LinearProgress,
 } from "@mui/material";
 import { useAuth } from "../context/authContext";
@@ -26,7 +24,6 @@ import {
 } from "../helpers/api-communicators";
 import toast from "react-hot-toast";
 import Loader from "../components/ui/loader";
-import AddIcon from "@mui/icons-material/Add";
 import Header from "../components/Header.tsx";
 import DocumentChat from "../components/chat/DocumentChat.tsx";
 import ChatSidebar from "../components/chat/ChatSidebar";
@@ -370,18 +367,6 @@ const Chat = () => {
       if (typeIntervalRef.current) clearInterval(typeIntervalRef.current);
     };
   }, []);
-
-  /* ------------------------------
-     CLASS SELECT CHANGE
-  ------------------------------ */
-  const handleClassChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.value === "__new_class__") {
-      navigate("/upload");
-      return;
-    }
-    const c = event.target.value === "null" ? null : event.target.value;
-    setSelectedClass(c);
-  };
 
   const finalizeTypewriter = () => {
     if (typeIntervalRef.current) {
@@ -896,61 +881,19 @@ const Chat = () => {
             <DocumentChat key={activeDocId} docId={activeDocId} onClose={() => setActiveDocId(null)} />
           ) : (
             <>
-              {/* Class Selector + free-plan chat counter */}
-              <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
-                <TextField
-                  id="class-select"
-                  select
-                  label="Select Class"
-                  value={selectedClass || "null"}
-                  onChange={handleClassChange}
-                  variant="outlined"
-                  sx={{ minWidth: 160, "& .MuiSvgIcon-root": { color: "white" }, mr: 2 }}
-                  InputProps={{ sx: { color: "white" } }}
-                  SelectProps={{
-                    MenuProps: {
-                      PaperProps: {
-                        sx: {
-                          bgcolor: "#424242",
-                          "& .MuiMenuItem-root": {
-                            color: "white",
-                            "&.Mui-selected": {
-                              bgcolor: "#616161",
-                              color: "white",
-                              "&:hover": { bgcolor: "#616161" },
-                            },
-                            "&:hover": { bgcolor: "#757575" },
-                          },
-                        },
-                      },
-                    },
-                  }}
-                >
-                  {classes.length === 0 && (
-                    <MenuItem value="__new_class__">
-                      <AddIcon sx={{ mr: 1, fontSize: 18 }} /> New Class
-                    </MenuItem>
-                  )}
-                  {classes.map((cls) => (
-                    <MenuItem key={cls._id} value={cls.name}>
-                      {cls.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
-
-                {chatUsage && (
-                  <Box sx={{ ml: "auto", display: "flex", alignItems: "center", minWidth: 140 }}>
-                    <Typography sx={{ mr: 1, color: "white" }}>
-                      {`${chatUsage.count}/${chatUsage.limit}`}
-                    </Typography>
-                    <LinearProgress
-                      variant="determinate"
-                      value={(chatUsage.count / chatUsage.limit) * 100}
-                      sx={{ width: 100, height: 8, bgcolor: "#424242", borderRadius: 1 }}
-                    />
-                  </Box>
-                )}
-              </Box>
+              {/* Free-plan chat counter */}
+              {chatUsage && (
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", mb: 2 }}>
+                  <Typography sx={{ mr: 1, color: "white" }}>
+                    {`${chatUsage.count}/${chatUsage.limit}`}
+                  </Typography>
+                  <LinearProgress
+                    variant="determinate"
+                    value={(chatUsage.count / chatUsage.limit) * 100}
+                    sx={{ width: 100, height: 8, bgcolor: "#424242", borderRadius: 1 }}
+                  />
+                </Box>
+              )}
 
               {/* Chat Messages Container */}
               {chatMessages.length === 0 && partialAssistantMessage === "" ? (
