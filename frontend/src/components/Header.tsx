@@ -3,9 +3,7 @@ import React from "react";
 import { AppBar, Toolbar, Box, IconButton } from "@mui/material";
 import { useAuth } from "../context/authContext";
 import NavigationLink from "./shared/NavigationLink";
-import Logo from "./shared/Logo";
 import StickyNote2Icon from "@mui/icons-material/StickyNote2";
-import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import { useLocation } from "react-router-dom";
 import ChatBubble from "@mui/icons-material/ChatBubble";
 import DriveFolderUploadIcon from "@mui/icons-material/DriveFolderUpload";
@@ -83,12 +81,6 @@ const Header: React.FC<HeaderProps> = ({ sidebarOpen, onToggleSidebar }) => {
                   textColor={isActive("/upload") ? "primary.light" : "neutral.300"}
                   hoverTextColor="neutral.100"
                   icon={<DriveFolderUploadIcon sx={{ color: "primary.main", fontSize: 20 }} />}
-                />
-                <NavigationLink
-                  bg={isActive("/profile") ? "primary.bg" : "neutral.700"}
-                  to="/profile"
-                  text=""
-                  icon={<AccountCircleIcon sx={{ color: "primary.main", fontSize: 36 }} />}
                 />
               </>
             ) : (
