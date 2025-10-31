@@ -24,7 +24,6 @@ import {
   AccountCircle as AccountCircleIcon,
   ChatBubble as ChatBubbleIcon,
   Home as HomeIcon,
-  MenuBook as MenuBookIcon,
   Description as DescriptionIcon,
   Info as InfoIcon,
 } from "@mui/icons-material";
@@ -158,7 +157,6 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   const [recentChatsExpanded, setRecentChatsExpanded] = useState(true);
   const [showAllRecentChats, setShowAllRecentChats] = useState(false);
   const [chatsExpanded, setChatsExpanded] = useState(true);
-  const [studyGuidesExpanded, setStudyGuidesExpanded] = useState(false);
   const [documentsExpanded, setDocumentsExpanded] = useState(true);
 
   // State for editing chat names
@@ -232,11 +230,6 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
       return;
     }
     onSelectClass(value === "null" ? null : value);
-  };
-
-  // Handle Study Guides click (placeholder)
-  const handleStudyGuidesClick = () => {
-    toast("Study Guides coming soon", { icon: "📚" });
   };
 
   // Handle new chat button click - expand chats section and trigger naming
@@ -714,61 +707,6 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                         No chats for this class
                       </Typography>
                     )}
-                  </List>
-                </Collapse>
-              </Box>
-
-              {/* Study Guides Section (Placeholder) */}
-              <Box sx={{ px: 2, mb: 2 }}>
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    cursor: "pointer",
-                    mb: 1,
-                    "&:hover": {
-                      bgcolor: "rgba(255, 255, 255, 0.08)",
-                    },
-                    borderRadius: "8px",
-                    p: 1,
-                    transition: "background 300ms ease-in-out",
-                  }}
-                  onClick={() => setStudyGuidesExpanded(!studyGuidesExpanded)}
-                >
-                  <Box sx={{ display: "flex", alignItems: "center" }}>
-                    {studyGuidesExpanded ? <ExpandMore /> : <ExpandLess />}
-                    <MenuBookIcon sx={{ ml: 1, mr: 1, fontSize: "1.2rem" }} />
-                    <Typography sx={{ fontWeight: 600, color: "text.primary" }}>
-                      Study Guides
-                    </Typography>
-                  </Box>
-                  <IconButton
-                    size="small"
-                    disabled
-                    sx={{ color: "text.disabled" }}
-                  >
-                    <AddIcon fontSize="small" />
-                  </IconButton>
-                </Box>
-
-                <Collapse in={studyGuidesExpanded} timeout={300} unmountOnExit>
-                  <List disablePadding>
-                    <ListItem>
-                      <Button
-                        fullWidth
-                        variant="text"
-                        onClick={handleStudyGuidesClick}
-                        sx={{
-                          color: "text.secondary",
-                          textTransform: "none",
-                          justifyContent: "flex-start",
-                          pl: 3,
-                        }}
-                      >
-                        Study Guides coming soon...
-                      </Button>
-                    </ListItem>
                   </List>
                 </Collapse>
               </Box>
