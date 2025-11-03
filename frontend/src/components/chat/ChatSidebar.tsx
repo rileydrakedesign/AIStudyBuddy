@@ -933,9 +933,16 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
         <DialogTitle sx={{ color: "text.primary" }}>Delete Class</DialogTitle>
         <DialogContent>
           <DialogContentText sx={{ color: "text.secondary" }}>
-            Are you sure you want to delete the class "{classToDelete?.name}"? This action cannot be
-            undone and will delete all associated chats and documents.
+            Are you sure you want to delete the class <strong>"{classToDelete?.name}"</strong>?
           </DialogContentText>
+          <DialogContentText sx={{ color: "text.secondary", mt: 2 }}>
+            This action cannot be undone and will permanently delete:
+          </DialogContentText>
+          <Box component="ul" sx={{ color: "text.secondary", mt: 1, pl: 3 }}>
+            <li>All documents in this class</li>
+            <li>All chat sessions for this class</li>
+            <li>All document content and embeddings</li>
+          </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={handleCancelDeleteClass} sx={{ color: "text.secondary" }}>
