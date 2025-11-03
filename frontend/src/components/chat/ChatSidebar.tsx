@@ -12,6 +12,7 @@ import {
   Collapse,
   CircularProgress,
   Select,
+  SelectChangeEvent,
   Chip,
   Dialog,
   DialogTitle,
@@ -234,8 +235,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   };
 
   // Handle class selection from dropdown
-  const handleClassSelect = (event: React.ChangeEvent<{ value: unknown }>) => {
-    const value = event.target.value as string;
+  const handleClassSelect = (event: SelectChangeEvent<string>) => {
+    const value = event.target.value;
     if (value === "__new_class__") {
       onCreateNewClass();
       return;
