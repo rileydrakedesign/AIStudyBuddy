@@ -95,6 +95,7 @@ interface ChatSidebarProps {
 
   // Classes
   classes: ClassOption[];
+  classesLoading: boolean;
   selectedClass: string | null;
   onSelectClass: (className: string | null) => void;
   onCreateNewClass: () => void;
@@ -139,6 +140,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   onCancelNewChat,
   onRenameChatSession,
   classes,
+  classesLoading,
   selectedClass,
   onSelectClass,
   onCreateNewClass,
@@ -507,7 +509,10 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
           <Box sx={{ borderTop: "1px solid", borderColor: "divider", mb: 2 }} />
 
           {/* Class Dropdown Selector or "Create First Class" */}
-          {classes.length === 0 ? (
+          {classesLoading ? (
+            // Show nothing while loading to prevent flash of empty state
+            <Box sx={{ px: 2, mb: 2, height: 56 }} />
+          ) : classes.length === 0 ? (
             <Box sx={{ px: 2, mb: 2 }}>
               <Button
                 fullWidth

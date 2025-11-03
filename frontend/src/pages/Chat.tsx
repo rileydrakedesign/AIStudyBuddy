@@ -91,6 +91,7 @@ const Chat = () => {
   // Classes & selection
   const [classes, setClasses] = useState<ClassOption[]>([]);
   const [selectedClass, setSelectedClass] = useState<string | null>(null);
+  const [classesLoading, setClassesLoading] = useState(true);
 
   // New chat creation
   const [isNamingChat, setIsNamingChat] = useState(false);
@@ -247,6 +248,8 @@ const Chat = () => {
         }
       } catch (error) {
         console.error("Error fetching classes", error);
+      } finally {
+        setClassesLoading(false);
       }
     };
     if (auth?.isLoggedIn) fetchClasses();
@@ -854,6 +857,7 @@ const Chat = () => {
           onCancelNewChat={handleCancelNewChat}
           onRenameChatSession={handleRenameChatSession}
           classes={classes}
+          classesLoading={classesLoading}
           selectedClass={selectedClass}
           onSelectClass={setSelectedClass}
           onCreateNewClass={() => navigate("/upload")}
