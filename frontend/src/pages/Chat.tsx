@@ -651,21 +651,29 @@ const Chat = () => {
     // snapshot for rollback
     const prevClasses      = classes;
     const prevClassDocs    = classDocs;
+    const prevChatSessions = chatSessions;
     const prevSelected     = selectedClass;
     const prevExpanded     = expandedClass;
 
-    // optimistic UI: remove class + its docs immediately
+    // Find the class name before deletion
+    const cls = prevClasses.find((c) => c._id === classId);
+    const className = cls?.name;
+
+    // optimistic UI: remove class + its docs + its chats immediately
     setClasses(withRemoved(classes, (c) => c._id === classId));
     setClassDocs((prev) => {
       const next = { ...prev };
-      const cls  = prevClasses.find((c) => c._id === classId);
       if (cls) delete next[cls.name];
       return next;
     });
-    if (selectedClass && prevClasses.find((c) => c._id === classId)?.name === selectedClass) {
+    // Remove chat sessions assigned to this class
+    if (className) {
+      setChatSessions((prev) => prev.filter((session) => session.assignedClass !== className));
+    }
+    if (selectedClass && className === selectedClass) {
       setSelectedClass(null);
     }
-    if (expandedClass && prevClasses.find((c) => c._id === classId)?.name === expandedClass) {
+    if (expandedClass && className === expandedClass) {
       setExpandedClass(null);
     }
 
@@ -678,6 +686,7 @@ const Chat = () => {
       // rollback
       setClasses(prevClasses);
       setClassDocs(prevClassDocs);
+      setChatSessions(prevChatSessions);
       setSelectedClass(prevSelected);
       setExpandedClass(prevExpanded);
     } finally {
