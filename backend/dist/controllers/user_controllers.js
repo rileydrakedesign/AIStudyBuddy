@@ -281,7 +281,8 @@ export const deleteUserClass = async (req, res) => {
         const db = mongoose.connection.useDb("study_buddy_demo");
         const studyMaterialsCollection = db.collection("study_materials2");
         await studyMaterialsCollection.deleteMany({
-            "metadata.class_id": className,
+            user_id: currentUser._id.toString(),
+            class_id: className,
         });
         return res
             .status(200)
