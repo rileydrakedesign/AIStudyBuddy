@@ -758,12 +758,14 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                         </ListItemButton>
                       ))
                     ) : (
-                      <Typography
-                        variant="body2"
-                        sx={{ color: "text.secondary", textAlign: "center", py: 2, pl: 3 }}
-                      >
-                        No chats for this class
-                      </Typography>
+                      !isNamingChat && (
+                        <Typography
+                          variant="body2"
+                          sx={{ color: "text.secondary", textAlign: "center", py: 2, pl: 3 }}
+                        >
+                          No chats for this class
+                        </Typography>
+                      )
                     )}
                   </List>
                 </Collapse>
