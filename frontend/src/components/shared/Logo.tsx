@@ -42,6 +42,12 @@ const Logo = () => {
             fontWeight: 700,
             fontSize: "1.25rem",
             boxShadow: '0 0 20px rgba(14, 165, 233, 0.4)',
+            opacity: 0,
+            animation: 'fadeInLogo 150ms ease-in-out 200ms forwards',
+            '@keyframes fadeInLogo': {
+              from: { opacity: 0 },
+              to: { opacity: 1 },
+            },
           }}
         >
           AI
