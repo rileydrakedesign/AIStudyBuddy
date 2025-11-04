@@ -1,6 +1,6 @@
 // src/components/documentChat.tsx
 import React, { useEffect, useRef, useState } from "react";
-import { Box, IconButton, Typography, Button } from "@mui/material";
+import { Box, IconButton, Typography, Button, ToggleButtonGroup, ToggleButton } from "@mui/material";
 import { IoMdSend } from "react-icons/io";
 import AddIcon from "@mui/icons-material/Add";
 import RemoveIcon from "@mui/icons-material/Remove";
@@ -9,6 +9,7 @@ import ChatItem from "../chat/chatItem";
 import toast from "react-hot-toast";
 import { getDocumentFile, sendChatRequest } from "../../helpers/api-communicators";
 import { Document, Page, pdfjs } from "react-pdf";
+import ReactMarkdown from "react-markdown";
 import "react-pdf/dist/esm/Page/AnnotationLayer.css";
 import "react-pdf/dist/esm/Page/TextLayer.css";
 
@@ -65,6 +66,14 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
   // For highlighting in PDF
   const [highlightedPage, setHighlightedPage] = useState<number | null>(null);
   const [highlightedText, setHighlightedText] = useState<string | null>(null);
+
+  // View mode toggle (PDF or Summary)
+  const [viewMode, setViewMode] = useState<"pdf" | "summary">("pdf");
+
+  // Summary state
+  const [summaryContent, setSummaryContent] = useState<string | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
 
   // Refs for chat & PDF scrolling
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -142,6 +151,7 @@ useEffect(() => {
   setHighlightedText(null);
   setVisibleStartPage(1);
   setVisibleEndPage(3);
+  setViewMode("pdf"); // Reset to PDF view when switching documents
   // Reset scroll positions
   if (chatContainerRef.current) chatContainerRef.current.scrollTop = 0;
   if (pdfContainerRef.current) pdfContainerRef.current.scrollTop = 0;
@@ -204,7 +214,54 @@ useEffect(() => {
     return () => pdfEl.removeEventListener("scroll", handlePDFScrollUp);
   }, [numPages, visibleStartPage]);
 
+  /* ------------------------------
+     4) Pre-fetch Summary in background when document loads
+     ------------------------------ */
+  useEffect(() => {
+    // Fetch summary immediately when document loads (in background)
+    // This makes the Summary toggle feel instant when user clicks it
+    if (docId && !summaryContent && !summaryLoading && !summaryError) {
+      const fetchSummary = async () => {
+        // Silently fetch summary in background - no UI updates until complete
+        setSummaryLoading(true);
 
+        try {
+          const sessionIdForRequest = docSessionId ?? "null";
+
+          // Send ephemeral request to get summary without affecting chat history
+          const chatData = await sendChatRequest(
+            "Please provide a summary of this document",
+            "null",
+            sessionIdForRequest,
+            docId,
+            true // ephemeral - won't be saved to chat history
+          );
+
+          // Update session ID if needed
+          if (!docSessionId && chatData.chatSessionId) {
+            setDocSessionId(chatData.chatSessionId);
+          }
+
+          // Extract the summary from the response (last assistant message)
+          const messages = chatData.messages;
+          const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+
+          if (lastMessage && lastMessage.role === "assistant" && lastMessage.content) {
+            setSummaryContent(lastMessage.content);
+          } else {
+            setSummaryError("No summary available for this document.");
+          }
+        } catch (err) {
+          console.error("Failed to fetch summary:", err);
+          setSummaryError("Failed to load summary. Please try again.");
+        } finally {
+          setSummaryLoading(false);
+        }
+      };
+
+      fetchSummary();
+    }
+  }, [docId]); // Only depends on docId - fetches once when document loads
 
   /* ------------------------------ RETRY CHAT (doc) ------------------------------ */
 const handleRetry = async (assistantIdx: number) => {
@@ -407,6 +464,37 @@ const handleRetry = async (assistantIdx: number) => {
             {numPages ? `Page ${visibleStartPage} / ${numPages}` : "Loading..."}
           </Typography>
 
+          <ToggleButtonGroup
+            value={viewMode}
+            exclusive
+            onChange={(_, newValue) => {
+              if (newValue !== null) {
+                setViewMode(newValue);
+              }
+            }}
+            size="small"
+            sx={{
+              "& .MuiToggleButton-root": {
+                color: "text.primary",
+                borderColor: "divider",
+                "&.Mui-selected": {
+                  bgcolor: "primary.main",
+                  color: "primary.contrastText",
+                  "&:hover": {
+                    bgcolor: "primary.dark",
+                  },
+                },
+              },
+            }}
+          >
+            <ToggleButton value="pdf">
+              📄 PDF
+            </ToggleButton>
+            <ToggleButton value="summary">
+              📝 Summary
+            </ToggleButton>
+          </ToggleButtonGroup>
+
           <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
             <IconButton
               size="small"
@@ -446,43 +534,120 @@ const handleRetry = async (assistantIdx: number) => {
             display: "flex",
             justifyContent: "center",
             bgcolor: "background.default",
+            scrollBehavior: "smooth",
           }}
           ref={pdfContainerRef}
         >
-          {docUrl ? (
-            <div style={{ width: "100%", height: "100%", padding: "1rem" }}>
-              <Document file={docUrl} onLoadSuccess={onDocumentLoadSuccess}>
-                {numPages &&
-                  Array.from(
-                    { length: visibleEndPage - visibleStartPage + 1 },
-                    (_, i) => {
-                      const pageNumber = visibleStartPage + i;
-                      return (
-                        <div
-                          key={`page_container_${pageNumber}`}
-                          id={`pdf-page-${pageNumber}`}
-                          style={{ marginBottom: "2rem", display: "flex", justifyContent: "center" }}
-                        >
-                          <Page
-                            pageNumber={pageNumber}
-                            width={600 * scale}
-                            customTextRenderer={customTextRenderer(pageNumber)}
-                          />
-                        </div>
-                      );
-                    }
+          {viewMode === "pdf" ? (
+            // PDF View
+            docUrl ? (
+              <div style={{ width: "100%", height: "100%", padding: "1rem" }}>
+                <Document file={docUrl} onLoadSuccess={onDocumentLoadSuccess}>
+                  {numPages &&
+                    Array.from(
+                      { length: visibleEndPage - visibleStartPage + 1 },
+                      (_, i) => {
+                        const pageNumber = visibleStartPage + i;
+                        return (
+                          <div
+                            key={`page_container_${pageNumber}`}
+                            id={`pdf-page-${pageNumber}`}
+                            style={{ marginBottom: "2rem", display: "flex", justifyContent: "center" }}
+                          >
+                            <Page
+                              pageNumber={pageNumber}
+                              width={600 * scale}
+                              customTextRenderer={customTextRenderer(pageNumber)}
+                            />
+                          </div>
+                        );
+                      }
+                    )}
+                  {numPages && visibleEndPage < numPages && (
+                    <Typography variant="body2" sx={{ color: "text.secondary", textAlign: "center" }}>
+                      Scroll down to load more pages...
+                    </Typography>
                   )}
-                {numPages && visibleEndPage < numPages && (
-                  <Typography variant="body2" sx={{ color: "text.secondary", textAlign: "center" }}>
-                    Scroll down to load more pages...
-                  </Typography>
-                )}
-              </Document>
-            </div>
+                </Document>
+              </div>
+            ) : (
+              <Typography variant="body1" sx={{ m: 2, color: "text.primary" }}>
+                Loading document...
+              </Typography>
+            )
           ) : (
-            <Typography variant="body1" sx={{ m: 2, color: "text.primary" }}>
-              Loading document...
-            </Typography>
+            // Summary View
+            <Box
+              sx={{
+                width: "100%",
+                maxWidth: "800px",
+                p: 3,
+              }}
+            >
+              <Typography
+                variant="h5"
+                sx={{
+                  color: "text.primary",
+                  fontWeight: 600,
+                  mb: 3,
+                }}
+              >
+                Document Summary
+              </Typography>
+
+              {summaryLoading && (
+                <Typography variant="body1" sx={{ color: "text.secondary" }}>
+                  Loading summary...
+                </Typography>
+              )}
+
+              {summaryError && !summaryLoading && (
+                <Typography
+                  variant="body1"
+                  sx={{
+                    color: "error.main",
+                    lineHeight: 1.8,
+                  }}
+                >
+                  {summaryError}
+                </Typography>
+              )}
+
+              {summaryContent && !summaryLoading && !summaryError && (
+                <Box
+                  sx={{
+                    "& h1, & h2, & h3, & h4, & h5, & h6": {
+                      color: "text.primary",
+                      mt: 2,
+                      mb: 1,
+                      fontWeight: 600,
+                    },
+                    "& p": {
+                      color: "text.secondary",
+                      lineHeight: 1.8,
+                      mb: 2,
+                    },
+                    "& ul, & ol": {
+                      color: "text.secondary",
+                      pl: 3,
+                      mb: 2,
+                    },
+                    "& li": {
+                      mb: 0.5,
+                    },
+                    "& a": {
+                      color: "primary.main",
+                      textDecoration: "none",
+                      "&:hover": {
+                        textDecoration: "underline",
+                      },
+                    },
+                  }}
+                >
+                  <ReactMarkdown>{summaryContent}</ReactMarkdown>
+                </Box>
+              )}
+            </Box>
           )}
         </Box>
       </Box>

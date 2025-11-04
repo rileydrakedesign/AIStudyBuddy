@@ -356,5 +356,5 @@ export const getDocumentsByClass = async (
     return res
       .status(500)
       .json({ message: "Error fetching documents by class", cause: error.message });
-  }  
+  }
 };
