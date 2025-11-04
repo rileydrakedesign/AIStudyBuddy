@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   Box,
   Typography,
@@ -736,9 +736,46 @@ const Chat = () => {
 
 
   /* ------------------------------
+     CLASS SELECTION HANDLER
+  ------------------------------ */
+  const handleClassChange = useCallback((className: string | null) => {
+    // If selecting the same class, do nothing
+    if (className === selectedClass) return;
+
+    // Update selected class
+    setSelectedClass(className);
+
+    // Close any active document chat
+    setActiveDocId(null);
+
+    // Find chats for the new class
+    const classChats = chatSessions.filter(
+      (session) => session.assignedClass === className
+    );
+
+    if (classChats.length > 0) {
+      // Sort by most recent (updatedAt or createdAt)
+      const sortedChats = [...classChats].sort((a, b) => {
+        const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+        const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+        return timeB - timeA;
+      });
+
+      // Navigate to most recent chat
+      const mostRecentChat = sortedChats[0];
+      setCurrentChatSessionId(mostRecentChat._id);
+      setChatMessages(collapseRetries(mostRecentChat.messages));
+    } else {
+      // No chats for this class - go to new chat state
+      setCurrentChatSessionId(null);
+      setChatMessages([]);
+    }
+  }, [selectedClass, chatSessions]);
+
+  /* ------------------------------
      Classes & Documents
   ------------------------------ */
-  const handleToggleClass = async (clsName: string) => {
+  const handleToggleClass = useCallback(async (clsName: string) => {
     if (expandedClass === clsName) {
       setExpandedClass(null);
       return;
@@ -753,7 +790,7 @@ const Chat = () => {
         toast.error("Failed to fetch documents for " + clsName);
       }
     }
-  };
+  }, [expandedClass, classDocs]);
 
   const handleOpenDocumentChat = (docId: string) => {
     finalizeTypewriter();
@@ -859,7 +896,7 @@ const Chat = () => {
           classes={classes}
           classesLoading={classesLoading}
           selectedClass={selectedClass}
-          onSelectClass={setSelectedClass}
+          onSelectClass={handleClassChange}
           onCreateNewClass={() => navigate("/upload")}
           classDocs={classDocs}
           expandedClass={expandedClass}
