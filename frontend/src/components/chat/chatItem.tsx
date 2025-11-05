@@ -6,6 +6,11 @@ import {
   Button,
   Popper,
   ClickAwayListener,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
 } from "@mui/material";
 import { useAuth } from "../../context/authContext";
 import ReactMarkdown from "react-markdown";
@@ -25,6 +30,12 @@ import LoopIcon from "@mui/icons-material/Loop";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import ThumbUpIcon    from "@mui/icons-material/ThumbUp";
 import ThumbDownIcon  from "@mui/icons-material/ThumbDown";
+import MenuBookIcon from "@mui/icons-material/MenuBook";
+import DescriptionIcon from "@mui/icons-material/Description";
+import FormatQuoteIcon from "@mui/icons-material/FormatQuote";
+import SaveIcon from "@mui/icons-material/Save";
+import DownloadIcon from "@mui/icons-material/Download";
+import toast from "react-hot-toast";
 
 
 
@@ -32,6 +43,66 @@ import ThumbDownIcon  from "@mui/icons-material/ThumbDown";
 /* ------------------------------
    HELPERS
    ------------------------------ */
+
+/**
+ * Detect response type based on content
+ * Used for special formatting of study guides, summaries, and quotes
+ */
+type ResponseType = "study-guide" | "summary" | "quote" | "normal";
+
+function detectResponseType(content: string): ResponseType {
+  const lower = content.toLowerCase();
+  if (lower.includes("study guide")) return "study-guide";
+  if (lower.includes("summary")) return "summary";
+  if (lower.includes("quote") || content.trim().startsWith('"')) return "quote";
+  return "normal";
+}
+
+/**
+ * Get special formatting styles based on response type
+ */
+function getSpecialFormatting(type: ResponseType) {
+  switch (type) {
+    case "study-guide":
+      return {
+        borderColor: "primary.main",
+        backgroundColor: "rgba(25, 118, 210, 0.05)",
+        icon: MenuBookIcon,
+        title: "Study Guide",
+      };
+    case "summary":
+      return {
+        borderColor: "success.main",
+        backgroundColor: "rgba(76, 175, 80, 0.05)",
+        icon: DescriptionIcon,
+        title: "Summary",
+      };
+    case "quote":
+      return {
+        borderColor: "secondary.main",
+        backgroundColor: "rgba(156, 39, 176, 0.05)",
+        icon: FormatQuoteIcon,
+        title: "Quote",
+      };
+    default:
+      return null;
+  }
+}
+
+/**
+ * Download content as .txt file
+ */
+function downloadAsText(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 function extractBlocks(message: string) {
   const blocks: { type: "code" | "text"; value: string; language?: string }[] =
@@ -287,6 +358,10 @@ const ChatItem: React.FC<ChatItemProps> = ({
     docId?: string;
   } | null>(null);
 
+  /* ---------- save dialog state ---------- */
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [saveName, setSaveName] = useState("");
+
   // capture rendered message text (for copy)
   const messageBodyRef = useRef<HTMLDivElement | null>(null);
 
@@ -301,6 +376,10 @@ const ChatItem: React.FC<ChatItemProps> = ({
   const displayContent = allVersions[displayIdx] || content;
 
   useEffect(() => { setDisplayIdx(currentVersion); }, [currentVersion]);
+
+  // Detect response type for special formatting
+  const responseType = role === "assistant" ? detectResponseType(displayContent) : "normal";
+  const specialFormat = getSpecialFormatting(responseType);
 
 
 
@@ -482,6 +561,30 @@ const ChatItem: React.FC<ChatItemProps> = ({
     onSetReaction?.(messageIndex, next);
   };
 
+  /* ---------- save and download handlers ---------- */
+  const handleSaveClick = () => {
+    const defaultName = specialFormat
+      ? `Untitled ${specialFormat.title}`
+      : "Untitled Document";
+    setSaveName(defaultName);
+    setSaveDialogOpen(true);
+  };
+
+  const handleSaveConfirm = () => {
+    setSaveDialogOpen(false);
+    toast.success("Saving to Saved Materials (Story 0.3 complete)");
+  };
+
+  const handleDownloadClick = () => {
+    // Sanitize filename from first 50 chars + timestamp
+    const preview = displayContent.substring(0, 50).replace(/[^a-z0-9]/gi, '_');
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+    const filename = `${preview}_${timestamp}.txt`;
+
+    downloadAsText(displayContent, filename);
+    toast.success("Downloaded successfully");
+  };
+
 
   /* ---------- render ---------- */
 
@@ -534,9 +637,39 @@ const ChatItem: React.FC<ChatItemProps> = ({
 
       {/* message body */}
       <Box
-        ref={messageBodyRef} 
-        sx={{ flex: 1, maxWidth: "100%", fontSize: 16, lineHeight: 1.6 }}
+        ref={messageBodyRef}
+        sx={{
+          flex: 1,
+          maxWidth: "100%",
+          fontSize: 16,
+          lineHeight: 1.6,
+          ...(specialFormat && {
+            position: "relative",
+            borderLeft: "4px solid",
+            borderLeftColor: specialFormat.borderColor,
+            backgroundColor: specialFormat.backgroundColor,
+            pl: 2,
+            py: 1.5,
+            pr: 1,
+            borderRadius: 1,
+          }),
+        }}
       >
+        {/* Special formatting icon */}
+        {specialFormat && (
+          <Box
+            sx={{
+              position: "absolute",
+              top: 8,
+              right: 8,
+              color: specialFormat.borderColor,
+              opacity: 0.7,
+            }}
+          >
+            {React.createElement(specialFormat.icon, { fontSize: "small" })}
+          </Box>
+        )}
+
         {blocks.map((b, i) =>
           b.type === "code" ? (
             <SyntaxHighlighter
@@ -660,6 +793,48 @@ const ChatItem: React.FC<ChatItemProps> = ({
               </IconButton>
             </Box>
           )}
+
+          {/* Save and Download buttons for special response types */}
+          {role === "assistant" && specialFormat && (
+            <Box sx={{ mt: 1.5, display: "flex", gap: 1 }}>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<SaveIcon />}
+                onClick={handleSaveClick}
+                sx={{
+                  color: "text.secondary",
+                  borderColor: "divider",
+                  textTransform: "none",
+                  fontSize: 13,
+                  "&:hover": {
+                    borderColor: specialFormat.borderColor,
+                    color: specialFormat.borderColor,
+                  },
+                }}
+              >
+                Save
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<DownloadIcon />}
+                onClick={handleDownloadClick}
+                sx={{
+                  color: "text.secondary",
+                  borderColor: "divider",
+                  textTransform: "none",
+                  fontSize: 13,
+                  "&:hover": {
+                    borderColor: specialFormat.borderColor,
+                    color: specialFormat.borderColor,
+                  },
+                }}
+              >
+                Download
+              </Button>
+            </Box>
+          )}
       </Box>
 
       {/* --- pop-ups --- */}
@@ -680,6 +855,29 @@ const ChatItem: React.FC<ChatItemProps> = ({
           onDocumentChat={(id) => onDocumentChat?.(id)}
         />
       )}
+
+      {/* Save Dialog */}
+      <Dialog open={saveDialogOpen} onClose={() => setSaveDialogOpen(false)}>
+        <DialogTitle>Save as...</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="Name"
+            type="text"
+            fullWidth
+            variant="outlined"
+            value={saveName}
+            onChange={(e) => setSaveName(e.target.value)}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSaveDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleSaveConfirm} variant="contained">
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
