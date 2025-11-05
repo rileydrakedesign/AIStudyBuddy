@@ -7,7 +7,7 @@ import RemoveIcon from "@mui/icons-material/Remove";
 import Loader from "../ui/loader";
 import ChatItem from "../chat/chatItem";
 import toast from "react-hot-toast";
-import { getDocumentFile, sendChatRequest } from "../../helpers/api-communicators";
+import { getDocumentFile, getDocumentSummary, sendChatRequest } from "../../helpers/api-communicators";
 import { Document, Page, pdfjs } from "react-pdf";
 import ReactMarkdown from "react-markdown";
 import "react-pdf/dist/esm/Page/AnnotationLayer.css";
@@ -218,36 +218,18 @@ useEffect(() => {
      4) Pre-fetch Summary in background when document loads
      ------------------------------ */
   useEffect(() => {
-    // Fetch summary immediately when document loads (in background)
-    // This makes the Summary toggle feel instant when user clicks it
+    // Fetch stored summary directly from database when document loads
+    // This retrieves the raw summary text without LLM processing
     if (docId && !summaryContent && !summaryLoading && !summaryError) {
       const fetchSummary = async () => {
-        // Silently fetch summary in background - no UI updates until complete
         setSummaryLoading(true);
 
         try {
-          const sessionIdForRequest = docSessionId ?? "null";
+          // Fetch summary directly from database endpoint
+          const data = await getDocumentSummary(docId);
 
-          // Send ephemeral request to get summary without affecting chat history
-          const chatData = await sendChatRequest(
-            "Please provide a summary of this document",
-            "null",
-            sessionIdForRequest,
-            docId,
-            true // ephemeral - won't be saved to chat history
-          );
-
-          // Update session ID if needed
-          if (!docSessionId && chatData.chatSessionId) {
-            setDocSessionId(chatData.chatSessionId);
-          }
-
-          // Extract the summary from the response (last assistant message)
-          const messages = chatData.messages;
-          const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
-
-          if (lastMessage && lastMessage.role === "assistant" && lastMessage.content) {
-            setSummaryContent(lastMessage.content);
+          if (data.success && data.summary && data.summary.content) {
+            setSummaryContent(data.summary.content);
           } else {
             setSummaryError("No summary available for this document.");
           }
@@ -261,7 +243,7 @@ useEffect(() => {
 
       fetchSummary();
     }
-  }, [docId]); // Only depends on docId - fetches once when document loads
+  }, [docId, summaryContent, summaryLoading, summaryError]); // Fetch when docId changes
 
   /* ------------------------------ RETRY CHAT (doc) ------------------------------ */
 const handleRetry = async (assistantIdx: number) => {

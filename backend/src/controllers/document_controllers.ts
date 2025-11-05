@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import Document, { IDocument } from "../models/documents.js";
 import User from "../models/user.js";
 import ChatSession from "../models/chatSession.js";
+import getChunkModel from "../models/chunkModel.js";
 import axios from "axios"; 
 import path from "path";
 import { fileURLToPath } from "url";
@@ -356,5 +357,72 @@ export const getDocumentsByClass = async (
     return res
       .status(500)
       .json({ message: "Error fetching documents by class", cause: error.message });
+  }
+};
+
+/**
+ * Get the stored document summary directly from database
+ * Returns the raw summary text without LLM processing
+ */
+export const getDocumentSummary = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const userId = (res as any).locals.jwtData?.id;
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const { docId } = req.params;
+    if (!docId) {
+      return res.status(400).json({ message: "Document ID is required" });
+    }
+
+    // Find the document to verify ownership and get MongoDB _id
+    let document: IDocument | null = null;
+    if (mongoose.Types.ObjectId.isValid(docId)) {
+      document = await Document.findOne({
+        _id: docId,
+        userId: new mongoose.Types.ObjectId(userId),
+      });
+    }
+
+    if (!document) {
+      document = await Document.findOne({
+        docId,
+        userId: new mongoose.Types.ObjectId(userId),
+      });
+    }
+
+    if (!document) {
+      return res.status(404).json({ message: "Document not found" });
+    }
+
+    // Query study_materials2 collection for the stored summary
+    const ChunkModel = await getChunkModel();
+    const summary = await ChunkModel.findOne({
+      user_id: userId,
+      doc_id: document._id.toString(),
+      is_summary: true,
+    });
+
+    if (!summary) {
+      return res.status(404).json({ message: "Summary not found for this document" });
+    }
+
+    // Return the raw stored summary text directly
+    return res.status(200).json({
+      success: true,
+      summary: {
+        content: summary.text,
+      },
+    });
+  } catch (error: any) {
+    console.error("Error fetching document summary:", error);
+    return res
+      .status(500)
+      .json({ message: "Error fetching document summary", cause: error.message });
   }
 };

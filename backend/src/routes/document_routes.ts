@@ -15,6 +15,7 @@ import {
   getDocumentFile,
   deleteDocument,
   getDocumentsByClass,
+  getDocumentSummary,
 } from "../controllers/document_controllers.js";
 
 dotenv.config();
@@ -106,6 +107,12 @@ documentRoutes.delete("/delete/:id", verifyToken, deleteDocument);
  * Retrieve documents for a specific class
  ***************************************************************************/
 documentRoutes.get("/get/:className", verifyToken, getDocumentsByClass);
+
+/***************************************************************************
+ * GET /documents/:docId/summary
+ * Get the stored document summary directly from database
+ ***************************************************************************/
+documentRoutes.get("/:docId/summary", verifyToken, getDocumentSummary);
 
 // Export the configured router
 export default documentRoutes;

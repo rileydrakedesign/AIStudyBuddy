@@ -267,3 +267,9 @@ export const sendPasswordResetForCurrentUser = async () => {
   if (res.status !== 200) throw new Error("Failed to send reset link");
   return res.data;
 };
+
+export const getDocumentSummary = async (docId: string) => {
+  const res = await axios.get(`/documents/${docId}/summary`);
+  if (res.status !== 200) throw new Error("Failed to fetch document summary");
+  return res.data;
+};
