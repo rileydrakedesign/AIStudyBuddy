@@ -82,7 +82,7 @@ export const sendEmailChangeVerification = async (user, newEmail) => {
     await user.save();
     // Build a backend public URL for redirect handler
     const backendBase = process.env.BACKEND_URL || process.env.BACKEND_URL_DEV || "";
-    const url = `${backendBase}/user/email/verify/${user.emailChangeToken}`;
+    const url = `${backendBase}/api/v1/user/email/verify/${user.emailChangeToken}`;
     if (!canSendEmail()) {
         console.warn("[email] Skipping email change verification — EMAIL_ENABLED false or Mailgun not configured");
         return;
