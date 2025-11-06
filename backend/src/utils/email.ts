@@ -84,3 +84,38 @@ export const sendPasswordResetEmail = async (user) => {
     `,
   });
 };
+
+export const sendEmailChangeVerification = async (user, newEmail) => {
+  // issue a short‑lived (1 hour) email change token
+  user.emailChangeToken    = crypto.randomBytes(32).toString("hex");
+  user.emailChangeTokenExp = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+  user.pendingEmail        = newEmail;
+  await user.save();
+
+  // Build a backend public URL for redirect handler
+  const backendBase = process.env.BACKEND_URL || process.env.BACKEND_URL_DEV || "";
+  const url = `${backendBase}/user/email/verify/${user.emailChangeToken}`;
+
+  if (!canSendEmail()) {
+    console.warn("[email] Skipping email change verification — EMAIL_ENABLED false or Mailgun not configured");
+    return;
+  }
+
+  await getMailgunClient().messages.create(process.env.MAILGUN_DOMAIN as string, {
+    from: "ClassChat <no-reply@classchat.ai>",
+    to: newEmail,
+    subject: "Verify your new email address",
+    html: `
+      <p>Hi ${user.firstName ?? user.name?.split(" ")?.[0] ?? "there"},</p>
+      <p>You requested to change your email address to ${newEmail}. Click the button below to confirm this change.</p>
+      <a href="${url}"
+         style="background:#1976d2;color:#fff;padding:10px 18px;border-radius:4px;text-decoration:none;font-weight:600">
+        Verify Email Change
+      </a>
+      <p>If the button doesn't work, copy this link:</p>
+      <p>${url}</p>
+      <p>If you didn't request this change, you can safely ignore this email. Your email address will remain unchanged.</p>
+      <p>This link expires in 1 hour.</p>
+    `,
+  });
+};

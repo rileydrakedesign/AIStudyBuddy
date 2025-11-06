@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { verifyToken } from "../utils/token_manager.js";
 import { chatCompletionValidator, validate, chatSessionValidator, } from "../utils/validators.js";
-import { createNewChatSession, getUserChatSessions, generateChatCompletion, deleteChatSession, deleteAllChatSessions, setMessageReaction } from "../controllers/chat_controllers.js";
+import { createNewChatSession, getUserChatSessions, updateChatSession, generateChatCompletion, deleteChatSession, deleteAllChatSessions, setMessageReaction } from "../controllers/chat_controllers.js";
 // Mongoose utilities
 import { isValidObjectId } from "mongoose";
 // If you're using a lazy-loaded chunk model for the "study_buddy_demo" DB:
@@ -18,6 +18,8 @@ chatRoutes.post("/new", verifyToken, validate(chatCompletionValidator), generate
 chatRoutes.post("/new-session", verifyToken, validate(chatSessionValidator), createNewChatSession);
 // Get all chat sessions for the user
 chatRoutes.get("/sessions", verifyToken, getUserChatSessions);
+// Update a chat session (rename)
+chatRoutes.patch("/session/:chatSessionId", verifyToken, updateChatSession);
 // Delete a specific chat session
 chatRoutes.delete("/session/:chatSessionId", verifyToken, deleteChatSession);
 // Delete all chat sessions for the user

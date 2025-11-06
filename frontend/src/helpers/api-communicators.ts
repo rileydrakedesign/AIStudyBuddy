@@ -211,6 +211,12 @@ export const getUserProfile = async () => {
   return res.data; // Expected response: { message: "OK", profile: { fullName, email, plan } }
 };
 
+export const updateUserProfile = async (name: string) => {
+  const res = await axios.put("/profile", { name });
+  if (res.status !== 200) throw new Error("Failed to update profile");
+  return res.data;
+};
+
 // api-communicators.ts
 export const verifyUser = async () => {
   // use the same base path as the other user endpoints
@@ -271,5 +277,17 @@ export const sendPasswordResetForCurrentUser = async () => {
 export const getDocumentSummary = async (docId: string) => {
   const res = await axios.get(`/documents/${docId}/summary`);
   if (res.status !== 200) throw new Error("Failed to fetch document summary");
+  return res.data;
+};
+
+export const changeEmail = async (newEmail: string, currentPassword: string) => {
+  const res = await axios.put("/user/email", { newEmail, currentPassword });
+  if (res.status !== 200) throw new Error("Failed to request email change");
+  return res.data;
+};
+
+export const deleteAccount = async () => {
+  const res = await axios.delete("/user/account");
+  if (res.status !== 200) throw new Error("Failed to delete account");
   return res.data;
 };

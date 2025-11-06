@@ -6,8 +6,9 @@ import { COOKIE_NAME } from "../utils/constants.js";
 import mongoose from "mongoose";
 import Document from "../models/documents.js";
 import ChatSession from "../models/chatSession.js";
-import { sendConfirmEmail } from "../utils/email.js";
+import { sendConfirmEmail, sendEmailChangeVerification } from "../utils/email.js";
 import { OAuth2Client } from "google-auth-library";
+import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
 
 export const getAllUsers = async (
   req: Request,
@@ -386,5 +387,200 @@ export const userLogout = async (
   } catch (error: any) {
     (req as any).log.error(error);
     return res.status(200).json({ message: "ERROR", cause: error.message });
-  }    
+  }
+};
+
+/* ------------------------------------------------------------
+   PUT /api/v1/user/email
+   Request email change - requires current password
+------------------------------------------------------------ */
+export const requestEmailChange = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { newEmail, currentPassword } = req.body as { newEmail?: string; currentPassword?: string };
+    const userId = res.locals.jwtData?.id;
+
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+    if (!newEmail || !currentPassword) {
+      return res.status(400).json({ message: "New email and current password required" });
+    }
+
+    const currentUser = await user.findById(userId);
+    if (!currentUser) {
+      return res.status(401).json({ message: "User not found" });
+    }
+
+    // Verify current password (skip for Google auth users)
+    if (currentUser.authProvider === "credentials") {
+      const isPasswordCorrect = await compare(currentPassword, currentUser.password);
+      if (!isPasswordCorrect) {
+        return res.status(403).json({ message: "Incorrect password" });
+      }
+    }
+
+    // Check if new email already exists
+    const existingUser = await user.findOne({ email: newEmail });
+    if (existingUser) {
+      return res.status(409).json({ message: "Email already in use" });
+    }
+
+    // Send verification email to new address
+    await sendEmailChangeVerification(currentUser, newEmail);
+
+    (req as any).log?.info({ userId, newEmail }, "Email change verification sent");
+    return res.status(200).json({
+      message: `Verification email sent to ${newEmail}. Please verify to complete the change.`
+    });
+  } catch (error: any) {
+    (req as any).log?.error(error, "requestEmailChange error");
+    return res.status(500).json({ message: "Failed to process email change request" });
+  }
+};
+
+/* ------------------------------------------------------------
+   GET /api/v1/user/email/verify/:token
+   Verify email change and update user email
+------------------------------------------------------------ */
+export const verifyEmailChange = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { token } = req.params;
+
+    const currentUser = await user.findOne({
+      emailChangeToken: token,
+      emailChangeTokenExp: { $gt: new Date() },
+    });
+
+    if (!currentUser || !currentUser.pendingEmail) {
+      const fe = process.env.FRONTEND_URL ||
+        (process.env.NODE_ENV !== 'production' ? 'http://localhost:5173' : 'https://app.classchatai.com');
+      return res.redirect(302, `${fe}/profile?emailChangeError=invalid`);
+    }
+
+    // Update email and clear pending fields
+    currentUser.email = currentUser.pendingEmail;
+    currentUser.pendingEmail = undefined as any;
+    currentUser.emailChangeToken = undefined as any;
+    currentUser.emailChangeTokenExp = undefined as any;
+    await currentUser.save();
+
+    // Clear JWT cookie to force re-login with new email
+    res.clearCookie(COOKIE_NAME, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "none",
+      signed: true,
+      path: "/",
+    });
+
+    (req as any).log?.info({ userId: currentUser._id, newEmail: currentUser.email }, "Email change verified");
+
+    // Redirect to login with success message
+    const fe = process.env.FRONTEND_URL ||
+      (process.env.NODE_ENV !== 'production' ? 'http://localhost:5173' : 'https://app.classchatai.com');
+    return res.redirect(302, `${fe}/login?emailChanged=true`);
+  } catch (error: any) {
+    (req as any).log?.error(error, "verifyEmailChange error");
+    const fe = process.env.FRONTEND_URL ||
+      (process.env.NODE_ENV !== 'production' ? 'http://localhost:5173' : 'https://app.classchatai.com');
+    return res.redirect(302, `${fe}/profile?emailChangeError=failed`);
+  }
+};
+
+/* ------------------------------------------------------------
+   DELETE /api/v1/user/account
+   Delete user account and all associated data
+------------------------------------------------------------ */
+const s3Client = new S3Client({
+  region: process.env.AWS_REGION!,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY!,
+    secretAccessKey: process.env.AWS_SECRET!,
+  },
+});
+
+export const deleteAccount = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const userId = res.locals.jwtData?.id;
+    if (!userId) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const currentUser = await user.findById(userId).session(session);
+    if (!currentUser) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(401).json({ message: "User not found" });
+    }
+
+    (req as any).log?.info({ userId }, "Starting account deletion");
+
+    // 1. Delete all chat sessions
+    await ChatSession.deleteMany({ userId: new mongoose.Types.ObjectId(userId) }, { session });
+    (req as any).log?.info({ userId }, "Deleted chat sessions");
+
+    // 2. Delete all documents and S3 objects
+    const documents = await Document.find({ userId: new mongoose.Types.ObjectId(userId) }).session(session);
+    const bucketName = process.env.AWS_S3_BUCKET_NAME!;
+
+    for (const doc of documents) {
+      try {
+        await s3Client.send(new DeleteObjectCommand({
+          Bucket: bucketName,
+          Key: doc.s3Key,
+        }));
+        (req as any).log?.info({ userId, s3Key: doc.s3Key }, "Deleted S3 object");
+      } catch (s3Error: any) {
+        (req as any).log?.error({ userId, s3Key: doc.s3Key, error: s3Error }, "Failed to delete S3 object");
+        // Continue deletion even if S3 delete fails (object might not exist)
+      }
+    }
+
+    await Document.deleteMany({ userId: new mongoose.Types.ObjectId(userId) }, { session });
+    (req as any).log?.info({ userId }, "Deleted documents");
+
+    // 3. Delete chunks from study_materials2 collection
+    const db = mongoose.connection.useDb("study_buddy_demo");
+    const studyMaterialsCollection = db.collection("study_materials2");
+    await studyMaterialsCollection.deleteMany({ user_id: userId });
+    (req as any).log?.info({ userId }, "Deleted study materials");
+
+    // 4. Delete user
+    await user.deleteOne({ _id: userId }, { session });
+    (req as any).log?.info({ userId }, "Deleted user record");
+
+    await session.commitTransaction();
+    session.endSession();
+
+    // Clear JWT cookie
+    res.clearCookie(COOKIE_NAME, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "none",
+      signed: true,
+      path: "/",
+    });
+
+    return res.status(200).json({ message: "Account deleted successfully" });
+  } catch (error: any) {
+    await session.abortTransaction();
+    session.endSession();
+    (req as any).log?.error({ error, userId: res.locals.jwtData?.id }, "deleteAccount error");
+    return res.status(500).json({ message: "Failed to delete account" });
+  }
 };

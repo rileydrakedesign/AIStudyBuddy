@@ -1,6 +1,6 @@
 
 import { Router } from 'express';
-import { getAllUsers, userLogin, userSignup, verifyUser, userLogout, getUserClasses, deleteUserClass, googleAuth } from '../controllers/user_controllers.js';
+import { getAllUsers, userLogin, userSignup, verifyUser, userLogout, getUserClasses, deleteUserClass, googleAuth, requestEmailChange, verifyEmailChange, deleteAccount } from '../controllers/user_controllers.js';
 import { loginValidator, signupValidator, validate, forgotPasswordValidator, resetPasswordValidator } from "../utils/validators.js"
 import { verifyToken } from "../utils/token_manager.js";
 import { confirmEmail, resendConfirmEmail } from "../controllers/user_confirm.js";
@@ -24,5 +24,12 @@ userRoutes.post("/forgot-password", validate(forgotPasswordValidator), forgotPas
 userRoutes.post("/reset-password", validate(resetPasswordValidator), resetPassword);
 // password reset (auth-only convenience)
 userRoutes.post("/send-password-reset", sendResetForCurrentUser);
+
+// email change (auth required)
+userRoutes.put("/email", verifyToken, requestEmailChange);
+userRoutes.get("/email/verify/:token", verifyEmailChange);
+
+// account deletion (auth required)
+userRoutes.delete("/account", verifyToken, deleteAccount);
 
 export default userRoutes;

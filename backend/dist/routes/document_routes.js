@@ -7,7 +7,7 @@ import dotenv from "dotenv";
 import { verifyToken } from "../utils/token_manager.js";
 import { documentUploadValidator, duplicateDocumentValidator, validate } from "../utils/validators.js";
 // Controller imports
-import { uploadDocument, getUserDocuments, getDocumentFile, deleteDocument, getDocumentsByClass, } from "../controllers/document_controllers.js";
+import { uploadDocument, getUserDocuments, getDocumentFile, deleteDocument, getDocumentsByClass, getDocumentSummary, } from "../controllers/document_controllers.js";
 dotenv.config();
 // Initialize the S3 client
 const s3 = new S3Client({
@@ -81,6 +81,11 @@ documentRoutes.delete("/delete/:id", verifyToken, deleteDocument);
  * Retrieve documents for a specific class
  ***************************************************************************/
 documentRoutes.get("/get/:className", verifyToken, getDocumentsByClass);
+/***************************************************************************
+ * GET /documents/:docId/summary
+ * Get the stored document summary directly from database
+ ***************************************************************************/
+documentRoutes.get("/:docId/summary", verifyToken, getDocumentSummary);
 // Export the configured router
 export default documentRoutes;
 //# sourceMappingURL=document_routes.js.map
