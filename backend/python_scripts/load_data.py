@@ -150,8 +150,15 @@ def summarize_document(text_input: str) -> str:
         "You are an expert study assistant.\n\n"
         "Document below delimited by <doc></doc> tags.\n\n"
         "<doc>\n{context}\n</doc>\n\n"
-        "Write a concise yet comprehensive summary capturing all key ideas, "
-        "definitions and results. Limit to ~3–5 paragraphs."
+        "Write a concise yet comprehensive summary in markdown format capturing all key ideas, "
+        "definitions, and results. Use the following markdown formatting:\n"
+        "- Use ## for main section headings\n"
+        "- Use ### for subsection headings\n"
+        "- Use **bold** for key terms and important concepts\n"
+        "- Use bullet points (-) or numbered lists (1.) for listing items\n"
+        "- Use `code` formatting for technical terms or formulas\n"
+        "- Keep the summary well-structured and organized with clear sections\n"
+        "Limit to ~3–5 paragraphs or equivalent in structured markdown."
     )
     return (prompt | llm | StrOutputParser()).invoke({"context": text_input})
 

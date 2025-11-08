@@ -22,6 +22,7 @@
     "axios": "^1.7.2",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
+    "docx": "^9.5.1",
     "katex": "^0.16.20",
     "lucide-react": "^0.460.0",
     "pdfjs-dist": "^4.8.69",

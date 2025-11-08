@@ -196,7 +196,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
     if (displayClass && !classDocs[displayClass]) {
       onToggleClass(displayClass);
     }
-  }, [displayClass, classDocs, onToggleClass]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayClass, classDocs]);
 
   // Notify parent if displayClass differs from selectedClass (auto-select first class)
   useEffect(() => {

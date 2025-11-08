@@ -3,7 +3,7 @@
     "generate_study_guide": "Create a well-structured study guide (≤1 200 words) that covers key concepts, definitions, formulas/diagrams, and 3–5 practice questions.",
     "generate_notes": "Produce concise, well-organised notes that capture all major points and supporting details.",
     "follow_up": "Answer the follow-up question, updating or expanding on prior information without repeating it verbatim.",
-    "quote_finding": "Return up to three **verbatim** quotations that best satisfy the request. Each line must follow the format “<quote>” — author [#]. Ask one clarifying question instead if the request is ambiguous.",
+    "quote_finding": "Return up to three **verbatim** quotations that best satisfy the request. Format each quote on its own line with a blank line between quotes. Each quote must be enclosed in quotation marks. Example:\n\n\"First quote text here.\"\n\n\"Second quote text here.\"\n\n\"Third quote text here.\"\n\nAsk one clarifying question instead if the request is ambiguous.",
     "chrome_extension": "Reply with two sections:\n- **Answer:** a direct answer\n- **Explanation:** a short, plain-language justification"
   }
   

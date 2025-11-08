@@ -10,6 +10,10 @@ import toast from "react-hot-toast";
 import { getDocumentFile, getDocumentSummary, sendChatRequest } from "../../helpers/api-communicators";
 import { Document, Page, pdfjs } from "react-pdf";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import "react-pdf/dist/esm/Page/AnnotationLayer.css";
 import "react-pdf/dist/esm/Page/TextLayer.css";
 
@@ -626,7 +630,12 @@ const handleRetry = async (assistantIdx: number) => {
                     },
                   }}
                 >
-                  <ReactMarkdown>{summaryContent}</ReactMarkdown>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm, remarkMath]}
+                    rehypePlugins={[rehypeKatex]}
+                  >
+                    {summaryContent}
+                  </ReactMarkdown>
                 </Box>
               )}
             </Box>

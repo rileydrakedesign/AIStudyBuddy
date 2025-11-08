@@ -31,11 +31,18 @@ import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import ThumbUpIcon    from "@mui/icons-material/ThumbUp";
 import ThumbDownIcon  from "@mui/icons-material/ThumbDown";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
-import DescriptionIcon from "@mui/icons-material/Description";
-import FormatQuoteIcon from "@mui/icons-material/FormatQuote";
 import SaveIcon from "@mui/icons-material/Save";
 import DownloadIcon from "@mui/icons-material/Download";
 import toast from "react-hot-toast";
+import {
+  Document,
+  Packer,
+  Paragraph,
+  TextRun,
+  HeadingLevel,
+  AlignmentType,
+  UnderlineType,
+} from "docx";
 
 
 
@@ -46,15 +53,13 @@ import toast from "react-hot-toast";
 
 /**
  * Detect response type based on content
- * Used for special formatting of study guides, summaries, and quotes
+ * Used for special formatting of study guides
  */
-type ResponseType = "study-guide" | "summary" | "quote" | "normal";
+type ResponseType = "study-guide" | "normal";
 
 function detectResponseType(content: string): ResponseType {
   const lower = content.toLowerCase();
   if (lower.includes("study guide")) return "study-guide";
-  if (lower.includes("summary")) return "summary";
-  if (lower.includes("quote") || content.trim().startsWith('"')) return "quote";
   return "normal";
 }
 
@@ -70,30 +75,168 @@ function getSpecialFormatting(type: ResponseType) {
         icon: MenuBookIcon,
         title: "Study Guide",
       };
-    case "summary":
-      return {
-        borderColor: "success.main",
-        backgroundColor: "rgba(76, 175, 80, 0.05)",
-        icon: DescriptionIcon,
-        title: "Summary",
-      };
-    case "quote":
-      return {
-        borderColor: "secondary.main",
-        backgroundColor: "rgba(156, 39, 176, 0.05)",
-        icon: FormatQuoteIcon,
-        title: "Quote",
-      };
     default:
       return null;
   }
 }
 
 /**
- * Download content as .txt file
+ * Parse a markdown line and return TextRun elements with formatting
  */
-function downloadAsText(content: string, filename: string) {
-  const blob = new Blob([content], { type: 'text/plain' });
+function parseMarkdownLine(line: string): TextRun[] {
+  const runs: TextRun[] = [];
+
+  // Pattern to match **bold**, *italic*, `code`, or plain text
+  const pattern = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|[^*`]+)/g;
+  let match;
+
+  while ((match = pattern.exec(line)) !== null) {
+    const fullMatch = match[0];
+    const bold = match[2];
+    const italic = match[3];
+    const code = match[4];
+
+    if (bold) {
+      runs.push(new TextRun({ text: bold, bold: true }));
+    } else if (italic) {
+      runs.push(new TextRun({ text: italic, italics: true }));
+    } else if (code) {
+      runs.push(new TextRun({
+        text: code,
+        font: "Courier New",
+        shading: { fill: "E0E0E0" }
+      }));
+    } else if (fullMatch.trim()) {
+      runs.push(new TextRun({ text: fullMatch }));
+    }
+  }
+
+  return runs.length > 0 ? runs : [new TextRun({ text: line })];
+}
+
+/**
+ * Convert markdown content to DOCX and download
+ */
+async function downloadAsDocx(content: string, filename: string) {
+  const lines = content.split('\n');
+  const paragraphs: Paragraph[] = [];
+
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i].trimEnd();
+
+    // Skip empty lines (add spacing)
+    if (!line.trim()) {
+      paragraphs.push(new Paragraph({ text: "" }));
+      i++;
+      continue;
+    }
+
+    // Handle code blocks (```)
+    if (line.startsWith('```')) {
+      const codeLines: string[] = [];
+      i++; // Skip opening ```
+      while (i < lines.length && !lines[i].startsWith('```')) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      i++; // Skip closing ```
+
+      // Add code block as formatted paragraphs
+      codeLines.forEach(codeLine => {
+        paragraphs.push(new Paragraph({
+          children: [new TextRun({
+            text: codeLine,
+            font: "Courier New",
+            size: 20,
+          })],
+          shading: { fill: "F5F5F5" },
+          spacing: { before: 100, after: 100 },
+        }));
+      });
+      continue;
+    }
+
+    // Handle headings (# ## ###)
+    const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
+    if (headingMatch) {
+      const level = headingMatch[1].length;
+      const text = headingMatch[2];
+
+      let headingLevel: (typeof HeadingLevel)[keyof typeof HeadingLevel];
+      switch (level) {
+        case 1: headingLevel = HeadingLevel.HEADING_1; break;
+        case 2: headingLevel = HeadingLevel.HEADING_2; break;
+        case 3: headingLevel = HeadingLevel.HEADING_3; break;
+        case 4: headingLevel = HeadingLevel.HEADING_4; break;
+        case 5: headingLevel = HeadingLevel.HEADING_5; break;
+        default: headingLevel = HeadingLevel.HEADING_6;
+      }
+
+      paragraphs.push(new Paragraph({
+        text: text,
+        heading: headingLevel,
+        spacing: { before: 240, after: 120 },
+      }));
+      i++;
+      continue;
+    }
+
+    // Handle unordered lists (- or *)
+    if (line.match(/^[\-\*]\s+(.+)$/)) {
+      const text = line.replace(/^[\-\*]\s+/, '');
+      paragraphs.push(new Paragraph({
+        children: parseMarkdownLine(text),
+        bullet: { level: 0 },
+        spacing: { before: 100, after: 100 },
+      }));
+      i++;
+      continue;
+    }
+
+    // Handle ordered lists (1. 2. etc.)
+    if (line.match(/^\d+\.\s+(.+)$/)) {
+      const text = line.replace(/^\d+\.\s+/, '');
+      paragraphs.push(new Paragraph({
+        children: parseMarkdownLine(text),
+        numbering: { reference: "default-numbering", level: 0 },
+        spacing: { before: 100, after: 100 },
+      }));
+      i++;
+      continue;
+    }
+
+    // Regular paragraph with inline formatting
+    paragraphs.push(new Paragraph({
+      children: parseMarkdownLine(line),
+      spacing: { before: 100, after: 100 },
+    }));
+    i++;
+  }
+
+  // Create document
+  const doc = new Document({
+    sections: [{
+      properties: {},
+      children: paragraphs,
+    }],
+    numbering: {
+      config: [{
+        reference: "default-numbering",
+        levels: [
+          {
+            level: 0,
+            format: "decimal",
+            text: "%1.",
+            alignment: AlignmentType.LEFT,
+          },
+        ],
+      }],
+    },
+  });
+
+  // Generate and download
+  const blob = await Packer.toBlob(doc);
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -575,14 +718,19 @@ const ChatItem: React.FC<ChatItemProps> = ({
     toast.success("Saving to Saved Materials (Story 0.3 complete)");
   };
 
-  const handleDownloadClick = () => {
+  const handleDownloadClick = async () => {
     // Sanitize filename from first 50 chars + timestamp
     const preview = displayContent.substring(0, 50).replace(/[^a-z0-9]/gi, '_');
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
-    const filename = `${preview}_${timestamp}.txt`;
+    const filename = `${preview}_${timestamp}.docx`;
 
-    downloadAsText(displayContent, filename);
-    toast.success("Downloaded successfully");
+    try {
+      await downloadAsDocx(displayContent, filename);
+      toast.success("Downloaded successfully as DOCX");
+    } catch (error) {
+      console.error("Download failed:", error);
+      toast.error("Failed to download document");
+    }
   };
 
 

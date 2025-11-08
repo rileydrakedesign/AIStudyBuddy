@@ -1,0 +1,56 @@
+# Python AI Service Environment Variables
+# Copy this file to .env and fill in your actual values
+
+# Database
+MONGO_CONNECTION_STRING=mongodb+srv://username:password@cluster.mongodb.net/study_buddy_demo?retryWrites=true&w=majority
+
+# AWS S3 Configuration
+AWS_ACCESS_KEY=your-aws-access-key
+AWS_SECRET=your-aws-secret-key
+AWS_REGION=us-east-1
+AWS_S3_BUCKET_NAME=your-bucket-name
+
+# OpenAI Configuration
+OPENAI_API_KEY=your-openai-api-key
+OPENAI_CHAT_MODEL=gpt-4o-mini
+OPENAI_TPM_LIMIT=180000
+
+# Redis (Production)
+REDIS_TLS_URL=rediss://default:password@redis-host:port
+
+# Backend API
+BACKEND_URL=http://localhost:3000/api/v1
+
+# RAG Configuration
+MAX_PROMPT_TOKENS=8000
+SIMILARITY_THRESHOLD=0.0
+RAG_K=12
+RAG_CANDIDATES=1000
+RAG_TEMP_GENERAL=0.2
+
+# Per-Route RAG Configuration (Optional - defaults shown)
+# RAG_K_FOLLOWUP=10
+# RAG_CANDIDATES_FOLLOWUP=1000
+# RAG_TEMP_FOLLOWUP=0.2
+# RAG_MAX_TOKENS_FOLLOWUP=700
+
+# RAG_K_QUOTE=20
+# RAG_CANDIDATES_QUOTE=1200
+# RAG_TEMP_QUOTE=0.0
+# RAG_MAX_TOKENS_QUOTE=400
+
+# RAG_K_STUDY_GUIDE=8
+# RAG_CANDIDATES_STUDY_GUIDE=800
+# RAG_TEMP_STUDY_GUIDE=0.3
+# RAG_MAX_TOKENS_STUDY_GUIDE=1200
+
+# RAG_K_SUMMARY=8
+# RAG_CANDIDATES_SUMMARY=800
+# RAG_TEMP_SUMMARY=0.2
+# RAG_MAX_TOKENS_SUMMARY=600
+
+# Notes:
+# - Use the same MongoDB, S3, and Redis as production
+# - OPENAI_CHAT_MODEL: Use gpt-4o-mini for local dev to save costs
+# - Redis job queue is shared with production - be careful with document uploads
+# - Create test documents/classes for local development testing
