@@ -502,11 +502,12 @@ const Chat = () => {
       if (chatData.assignedClass !== undefined) {
         setSelectedClass(chatData.assignedClass || null);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error in handleSubmit:", error);
-      if (error.response && error.response.status === 403) {
+      const err = error as { response?: { status?: number; data?: { message?: string } } };
+      if (err.response && err.response.status === 403) {
         toast.error(
-          error.response.data.message || "Monthly chat limit reached for the free plan"
+          err.response.data?.message || "Monthly chat limit reached for the free plan"
         );
       } else {
         toast.error("Failed to send message");

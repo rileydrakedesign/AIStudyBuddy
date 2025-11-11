@@ -41,7 +41,6 @@ import {
   TextRun,
   HeadingLevel,
   AlignmentType,
-  UnderlineType,
 } from "docx";
 
 
@@ -183,8 +182,8 @@ async function downloadAsDocx(content: string, filename: string) {
     }
 
     // Handle unordered lists (- or *)
-    if (line.match(/^[\-\*]\s+(.+)$/)) {
-      const text = line.replace(/^[\-\*]\s+/, '');
+    if (line.match(/^[-*]\s+(.+)$/)) {
+      const text = line.replace(/^[-*]\s+/, '');
       paragraphs.push(new Paragraph({
         children: parseMarkdownLine(text),
         bullet: { level: 0 },
@@ -324,7 +323,7 @@ const MarkdownRender: React.FC<{ text: string }> = ({ text }) => (
     remarkPlugins={[remarkGfm, remarkMath]}
     rehypePlugins={[rehypeKatex]}
     components={{
-      code({ inline, className, children, ...props }: any) {
+      code({ inline, className, children, ...props }: { inline?: boolean; className?: string; children?: React.ReactNode }) {
         const langMatch = /language-(\w+)/.exec(className || "");
         return inline ? (
           <code
@@ -336,7 +335,7 @@ const MarkdownRender: React.FC<{ text: string }> = ({ text }) => (
           </code>
         ) : (
           <SyntaxHighlighter
-            style={coldarkDark as any}          
+            style={coldarkDark as Record<string, React.CSSProperties>}          
             language={langMatch ? langMatch[1] : undefined}
             wrapLongLines
             customStyle={{ margin: 0, fontSize: 14 }}
@@ -346,7 +345,7 @@ const MarkdownRender: React.FC<{ text: string }> = ({ text }) => (
           </SyntaxHighlighter>
         );
       },
-      p: ({ node, ...props }) => (
+      p: (props) => (
         <p style={{ margin: "0 0 0.5em 0" }} {...props} />
       ),
     }}
@@ -610,7 +609,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
             remarkPlugins={[remarkGfm, remarkMath]}
             rehypePlugins={[rehypeKatex]}
             components={{
-              p: ({ node, ...props }) => (
+              p: (props) => (
                 <span
                   style={{
                     fontSize: 16,
@@ -650,10 +649,6 @@ const ChatItem: React.FC<ChatItemProps> = ({
   };
 
   /* ---------- action icon handlers (stubbed) ---------- */
-  const handleRetry = () => {
-    if (onRetry) onRetry(messageIndex);
-  };
-
   const handleToggle = () => {
     setDisplayIdx((prev) => (prev + 1) % allVersions.length);
   };
@@ -822,7 +817,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
           b.type === "code" ? (
             <SyntaxHighlighter
               key={i}
-              style={coldarkDark as any}
+              style={coldarkDark as Record<string, React.CSSProperties>}
               language={b.language}
               customStyle={{
                 width: "100%",

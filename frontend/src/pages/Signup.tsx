@@ -17,22 +17,32 @@ import toast from "react-hot-toast";
 import { signupUser, resendConfirmation, verifyUser } from "../helpers/api-communicators";
 import { useAuth } from "@/context/authContext";
 
+interface GoogleIdentityServices {
+  accounts: {
+    id: {
+      initialize: (config: { client_id: string; callback: (response: { credential: string }) => void }) => void;
+      renderButton: (element: HTMLElement, config: { theme: string; size: string; width: number }) => void;
+    };
+  };
+}
+
 declare global {
   interface Window {
-    google?: any;
+    google?: GoogleIdentityServices;
   }
 }
 
 
-const extractErrorMsg = (err: any): string => {
+const extractErrorMsg = (err: unknown): string => {
+  const error = err as { response?: { data?: { errors?: Array<{ msg: string }>; message?: string }; message?: string } };
   // express‑validator returns { errors: [ { msg, param, … } ] }
-  if (err?.response?.data?.errors?.length) {
-    return err.response.data.errors[0].msg as string;
+  if (error?.response?.data?.errors?.length) {
+    return error.response.data.errors[0].msg;
   }
   // generic message fallbacks
   return (
-    err?.response?.data?.message ||
-    err?.response?.data ||
+    error?.response?.data?.message ||
+    error?.response?.message ||
     "Something went wrong — try again"
   );
 };
@@ -51,7 +61,6 @@ const Signup: React.FC = () => {
     confirmPassword: "",
   });
   const [loading, setLoading] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
   const navigate = useNavigate();
 
   const auth = useAuth();
@@ -70,7 +79,7 @@ const Signup: React.FC = () => {
           navigate("/chat");                        // verified → dashboard
           return;                     
         } else {
-          // logged‑in but NOT verified → show waiting panel + 30 s cooldown
+          // logged-in but NOT verified - show waiting panel + 30 s cooldown
           setForm((prev) => ({ ...prev, email: data.email }));
           setWaitingConfirm(true);
           setResendCooldown(30);
@@ -93,23 +102,21 @@ const Signup: React.FC = () => {
       try {
         window.google.accounts.id.initialize({
           client_id: clientId,
-          callback: async (response: any) => {
+          callback: async (response: { credential: string }) => {
             const cred = response?.credential;
             if (!cred) return;
             try {
-              setGoogleLoading(true);
               console.log("[Google] GIS callback received credential (Signup)", {
-                baseURL: (axios as any)?.defaults?.baseURL,
+                baseURL: axios.defaults.baseURL,
                 credPrefix: cred?.slice?.(0, 12),
               });
               await auth?.loginWithGoogle(cred);
               navigate("/chat");
             } catch (e) {
               console.error("[Google] Signup page Google sign‑in failed", e);
-              const msg = (e as any)?.response?.data?.message || (e as any)?.message || "Google sign‑in failed";
+              const err = e as { response?: { data?: { message?: string } }; message?: string };
+              const msg = err?.response?.data?.message || err?.message || "Google sign‑in failed";
               toast.error(msg);
-            } finally {
-              setGoogleLoading(false);
             }
           },
         });
@@ -151,7 +158,7 @@ const Signup: React.FC = () => {
     const id = setInterval(async () => {
       try {
         const data = await verifyUser(); // expects { emailVerified }
-        if (!cancelled && (data as any).emailVerified) {
+        if (!cancelled && (data as { emailVerified?: boolean }).emailVerified) {
           clearInterval(id);
           navigate("/chat");
         }
@@ -205,7 +212,7 @@ const Signup: React.FC = () => {
       toast.success("Account created — check your inbox to confirm.");
       setWaitingConfirm(true);
       setResendCooldown(30);  
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast.error(extractErrorMsg(err));
     } finally {
       setLoading(false);

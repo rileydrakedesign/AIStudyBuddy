@@ -113,14 +113,15 @@ const UploadDocument: React.FC = () => {
       setClassName("");
       setInputClass("");
       localStorage.removeItem("selectedClass");
-    } catch (err: any) {
-      if (err.response && err.response.status === 403) {
+    } catch (err: unknown) {
+      const error = err as { response?: { status?: number; data?: { message?: string } } };
+      if (error.response && error.response.status === 403) {
         toast.error(
-          err.response.data.message || "Document upload limit reached for the free plan",
+          error.response.data?.message || "Document upload limit reached for the free plan",
           { id: "uploadDoc" }
         );
-      } else if (err.response && err.response.status === 409) {
-        toast.error(err.response.data.message || "Document already exists in class", {
+      } else if (error.response && error.response.status === 409) {
+        toast.error(error.response.data?.message || "Document already exists in class", {
           id: "uploadDoc",
         });
       } else {

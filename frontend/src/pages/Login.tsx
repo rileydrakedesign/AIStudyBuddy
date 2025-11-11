@@ -18,21 +18,31 @@ import toast from "react-hot-toast";
 import { useAuth } from "@/context/authContext";
 import { resendConfirmation } from "../helpers/api-communicators";
 
+interface GoogleIdentityServices {
+  accounts: {
+    id: {
+      initialize: (config: { client_id: string; callback: (response: { credential: string }) => void }) => void;
+      renderButton: (element: HTMLElement, config: { theme: string; size: string; width: number }) => void;
+    };
+  };
+}
+
 declare global {
   interface Window {
-    google?: any;
+    google?: GoogleIdentityServices;
   }
 }
 
-const extractErrorMsg = (err: any): string => {
+const extractErrorMsg = (err: unknown): string => {
+  const error = err as { response?: { data?: { errors?: Array<{ msg: string }>; message?: string }; message?: string } };
   // express‑validator returns { errors: [ { msg, param, … } ] }
-  if (err?.response?.data?.errors?.length) {
-    return err.response.data.errors[0].msg as string;
+  if (error?.response?.data?.errors?.length) {
+    return error.response.data.errors[0].msg;
   }
   // generic message fallbacks
   return (
-    err?.response?.data?.message ||
-    err?.response?.data ||
+    error?.response?.data?.message ||
+    error?.response?.message ||
     "Something went wrong — try again"
   );
 };
@@ -44,7 +54,6 @@ const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [unverified, setUnverified] = useState(false);
   const [resending, setResending] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
 
   const googleBtnRef = useRef<HTMLDivElement | null>(null);
 
@@ -66,23 +75,21 @@ const Login: React.FC = () => {
       try {
         window.google.accounts.id.initialize({
           client_id: clientId,
-          callback: async (response: any) => {
+          callback: async (response: { credential: string }) => {
             const cred = response?.credential;
             if (!cred) return;
             try {
-              setGoogleLoading(true);
               console.log("[Google] GIS callback received credential", {
-                baseURL: (axios as any)?.defaults?.baseURL,
+                baseURL: axios.defaults.baseURL,
                 credPrefix: cred?.slice?.(0, 12),
               });
               await auth?.loginWithGoogle(cred);
               navigate("/chat");
             } catch (e) {
               console.error("[Google] Login page Google sign‑in failed", e);
-              const msg = (e as any)?.response?.data?.message || (e as any)?.message || "Google sign‑in failed";
+              const err = e as { response?: { data?: { message?: string } }; message?: string };
+              const msg = err?.response?.data?.message || err?.message || "Google sign‑in failed";
               toast.error(msg);
-            } finally {
-              setGoogleLoading(false);
             }
           },
         });
@@ -126,8 +133,8 @@ const Login: React.FC = () => {
       setLoading(true);
       await auth?.login(form.email, form.password);
       navigate("/chat");
-    } catch (err: any) {
-      const status = err?.response?.status;
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
       const msg = extractErrorMsg(err);
       if (status === 403 && typeof msg === "string" && msg.toLowerCase().includes("confirm")) {
         setUnverified(true);

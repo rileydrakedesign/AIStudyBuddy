@@ -38,12 +38,6 @@ type Message = {
   currentVersion?: number; 
 };
 
-type EphemeralChunk = {
-  chunkNumber: number;
-  text: string;
-  pageNumber?: number;
-};
-
 interface DocumentChatProps {
   docId: string;
   onClose: () => void;
@@ -55,8 +49,6 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
 
   // All messages for this document chat
   const [messages, setMessages] = useState<Message[]>([]);
-  // Ephemeral chunks for the newest answer (if needed)
-  const [ephemeralChunks, setEphemeralChunks] = useState<EphemeralChunk[]>([]);
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [partialAssistantMessage, setPartialAssistantMessage] = useState("");
@@ -148,7 +140,6 @@ useEffect(() => {
 useEffect(() => {
   setDocSessionId(null);
   setMessages([]);
-  setEphemeralChunks([]);
   setIsGenerating(false);
   setPartialAssistantMessage("");
   setHighlightedPage(null);
@@ -313,7 +304,6 @@ const handleRetry = async (assistantIdx: number) => {
       if (!docSessionId && chatData.chatSessionId) {
         setDocSessionId(chatData.chatSessionId);
       }
-      setEphemeralChunks(chatData.chunks || []);
       const allMsgs = chatData.messages;
       const assistantMsg = allMsgs.length > 0 ? allMsgs[allMsgs.length - 1] : null;
       if (!assistantMsg || assistantMsg.role !== "assistant") {
@@ -401,7 +391,7 @@ const handleRetry = async (assistantIdx: number) => {
   /* ------------------------------
      6) React-PDF Callbacks
      ------------------------------ */
-  const onDocumentLoadSuccess = (pdf: any) => {
+  const onDocumentLoadSuccess = (pdf: { numPages: number }) => {
     setNumPages(pdf.numPages);
   };
 

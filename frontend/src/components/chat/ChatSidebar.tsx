@@ -20,7 +20,6 @@ import {
   DialogContentText,
   DialogActions,
 } from "@mui/material";
-import red from "@mui/material/colors/red";
 import {
   ExpandLess,
   ExpandMore,
@@ -29,7 +28,6 @@ import {
   Edit as EditIcon,
   AccountCircle as AccountCircleIcon,
   ChatBubble as ChatBubbleIcon,
-  Home as HomeIcon,
   Description as DescriptionIcon,
   Info as InfoIcon,
 } from "@mui/icons-material";

@@ -18,10 +18,10 @@ export const loginWithGoogle = async (credential: string) => {
       throw new Error("Unable to login with Google");
     }
     return res.data;
-  } catch (err: any) {
+  } catch (err: unknown) {
     // Surface details to the caller for debugging
-    const status = err?.response?.status;
-    const data = err?.response?.data;
+    const status = (err as { response?: { status?: number } })?.response?.status;
+    const data = (err as { response?: { data?: unknown } })?.response?.data;
     console.error("[Google] loginWithGoogle error", { status, data, baseURL: axios.defaults.baseURL });
     throw err;
   }
@@ -55,6 +55,15 @@ export const checkAuthStatus = async () => {
   return data;
 };
 
+interface ChatRequestBody {
+  message: string;
+  class_name: string | null;
+  chatSessionId: string | null;
+  docId?: string | null;
+  ephemeral?: boolean;
+  retry?: boolean;
+}
+
 export const sendChatRequest = async (
   message: string,
   selectedClass: string | null,
@@ -63,7 +72,7 @@ export const sendChatRequest = async (
   ephemeral?: boolean,
   retry?: boolean
 ) => {
-  const body: any = {
+  const body: ChatRequestBody = {
     message,
     class_name: selectedClass,
     chatSessionId,
@@ -78,7 +87,7 @@ export const sendChatRequest = async (
   }
 
   if (retry) {
-    body.retry = true; 
+    body.retry = true;
   }
 
 

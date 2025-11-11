@@ -20,7 +20,7 @@ const ForgotPassword: React.FC = () => {
       await requestPasswordReset(email);
       toast.success("If the account exists, a reset link was sent");
       navigate("/login");
-    } catch (err: any) {
+    } catch (err: unknown) {
       // still show generic success to avoid enumeration
       toast.success("If the account exists, a reset link was sent");
       navigate("/login");

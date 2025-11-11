@@ -21,7 +21,6 @@ import {
   changeEmail,
   deleteAccount,
 } from "../helpers/api-communicators";
-import { useNavigate } from "react-router-dom";
 
 const BORDER_BLUE = "#1976d2";
 
@@ -44,8 +43,6 @@ const Profile: React.FC = () => {
   const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [deleteLoading, setDeleteLoading] = useState(false);
-
-  const navigate = useNavigate();
 
   useEffect(() => {
     (async () => {
@@ -104,13 +101,13 @@ const Profile: React.FC = () => {
 
     try {
       setSaveLoading(true);
-      const response = await apiUpdateUserProfile(profile.name);
+      await apiUpdateUserProfile(profile.name);
       toast.success("Profile updated successfully");
       setOriginalProfile({ ...profile });
       setHasChanges(false);
       setEditName(false);
-    } catch (error: any) {
-      const message = error?.response?.data?.message || "Failed to update profile";
+    } catch (error: unknown) {
+      const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message || "Failed to update profile";
       toast.error(message);
     } finally {
       setSaveLoading(false);
@@ -137,8 +134,8 @@ const Profile: React.FC = () => {
       setChangeEmailOpen(false);
       setNewEmail("");
       setEmailPassword("");
-    } catch (error: any) {
-      const message = error?.response?.data?.message || "Failed to request email change";
+    } catch (error: unknown) {
+      const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message || "Failed to request email change";
       toast.error(message);
     } finally {
       setEmailChangeLoading(false);
@@ -156,8 +153,8 @@ const Profile: React.FC = () => {
       await deleteAccount();
       toast.success("Account deleted successfully");
       window.location.replace("/login");
-    } catch (error: any) {
-      const message = error?.response?.data?.message || "Failed to delete account. Please try again or contact support.";
+    } catch (error: unknown) {
+      const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message || "Failed to delete account. Please try again or contact support.";
       toast.error(message);
     } finally {
       setDeleteLoading(false);
