@@ -49,6 +49,23 @@ type Message = {
   reaction?: "like" | "dislike" | null;
 };
 
+// WebSocket streaming event types
+type StreamTokenEvent = {
+  sessionId: string;
+  token: string;
+};
+
+type StreamCompleteEvent = {
+  sessionId: string;
+  citations: { href: string | null; text: string }[];
+  chunkReferences: ChunkReference[];
+};
+
+type StreamErrorEvent = {
+  sessionId: string;
+  error: string;
+};
+
 type ChatSession = {
   _id: string;
   sessionName: string;
@@ -106,9 +123,9 @@ const Chat = () => {
 
   // WebSocket stream listeners ref for cleanup
   const streamListenersRef = useRef<{
-    token: (data: any) => void;
-    complete: (data: any) => void;
-    error: (data: any) => void;
+    token: (data: StreamTokenEvent) => void;
+    complete: (data: StreamCompleteEvent) => void;
+    error: (data: StreamErrorEvent) => void;
   } | null>(null);
 
   // Sidebar
@@ -491,18 +508,14 @@ const Chat = () => {
         setPartialAssistantMessage(""); // Reset partial message
 
         // Handler: Append each token as it arrives
-        const handleToken = (data: { sessionId: string; token: string }) => {
+        const handleToken = (data: StreamTokenEvent) => {
           if (data.sessionId === chatSessionId) {
             setPartialAssistantMessage((prev) => prev + data.token);
           }
         };
 
         // Handler: Finalize message when stream completes
-        const handleComplete = (data: {
-          sessionId: string;
-          citations: any;
-          chunkReferences: any;
-        }) => {
+        const handleComplete = (data: StreamCompleteEvent) => {
           if (data.sessionId === chatSessionId) {
             // Update chat sessions with final message
             setChatSessions((prev) => {
@@ -551,7 +564,7 @@ const Chat = () => {
         };
 
         // Handler: Handle stream errors
-        const handleError = (data: { sessionId: string; error: string }) => {
+        const handleError = (data: StreamErrorEvent) => {
           if (data.sessionId === chatSessionId) {
             console.error("Stream error:", data.error);
             toast.error(data.error || "An error occurred during streaming");
