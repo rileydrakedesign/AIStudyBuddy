@@ -19,7 +19,7 @@ import uuid
 import asyncio
 import json
 
-from semantic_search import process_semantic_search
+from semantic_search import process_semantic_search, stream_semantic_search
 from tasks import enqueue_ingest
 from logger_setup import log
 
@@ -102,6 +102,29 @@ async def semantic_search(req: SearchRequest):
     # Explicit keepalive hint so client can ignore whitespace ticks
     resp.headers["X-Keepalive"] = "1"
     return resp
+
+# ──────────────────────────────────────────────────────────────────────────
+# /api/v1/semantic_search_stream (NEW FOR STORY 0.6)
+#   ‣ Real-time token streaming via SSE for WebSocket consumption
+# ──────────────────────────────────────────────────────────────────────────
+@app.post("/api/v1/semantic_search_stream")
+async def semantic_search_stream_endpoint(req: SearchRequest):
+    """
+    Real-time token streaming endpoint.
+    Streams tokens as SSE events for WebSocket consumption.
+
+    Returns:
+        StreamingResponse with text/event-stream media type
+        Events: token, done, error, keepalive
+    """
+    return await stream_semantic_search(
+        user_id=req.user_id,
+        class_name=req.class_name or "null",
+        doc_id=req.doc_id or "null",
+        user_query=req.user_query,
+        chat_history=req.chat_history,
+        source=req.source,
+    )
 
 # ──────────────────────────────────────────────────────────────────────────
 # /api/v1/process_upload  (unchanged – still enqueues ingest job)

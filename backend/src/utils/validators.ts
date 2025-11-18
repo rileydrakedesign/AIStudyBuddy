@@ -155,7 +155,7 @@ export const handleChatCompletionValidation = (
     { body: req.body },
     "Incoming /chat/new request body"
   );
-  
+
 
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -164,6 +164,7 @@ export const handleChatCompletionValidation = (
       { errors: errors.array() },
       "Validation errors"
     );
+    return res.status(422).json({ errors: errors.array() });
   }
   // No errors; proceed to the next middleware/controller
   next();

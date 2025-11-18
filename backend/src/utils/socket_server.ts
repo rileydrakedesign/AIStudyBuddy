@@ -5,7 +5,7 @@ import signature from "cookie-signature";
 import Document from "../models/documents.js";
 import { COOKIE_NAME } from "./constants.js";
 import dotenv from "dotenv";
-import logger from "./logger.js";   
+import logger from "./logger.js";
 
 dotenv.config();
 

@@ -132,6 +132,7 @@ export const handleChatCompletionValidation = (req, res, next) => {
     if (!errors.isEmpty()) {
         // If there's a validation error, log it out
         req.log.debug({ errors: errors.array() }, "Validation errors");
+        return res.status(422).json({ errors: errors.array() });
     }
     // No errors; proceed to the next middleware/controller
     next();

@@ -100,9 +100,16 @@ const Chat = () => {
   // Streaming / loading state
   const [isGenerating, setIsGenerating] = useState(false);
 
-  // Typewriter partial
+  // Typewriter partial (now for real streaming, not simulated)
   const [partialAssistantMessage, setPartialAssistantMessage] = useState("");
   const typeIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // WebSocket stream listeners ref for cleanup
+  const streamListenersRef = useRef<{
+    token: (data: any) => void;
+    complete: (data: any) => void;
+    error: (data: any) => void;
+  } | null>(null);
 
   // Sidebar
   const [expandedClass, setExpandedClass] = useState<string | null>(null);
@@ -214,6 +221,14 @@ const Chat = () => {
 
     return () => {
       socket.off("document-ready", handleDocumentReady);
+
+      // Cleanup stream listeners if they exist
+      if (streamListenersRef.current) {
+        socket.off("chat-stream-token", streamListenersRef.current.token);
+        socket.off("chat-stream-complete", streamListenersRef.current.complete);
+        socket.off("chat-stream-error", streamListenersRef.current.error);
+        streamListenersRef.current = null;
+      }
     };
   }, [auth?.isLoggedIn]);
 
@@ -372,20 +387,42 @@ const Chat = () => {
   }, []);
 
   const finalizeTypewriter = () => {
+    // Legacy cleanup (no longer used but kept for safety)
     if (typeIntervalRef.current) {
       clearInterval(typeIntervalRef.current);
       typeIntervalRef.current = null;
     }
-    const currentSession = chatSessions.find((s) => s._id === currentChatSessionId);
-    if (currentSession && currentSession.messages.length > 0) {
-      const finalMsg = currentSession.messages[currentSession.messages.length - 1];
-      if (
-        chatMessages.length === 0 ||
-        chatMessages[chatMessages.length - 1].content !== finalMsg.content
-      ) {
-        setChatMessages((prev) => [...prev, finalMsg]);
+
+    // Cleanup WebSocket stream listeners
+    const socket = socketRef.current;
+    if (socket && streamListenersRef.current) {
+      socket.off("chat-stream-token", streamListenersRef.current.token);
+      socket.off("chat-stream-complete", streamListenersRef.current.complete);
+      socket.off("chat-stream-error", streamListenersRef.current.error);
+      streamListenersRef.current = null;
+    }
+
+    // Finalize current partial message if exists
+    if (partialAssistantMessage) {
+      const finalMsg: Message = {
+        role: "assistant",
+        content: partialAssistantMessage,
+      };
+      setChatMessages((prev) => [...prev, finalMsg]);
+    } else {
+      // Fallback to session state
+      const currentSession = chatSessions.find((s) => s._id === currentChatSessionId);
+      if (currentSession && currentSession.messages.length > 0) {
+        const finalMsg = currentSession.messages[currentSession.messages.length - 1];
+        if (
+          chatMessages.length === 0 ||
+          chatMessages[chatMessages.length - 1].content !== finalMsg.content
+        ) {
+          setChatMessages((prev) => [...prev, finalMsg]);
+        }
       }
     }
+
     setPartialAssistantMessage("");
     setIsGenerating(false);
   };
@@ -436,71 +473,133 @@ const Chat = () => {
         ]);
       }
 
+      // ──────────────────────────────────────────────────────────────────
+      // WebSocket Real-Time Token Streaming (REGISTER LISTENERS FIRST!)
+      // ──────────────────────────────────────────────────────────────────
+      const socket = socketRef.current;
+
+      // Only register WebSocket listeners if socket is available
+      if (socket) {
+        // Cleanup any previous stream listeners
+        if (streamListenersRef.current) {
+          socket.off("chat-stream-token", streamListenersRef.current.token);
+          socket.off("chat-stream-complete", streamListenersRef.current.complete);
+          socket.off("chat-stream-error", streamListenersRef.current.error);
+        }
+
+        // Prepare to receive streaming tokens
+        setPartialAssistantMessage(""); // Reset partial message
+
+        // Handler: Append each token as it arrives
+        const handleToken = (data: { sessionId: string; token: string }) => {
+          if (data.sessionId === chatSessionId) {
+            setPartialAssistantMessage((prev) => prev + data.token);
+          }
+        };
+
+        // Handler: Finalize message when stream completes
+        const handleComplete = (data: {
+          sessionId: string;
+          citations: any;
+          chunkReferences: any;
+        }) => {
+          if (data.sessionId === chatSessionId) {
+            // Update chat sessions with final message
+            setChatSessions((prev) => {
+              const updatedSessions = prev.map((session) =>
+                session._id === chatSessionId
+                  ? {
+                      ...session,
+                      updatedAt: new Date().toISOString(),
+                    }
+                  : session
+              );
+              updatedSessions.sort((a, b) => {
+                const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+                const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+                return timeB - timeA;
+              });
+              return updatedSessions;
+            });
+
+            // Construct final assistant message with citations (use accumulated partial)
+            setPartialAssistantMessage((currentPartial) => {
+              const finalAssistantMsg: Message = {
+                role: "assistant",
+                content: currentPartial,
+                citation: data.citations,
+                chunkReferences: data.chunkReferences,
+              };
+              setChatMessages((prev) => [...prev, finalAssistantMsg]);
+              return ""; // Clear partial message
+            });
+            setIsGenerating(false);
+
+            // free-plan: increment local counter
+            setChatUsage((prev) =>
+              prev ? { ...prev, count: Math.min(prev.count + 1, prev.limit) } : prev
+            );
+
+            // Cleanup listeners
+            if (streamListenersRef.current) {
+              socket.off("chat-stream-token", streamListenersRef.current.token);
+              socket.off("chat-stream-complete", streamListenersRef.current.complete);
+              socket.off("chat-stream-error", streamListenersRef.current.error);
+              streamListenersRef.current = null;
+            }
+          }
+        };
+
+        // Handler: Handle stream errors
+        const handleError = (data: { sessionId: string; error: string }) => {
+          if (data.sessionId === chatSessionId) {
+            console.error("Stream error:", data.error);
+            toast.error(data.error || "An error occurred during streaming");
+            setPartialAssistantMessage("");
+            setIsGenerating(false);
+
+            // Cleanup listeners
+            if (streamListenersRef.current) {
+              socket.off("chat-stream-token", streamListenersRef.current.token);
+              socket.off("chat-stream-complete", streamListenersRef.current.complete);
+              socket.off("chat-stream-error", streamListenersRef.current.error);
+              streamListenersRef.current = null;
+            }
+          }
+        };
+
+        // Store handlers for cleanup
+        streamListenersRef.current = { token: handleToken, complete: handleComplete, error: handleError };
+
+        // Register WebSocket listeners BEFORE sending request
+        socket.on("chat-stream-token", handleToken);
+        socket.on("chat-stream-complete", handleComplete);
+        socket.on("chat-stream-error", handleError);
+      } else {
+        console.warn("WebSocket not available - streaming will not work");
+      }
+
+      // Send the request regardless of WebSocket status
       const classNameForRequest = selectedClass === null ? "null" : selectedClass;
       const chatData = await sendChatRequest(content, classNameForRequest, chatSessionId);
 
-      // free-plan: increment local counter
-      setChatUsage((prev) =>
-        prev ? { ...prev, count: Math.min(prev.count + 1, prev.limit) } : prev
-      );
-
-      setChatSessions((prev) => {
-        const updatedSessions = prev.map((session) =>
-          session._id === chatData.chatSessionId
-            ? {
-                ...session,
-                messages: chatData.messages,
-                assignedClass: chatData.assignedClass || null,
-                updatedAt: chatData.updatedAt || new Date().toISOString(),
-              }
-            : session
-        );
-        updatedSessions.sort((a, b) => {
-          const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
-          const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
-          return timeB - timeA;
-        });
-        return updatedSessions;
-      });
-
-      const allMessages = chatData.messages;
-
-      const finalAssistantMsg =
-        allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
-
-      if (!finalAssistantMsg || finalAssistantMsg.role !== "assistant") {
-        setChatMessages(allMessages);
-        setIsGenerating(false);
-        return;
-      }
-
-      const updatedWithoutLast = allMessages.slice(0, allMessages.length - 1);
-      setChatMessages(updatedWithoutLast);
-
-      const fullText = finalAssistantMsg.content;
-      let i = 0;
-
-      if (typeIntervalRef.current) {
-        clearInterval(typeIntervalRef.current);
-      }
-
-      typeIntervalRef.current = setInterval(() => {
-        i += 1;
-        setPartialAssistantMessage(fullText.substring(0, i));
-
-        if (i >= fullText.length) {
-          if (typeIntervalRef.current) {
-            clearInterval(typeIntervalRef.current);
-            typeIntervalRef.current = null;
-          }
-          setChatMessages([...updatedWithoutLast, finalAssistantMsg]);
-          setPartialAssistantMessage("");
-          setIsGenerating(false);
-        }
-      }, 2);
-
+      // Update session info from response
       if (chatData.assignedClass !== undefined) {
         setSelectedClass(chatData.assignedClass || null);
+      }
+
+      // If no WebSocket, fall back to using HTTP response data
+      if (!socket && chatData.messages) {
+        const lastMessage = chatData.messages[chatData.messages.length - 1];
+        if (lastMessage && lastMessage.role === "assistant") {
+          setChatMessages((prev) => [...prev, lastMessage]);
+          setIsGenerating(false);
+
+          // free-plan: increment local counter
+          setChatUsage((prev) =>
+            prev ? { ...prev, count: Math.min(prev.count + 1, prev.limit) } : prev
+          );
+        }
       }
     } catch (error: unknown) {
       console.error("Error in handleSubmit:", error);

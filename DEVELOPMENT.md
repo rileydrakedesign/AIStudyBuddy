@@ -19,8 +19,10 @@ This guide provides step-by-step instructions for setting up and running Class C
 8. [Troubleshooting](#troubleshooting)
 9. [Safe Testing Practices](#safe-testing-practices)
 10. [What's DISABLED in Local Development](#whats-disabled-in-local-development)
-11. [CI/CD Pipeline & Deployment Workflow](#cicd-pipeline--deployment-workflow)
-12. [Quick Reference](#quick-reference)
+11. [Redis Usage in Local Development](#redis-usage-in-local-development)
+12. [Local Logging System](#local-logging-system)
+13. [CI/CD Pipeline & Deployment Workflow](#cicd-pipeline--deployment-workflow)
+14. [Quick Reference](#quick-reference)
 
 ---
 
@@ -60,6 +62,31 @@ conda activate study_buddy
 cd backend/python_scripts
 pip install -r requirements.txt
 ```
+
+### Redis Server
+
+**REQUIRED**: The Python AI service requires a local Redis server for OpenAI API rate limiting.
+
+```bash
+# macOS - Install Redis via Homebrew
+brew install redis
+
+# Start Redis service
+brew services start redis
+
+# Verify Redis is running
+redis-cli ping  # Should return "PONG"
+
+# Check Redis is on default port
+redis-cli info | grep tcp_port  # Should show "tcp_port:6379"
+```
+
+**Why Required:**
+- Python service uses Redis for OpenAI token bucket rate limiting (TPM limit enforcement)
+- Story 0.6 introduced local Redis for streaming state management
+- Connects to `redis://localhost:6379/0` (database 0)
+
+**Note:** Node backend does NOT use Redis - only the Python service requires it.
 
 ### Production Access
 
@@ -151,9 +178,6 @@ PYTHON_API_URL=http://localhost:8000
 # Production Database (use test accounts only!)
 MONGO_CONNECTION_STRING=mongodb+srv://[credentials]
 
-# Production Redis
-REDIS_URL=rediss://[credentials]
-
 # Production AWS S3 (prefix uploads with "TEST - ")
 AWS_ACCESS_KEY=[key]
 AWS_SECRET=[secret]
@@ -197,12 +221,15 @@ AWS_SECRET=[secret]
 AWS_REGION=us-east-1
 AWS_S3_BUCKET_NAME=study-buddy-uploads
 
-# Production Redis (with SSL certificate)
-REDIS_URL=rediss://[credentials]
-REDIS_SSL_VERIFY=false
-REDIS_SSL_CA_DATA=-----BEGIN CERTIFICATE-----
-[... certificate data ...]
------END CERTIFICATE-----
+# Local Redis (Story 0.6 - using local Redis for streaming and rate limiting)
+REDIS_URL=redis://localhost:6379/0
+
+# Production Redis (commented out for local dev - UNCOMMENT for prod testing)
+# REDIS_URL=rediss://[credentials]
+# REDIS_SSL_VERIFY=false
+# REDIS_SSL_CA_DATA=-----BEGIN CERTIFICATE-----
+# [... certificate data ...]
+# -----END CERTIFICATE-----
 
 # Backend Node URL (local)
 BACKEND_URL=http://localhost:3000
@@ -525,16 +552,48 @@ pip install -r requirements.txt
 lsof -i :5173  # Frontend
 lsof -i :3000  # Backend Node
 lsof -i :8000  # Python
+lsof -i :6379  # Redis
 
 # Kill process
 kill -9 <PID>
+```
+
+### "Redis connection failed" or Python service crashes on startup
+
+**Cause**: Redis server not running
+
+**Symptoms**:
+- Python service fails to start with `redis.exceptions.ConnectionError`
+- Logs show: `[RedisTLS] Connection init failed`
+- Chat queries fail with 500 errors
+
+**Fix**:
+```bash
+# Check if Redis is running
+redis-cli ping  # Should return "PONG"
+
+# If not running, start Redis
+brew services start redis
+
+# Verify Redis is on correct port
+redis-cli info | grep tcp_port  # Should show "tcp_port:6379"
+
+# Restart Python service after Redis is running
+```
+
+**Verify connection:**
+```bash
+# Check Python is connecting to local Redis
+cd backend/python_scripts
+grep REDIS_URL .env.local  # Should show: redis://localhost:6379/0
 ```
 
 ---
 
 ## Safe Testing Practices
 
-⚠️ **CRITICAL**: Local development uses **PRODUCTION services** (MongoDB, S3, Redis, OpenAI).
+⚠️ **CRITICAL**: Local development uses **PRODUCTION services** (MongoDB, S3, OpenAI).
+⚠️ **NOTE**: Redis uses LOCAL server (localhost:6379) - NOT production.
 
 ### Test Account Usage
 
@@ -631,6 +690,144 @@ kill -9 <PID>
 **Workaround**:
 - Use email/password login only
 - OAuth must be tested in staging/production with verified domain
+
+---
+
+## Redis Usage in Local Development
+
+### Python Service Only
+
+The Python AI service uses **local Redis** for:
+1. **OpenAI Token Bucket Rate Limiting** - Enforces TPM (tokens per minute) limits
+2. **Stream State Management** (Story 0.6) - Planned for WebSocket streaming
+
+**Configuration:**
+- Connects to: `redis://localhost:6379/0` (database 0)
+- Connection code: `backend/python_scripts/redis_setup.py`
+- Usage code: `backend/python_scripts/semantic_search.py` (lines 190-220)
+
+**Token Bucket Implementation:**
+```python
+# semantic_search.py:190-205
+def reserve_tokens(tokens_needed: int) -> tuple[bool, int]:
+    """Counter-based minute bucket using INCRBY + EXPIRE 70s."""
+    key = "openai:tpm:counter"
+    pipe = r.pipeline()
+    pipe.incrby(key, tokens_needed)
+    pipe.expire(key, 70)
+    used_after, _ = pipe.execute()
+    return (used_after <= TPM_LIMIT, used_after)
+```
+
+### Node Backend Does NOT Use Redis
+
+**Important:** The Node backend does NOT use Redis despite having `REDIS_URL` in `.env.local`.
+
+**Verified:**
+- No Redis package in `backend/package.json`
+- No Redis imports in `backend/src/**/*.ts`
+- `REDIS_URL` environment variable is unused (legacy configuration)
+
+**Why the unused variable exists:**
+- Historical artifact from earlier architecture
+- Safe to ignore - does not affect functionality
+
+---
+
+## Local Logging System
+
+### ⚠️ Critical: Logs Are Ephemeral
+
+**Local development logs only go to terminal stdout** - they do NOT persist to files.
+
+**What This Means:**
+- Logs **disappear when terminal closes**
+- No persistent log files created
+- No log aggregation in local dev
+- Cannot review logs after stopping services
+
+### Current Logging Implementation
+
+**Node Backend (`backend/src/utils/logger.ts`):**
+```typescript
+// Pino logger with pretty-print in development
+const logger = pino({
+  level: process.env.LOG_LEVEL || "info",  // Default: "info", local dev uses "debug"
+  transport: !isProduction ? {
+    target: "pino-pretty",  // Colorized, human-readable output
+    options: {
+      colorize: true,
+      translateTime: "yyyy-mm-dd HH:MM:ss.SSS"
+    }
+  } : undefined  // Production: JSON to stdout for Heroku
+});
+```
+
+**Python Backend (`backend/python_scripts/logger_setup.py`):**
+```python
+# Loguru logger with colorized output
+if is_production:
+    logger.add(sys.stdout, level=LOG_LEVEL, serialize=True)  # JSON
+else:
+    logger.add(
+        sys.stdout,
+        level=LOG_LEVEL,  # Default: "INFO", local dev uses "DEBUG"
+        colorize=True,
+        format="<green>{time}</green> | <level>{level}</level> | ..."
+    )
+```
+
+### Log Levels
+
+| Service | Development | Production |
+|---------|-------------|------------|
+| Node Backend | `LOG_LEVEL=debug` | `LOG_LEVEL=info` |
+| Python Service | `LOG_LEVEL=DEBUG` | `LOG_LEVEL=INFO` |
+
+### Viewing Logs
+
+**Local Development:**
+```bash
+# Logs appear in the terminal where each service is running
+# Terminal 1: Python service logs
+# Terminal 2: Node backend logs
+# Terminal 3: Frontend logs (Vite dev server)
+```
+
+**Production (Heroku):**
+```bash
+# Persistent logs accessible via Heroku CLI
+heroku logs --tail --app class-chat-node
+heroku logs --tail --app class-chat-python
+
+# Search logs
+heroku logs --app class-chat-node --grep "error"
+
+# View recent logs (default: 100 lines)
+heroku logs --app class-chat-node -n 500
+```
+
+### Preserving Local Logs (Optional)
+
+If you need persistent local logs, redirect stdout to files:
+
+```bash
+# Terminal 1: Python Service with log file
+cd backend/python_scripts
+conda activate study_buddy
+uvicorn semantic_service:app --reload --host 0.0.0.0 --port 8000 2>&1 | tee python.log
+
+# Terminal 2: Node Backend with log file
+cd backend
+npm run dev 2>&1 | tee node.log
+
+# Terminal 3: Frontend with log file
+cd frontend
+npm run dev 2>&1 | tee frontend.log
+```
+
+**Log file location:** Same directory where command is run
+**Note:** Logs are still ephemeral if service crashes - only successful runs are saved
 
 ---
 
@@ -963,10 +1160,18 @@ pip install -r backend/python_scripts/requirements.txt
 cd backend && npm install
 cd frontend && npm install
 
+# Redis commands
+redis-cli ping                    # Check if Redis is running
+brew services start redis         # Start Redis (macOS)
+brew services stop redis          # Stop Redis (macOS)
+redis-cli info | head -20         # View Redis server info
+redis-cli keys "openai:tpm:*"     # View token bucket keys
+
 # Check running processes
 lsof -i :5173  # Frontend
 lsof -i :3000  # Backend
 lsof -i :8000  # Python
+lsof -i :6379  # Redis
 ```
 
 ### Configuration Files

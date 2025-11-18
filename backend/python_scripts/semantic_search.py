@@ -3,6 +3,7 @@ import json
 import sys
 import math
 import time
+import asyncio
 import traceback
 from pathlib import Path
 from typing import List, Tuple
@@ -10,6 +11,7 @@ from urllib.parse import quote
 from json import dumps as _json_dumps
 from botocore.exceptions import ClientError
 from langchain.chains import create_history_aware_retriever
+from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import (
@@ -442,6 +444,31 @@ def construct_chain(prompt_template, user_query, chat_history, llm: ChatOpenAI):
     return (prompt_template | llm | StrOutputParser()).invoke(
         {"chat_history": chat_history, "input": user_query}
     )
+
+
+# ──────────────────────────────────────────────────────────────
+#                   STREAMING CALLBACK HANDLER
+# ──────────────────────────────────────────────────────────────
+class TokenStreamingCallback(AsyncCallbackHandler):
+    """
+    LangChain async callback handler for token streaming.
+    Uses asyncio.Queue to bridge between LangChain callbacks and SSE generator.
+    """
+
+    def __init__(self):
+        self.queue = asyncio.Queue()
+
+    async def on_llm_new_token(self, token: str, **kwargs):
+        """Called for each new token from OpenAI."""
+        await self.queue.put({"type": "token", "content": token})
+
+    async def on_llm_end(self, response, **kwargs):
+        """Called when LLM completes."""
+        await self.queue.put({"type": "done"})
+
+    async def on_llm_error(self, error: Exception, **kwargs):
+        """Called on LLM errors."""
+        await self.queue.put({"type": "error", "message": str(error)})
 
 
 # ──────────────────────────────────────────────────────────────
@@ -1123,6 +1150,358 @@ def process_semantic_search(
         "chunks": chunk_array,
         "chunkReferences": chunk_refs,
     }
+
+
+# ──────────────────────────────────────────────────────────────
+#          ASYNC STREAMING VERSION (NEW FOR STORY 0.6)
+# ──────────────────────────────────────────────────────────────
+async def stream_semantic_search(
+    user_id: str,
+    class_name: str,
+    doc_id: str,
+    user_query: str,
+    chat_history: List[dict],
+    source: str,
+):
+    """
+    Async streaming version of process_semantic_search.
+    Yields tokens in real-time via SSE format for WebSocket consumption.
+
+    REUSES all existing helper functions for retrieval, routing, citations.
+    CHANGES only LLM invocation to be async with streaming callbacks.
+    """
+    from fastapi.responses import StreamingResponse
+
+    log.info(
+        "[STREAM] START | user=%s class=%s doc=%s | query=%s",
+        user_id, class_name, doc_id, (user_query[:120] + "…") if len(user_query) > 120 else user_query,
+    )
+
+    async def token_generator():
+        try:
+            # ── 0) Mode & Route Detection (REUSE existing) ──
+            mode = detect_query_mode(user_query)
+            if mode == "summary":
+                if doc_id and doc_id != "null":
+                    mode = "doc_summary"
+                elif class_name and class_name != "null":
+                    mode = "class_summary"
+                else:
+                    error_msg = "Please select a class or document to summarise."
+                    yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
+                    return
+
+            route = detect_route(user_query)
+            log.info(f"[STREAM] Route: {route}, Mode: {mode}")
+
+            # ── Quote-finding pre-check (REUSE existing) ──
+            if route == "quote_finding":
+                cleaned_query = strip_quote_phrases(user_query)
+                if not has_sufficient_quote_context(cleaned_query):
+                    friendly = (
+                        "Could you specify what the quote should relate to? "
+                        'For example: "a quote about the impact of the industrial revolution on society".'
+                    )
+                    yield f"data: {json.dumps({'type': 'error', 'message': friendly})}\n\n"
+                    return
+                user_query_effective = cleaned_query
+            else:
+                user_query_effective = user_query
+
+            # ── History sanitization (REUSE existing) ──
+            chat_history_cleaned = [
+                {
+                    "role": m["role"],
+                    "content": escape_curly_braces(m.get("content", ""))
+                }
+                for m in chat_history
+            ]
+
+            # ── Study-guide pipeline (STREAMING) ──
+            if route == "generate_study_guide" or mode == "study_guide":
+                # Single-document study guide
+                if doc_id and doc_id != "null":
+                    summary_doc = fetch_summary_chunk(user_id, class_name, doc_id)
+                    if summary_doc:
+                        context_txt = summary_doc["text"]
+                        if est_tokens(context_txt) > MAX_PROMPT_TOKENS:
+                            context_txt = condense_summary(context_txt, user_query, get_llm("summary"))
+                        guide = generate_study_guide(context_txt, user_query, get_llm("generate_study_guide"))
+
+                        # Stream complete guide as single response
+                        yield f"data: {json.dumps({'type': 'token', 'content': guide})}\n\n"
+
+                        citation = [{"text": summary_doc.get("s3_key", "Unknown"), "url": f"{backend_url}/file?key={quote(summary_doc.get('s3_key', ''))}"}]
+                        chunk_refs = [{"chunkId": str(summary_doc["_id"]), "displayNumber": 1, "pageNumber": None}]
+
+                        yield f"data: {json.dumps({'type': 'done', 'citations': citation, 'chunkReferences': chunk_refs})}\n\n"
+                        return
+
+                # Class-level study guide
+                if class_name and class_name != "null":
+                    docs = fetch_class_summaries(user_id, class_name)
+                    if docs:
+                        combined = "\n\n---\n\n".join(d["text"] for d in docs)
+                        if est_tokens(combined) > MAX_PROMPT_TOKENS:
+                            combined = condense_class_summaries(combined, user_query, get_llm("summary"))
+                        guide = generate_study_guide(combined, user_query, get_llm("generate_study_guide"))
+
+                        # Stream complete guide as single response
+                        yield f"data: {json.dumps({'type': 'token', 'content': guide})}\n\n"
+
+                        citation = get_file_citation(docs)
+                        chunk_refs = [{"chunkId": str(d["_id"]), "displayNumber": i + 1, "pageNumber": None} for i, d in enumerate(docs)]
+
+                        yield f"data: {json.dumps({'type': 'done', 'citations': citation, 'chunkReferences': chunk_refs})}\n\n"
+                        return
+
+            # ── Document summary mode (STREAMING) ──
+            if mode == "doc_summary":
+                summary_doc = fetch_summary_chunk(user_id, class_name, doc_id)
+                if not summary_doc:
+                    log.warning("[STREAM] No stored summary found; falling back to specific search")
+                    mode = "specific"
+                else:
+                    condensed_text = condense_summary(summary_doc["text"], user_query, get_llm("summary"))
+
+                    # Stream complete summary as single response
+                    yield f"data: {json.dumps({'type': 'token', 'content': condensed_text})}\n\n"
+
+                    citation = [{"text": summary_doc.get("s3_key", "Unknown"), "url": f"{backend_url}/file?key={quote(summary_doc.get('s3_key', ''))}"}]
+                    chunk_refs = [{"chunkId": str(summary_doc["_id"]), "displayNumber": 1, "pageNumber": None}]
+
+                    yield f"data: {json.dumps({'type': 'done', 'citations': citation, 'chunkReferences': chunk_refs})}\n\n"
+                    return
+
+            # ── Class summary mode (STREAMING) ──
+            if mode == "class_summary":
+                docs = fetch_class_summaries(user_id, class_name)
+                if not docs:
+                    log.warning("[STREAM] No summaries found for this class; falling back to specific search.")
+                    mode = "specific"
+                else:
+                    combined = "\n\n---\n\n".join(d["text"] for d in docs)
+                    condensed_text = condense_class_summaries(combined, user_query, get_llm("summary"))
+
+                    # Stream complete summary as single response
+                    yield f"data: {json.dumps({'type': 'token', 'content': condensed_text})}\n\n"
+
+                    citation = get_file_citation(docs)
+                    chunk_refs = [{"chunkId": str(d["_id"]), "displayNumber": i + 1, "pageNumber": None} for i, d in enumerate(docs)]
+
+                    yield f"data: {json.dumps({'type': 'done', 'citations': citation, 'chunkReferences': chunk_refs})}\n\n"
+                    return
+
+            # ── Config for route ──
+            cfg = ROUTE_CONFIG.get(route, ROUTE_CONFIG["general_qa"])
+            chunk_array = []
+            similarity_results = []
+
+            # ── Follow-up mode: Reuse previous chunks (REUSE existing logic) ──
+            if route == "follow_up":
+                last_refs = next(
+                    (m.get("chunkReferences") for m in reversed(chat_history_cleaned) if m["role"] == "assistant"), []
+                )
+                if last_refs:
+                    for ref in last_refs:
+                        chunk_id_val = ref.get("chunkId")
+                        try:
+                            obj_id = ObjectId(chunk_id_val) if isinstance(chunk_id_val, str) else chunk_id_val
+                        except Exception:
+                            obj_id = chunk_id_val
+                        chunk_doc = collection.find_one({"_id": obj_id})
+                        chunk_array.append({
+                            "_id": str(obj_id),
+                            "chunkNumber": ref.get("displayNumber"),
+                            "text": chunk_doc.get("text") if chunk_doc else None,
+                            "pageNumber": ref.get("pageNumber"),
+                            "docId": chunk_doc.get("doc_id") if chunk_doc else None,
+                        })
+                    mode = "follow_up"
+
+            # ── Vector Search (REUSE existing logic) ──
+            if mode != "follow_up":
+                # 1) Token reservation for embedding
+                tokens_needed = est_tokens(user_query_effective)
+                if not try_acquire_tokens(tokens_needed, max_wait_s=10.0):
+                    busy_msg = "System is busy processing other requests. Please retry in a few seconds."
+                    yield f"data: {json.dumps({'type': 'error', 'message': busy_msg})}\n\n"
+                    return
+
+                # 2) Embed query
+                query_vec = embedding_model.embed_query(user_query_effective)
+
+                # 3) Build filters
+                filters = {"user_id": user_id, "is_summary": False}
+                if doc_id and doc_id != "null":
+                    filters["doc_id"] = doc_id
+                elif class_name not in (None, "", "null"):
+                    filters["class_id"] = class_name
+
+                # 4) Run vector search
+                search_cursor = perform_semantic_search(query_vec, filters, limit=cfg["k"], numCandidates=cfg["numCandidates"])
+
+                # 5) Dedupe by (doc_id, page_number)
+                raw_results = list(search_cursor)
+                seen = set()
+                for r in raw_results:
+                    key = (r.get("doc_id"), r.get("page_number"))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    similarity_results.append(r)
+
+                # 6) Build chunk array
+                for i, res in enumerate(similarity_results):
+                    chunk_array.append({
+                        "_id": str(res["_id"]),
+                        "chunkNumber": i + 1,
+                        "text": res.get("text", ""),
+                        "pageNumber": res.get("page_number"),
+                        "docId": res.get("doc_id"),
+                    })
+
+            # ── No results check ──
+            if not chunk_array:
+                refine_message = (
+                    "I couldn't find anything relevant for that question. "
+                    "Make sure you're on the correct class or document and try asking a more specific question."
+                )
+                yield f"data: {json.dumps({'type': 'error', 'message': refine_message})}\n\n"
+                return
+
+            # ── Build prompt (REUSE existing logic) ──
+            prompts = load_prompts()
+            base_prompt = prompts.get("chrome_extension") if source == "chrome_extension" else prompts.get(route)
+
+            PROMPT_SKELETON = (
+                "{route_rules}\n\n"
+                "--- CONTEXT ---\n{context}\n\n"
+                "{citing}\n\n"
+                "Now answer the following user question:\n{input}"
+            )
+
+            referencing_instruction = (
+                "IMPORTANT: Include inline [N] citations for every major claim or piece of information.\n"
+                "If nothing in the context is relevant, reply exactly with NO_HIT_MESSAGE.\n\n"
+            )
+
+            # Escape curly braces in chunk text to prevent LangChain template variable errors
+            def escape_braces_for_template(text: str) -> str:
+                """Double curly braces so LangChain doesn't treat them as variables"""
+                return text.replace("{", "{{").replace("}", "}}")
+
+            context_text = "\n\n".join(
+                f"<chunk id='{i+1}'>\n{escape_braces_for_template(c['text'])}\n</chunk>"
+                for i, c in enumerate(chunk_array)
+            ) or "NULL"
+
+            filled_skeleton = PROMPT_SKELETON.format(
+                route_rules=base_prompt,
+                citing=referencing_instruction,
+                context=context_text,
+                input="{input}",
+            )
+
+            # ── Token reservation for generation ──
+            prompt_tokens = est_tokens(filled_skeleton)
+            history_tokens = sum(est_tokens(m["content"]) for m in chat_history_cleaned)
+            estimated_output = cfg.get("max_output_tokens", 700)
+            total_needed = prompt_tokens + history_tokens + estimated_output
+
+            if not try_acquire_tokens(total_needed, max_wait_s=10.0):
+                busy_msg = "System is busy processing other requests. Please retry in a few seconds."
+                yield f"data: {json.dumps({'type': 'error', 'message': busy_msg})}\n\n"
+                return
+
+            # ── STREAMING LLM INVOCATION (NEW) ──
+            log.info(f"[STREAM] About to invoke LLM | chunks={len(chunk_array)}")
+
+            callback = TokenStreamingCallback()
+            llm = ChatOpenAI(
+                model=config.OPENAI_CHAT_MODEL,
+                temperature=cfg["temperature"],
+                streaming=True,
+                callbacks=[callback]
+            )
+
+            prompt_template = ChatPromptTemplate.from_messages(
+                [("system", filled_skeleton), MessagesPlaceholder("chat_history"), ("user", "{input}")]
+            )
+
+            chain = prompt_template | llm | StrOutputParser()
+
+            # Convert chat_history to LangChain message objects (CRITICAL!)
+            langchain_history = []
+            for msg in chat_history_cleaned:
+                if msg["role"] == "user":
+                    langchain_history.append(HumanMessage(content=msg["content"]))
+                elif msg["role"] == "assistant":
+                    langchain_history.append(AIMessage(content=msg["content"]))
+
+            log.info(f"[STREAM] Starting LLM task | history_len={len(langchain_history)}")
+
+            # Start async LLM task
+            task = asyncio.create_task(
+                chain.ainvoke({
+                    "input": user_query_effective if route == "quote_finding" else user_query,
+                    "chat_history": langchain_history,
+                })
+            )
+
+            log.info(f"[STREAM] LLM task created, entering token loop")
+
+            # Stream tokens as they arrive
+            full_answer = ""
+            token_count = 0
+            keepalive_count = 0
+            while True:
+                try:
+                    event = await asyncio.wait_for(callback.queue.get(), timeout=1.0)
+
+                    if event["type"] == "done":
+                        log.info(f"[STREAM] Received done event | token_count={token_count}")
+                        # Generate citations (REUSE existing logic)
+                        citation = get_file_citation(similarity_results)
+                        chunk_refs = [
+                            {"chunkId": item["_id"], "displayNumber": item["chunkNumber"], "pageNumber": item.get("pageNumber")}
+                            for item in chunk_array
+                        ]
+
+                        # Send completion event with citations
+                        yield f"data: {json.dumps({'type': 'done', 'citations': citation, 'chunkReferences': chunk_refs})}\n\n"
+                        break
+
+                    elif event["type"] == "token":
+                        # Yield token to client
+                        token_count += 1
+                        if token_count == 1:
+                            log.info(f"[STREAM] First token received")
+                        full_answer += event["content"]
+                        yield f"data: {json.dumps(event)}\n\n"
+
+                    elif event["type"] == "error":
+                        # LLM error
+                        log.error(f"[STREAM] LLM error event: {event.get('message')}")
+                        yield f"data: {json.dumps(event)}\n\n"
+                        break
+
+                except asyncio.TimeoutError:
+                    # Keepalive (prevents Heroku timeout)
+                    keepalive_count += 1
+                    if keepalive_count % 10 == 1:
+                        log.info(f"[STREAM] Keepalive {keepalive_count} (still waiting for tokens)")
+                    yield f"data: {json.dumps({'type': 'keepalive'})}\n\n"
+
+            # Wait for task completion
+            await task
+            log.info(f"[STREAM] COMPLETE | answer_len={len(full_answer)}")
+
+        except Exception as e:
+            log.error(f"[STREAM] ERROR: {e}", exc_info=True)
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(token_generator(), media_type="text/event-stream")
 
 
 # ---------------- CLI entry (unchanged) ----------------
