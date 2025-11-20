@@ -477,13 +477,13 @@ const Chat = () => {
     try {
       let chatSessionId = currentChatSessionId;
       if (!chatSessionId) {
-        const data = await createChatSession("New Chat");
+        const data = await createChatSession("New Chat", selectedClass);
         chatSessionId = data.chatSession._id;
         setCurrentChatSessionId(chatSessionId);
         setChatSessions((prev) => [
           {
             ...data.chatSession,
-            assignedClass: null,
+            assignedClass: selectedClass,
             updatedAt: data.chatSession.updatedAt || data.chatSession.createdAt,
           },
           ...prev,
