@@ -30,11 +30,11 @@ const UploadBox: React.FC<UploadBoxProps> = ({ onFilesSelected }) => {
   } = useDropzone({
     onDrop,
     multiple: true, // Allow multiple file uploads
-    // Optionally, specify accepted file types
-    // accept: {
-    //   'application/pdf': ['.pdf'],
-    //   'image/*': ['.png', '.jpg', '.jpeg'],
-    // },
+    // Accept PDF and DOCX files only
+    accept: {
+      'application/pdf': ['.pdf'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+    },
   });
 
   return (
@@ -88,8 +88,13 @@ const UploadBox: React.FC<UploadBoxProps> = ({ onFilesSelected }) => {
       >
         {isDragActive
           ? "Drop the files here..."
-          : "Drag or choose files to upload"}
+          : "Drag or choose PDF or DOCX files to upload"}
       </Typography>
+      {isDragReject && (
+        <Typography variant="caption" sx={{ color: "red", mt: 1 }}>
+          Only PDF and DOCX files are accepted
+        </Typography>
+      )}
     </Box>
   );
 };

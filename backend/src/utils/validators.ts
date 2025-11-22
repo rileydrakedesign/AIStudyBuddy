@@ -178,6 +178,47 @@ export const handleChatCompletionValidation = (
  * If a duplicate is detected, it iterates over all files in the request and deletes them
  * from S3 before returning a 409 error.
  */
+/**
+ * NEW: fileTypeValidator
+ *
+ * This middleware validates that uploaded files are PDF or DOCX only.
+ * Provides defense-in-depth security by validating MIME types at application layer.
+ */
+export const fileTypeValidator = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    // If no files were uploaded, proceed to next middleware
+    if (!req.files || !Array.isArray(req.files) || req.files.length === 0) {
+      return next();
+    }
+
+    const allowedMimeTypes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    ];
+
+    // Check each file's MIME type
+    for (const file of req.files) {
+      if (!allowedMimeTypes.includes(file.mimetype)) {
+        // Log rejection with context
+        (req as any).log?.warn(
+          { fileName: file.originalname, mimetype: file.mimetype },
+          "File type rejected"
+        );
+
+        return res.status(400).json({
+          message: `Unsupported file type: ${file.mimetype}. Only PDF and DOCX files are supported.`,
+          fileName: file.originalname
+        });
+      }
+    }
+
+    next();
+  } catch (error) {
+    (req as any).log?.error(error, "Error in fileTypeValidator");
+    return res.status(500).json({ message: "File validation error" });
+  }
+};
+
 export const duplicateDocumentValidator = async (req: Request, res: Response, next: NextFunction) => {
   try {
     // If no files were uploaded, proceed to next middleware

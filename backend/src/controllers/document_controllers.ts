@@ -91,6 +91,8 @@ export const uploadMiddleware = upload.array("files", 5);
  */
 export const uploadDocument = async (req, res, next) => {
   try {
+    (req as any).log.info("📤 uploadDocument: START");
+
     /* ---------- AUTH ---------- */
     const currentUser = await User.findById(res.locals.jwtData.id);
     if (!currentUser) {
@@ -100,6 +102,12 @@ export const uploadDocument = async (req, res, next) => {
     const userId    = currentUser._id.toString();
     const files     = req.files as Express.Multer.File[];
     const className = req.body.className || "General";
+
+    (req as any).log.info({
+      filesCount: files?.length || 0,
+      className,
+      userId
+    }, "📤 uploadDocument: Auth and files received");
 
     if (!files || files.length === 0) {
       return res.status(400).json({ message: "No file uploaded" });
@@ -138,6 +146,14 @@ export const uploadDocument = async (req, res, next) => {
     for (const file of files) {
       if (!file) continue;
 
+      (req as any).log.info({
+        fileName: file.originalname,
+        s3Key: (file as any).key,
+        s3Url: (file as any).location,
+        mimetype: file.mimetype,
+        size: file.size
+      }, "📤 uploadDocument: Creating document");
+
       const doc = new Document({
         userId,
         fileName:    file.originalname,
@@ -148,8 +164,19 @@ export const uploadDocument = async (req, res, next) => {
         isProcessing: true,
       }) as IDocument;
 
-      await doc.save();
-      uploadedDocs.push(doc);
+      try {
+        await doc.save();
+        (req as any).log.info({ docId: doc._id }, "📤 uploadDocument: Document saved successfully");
+        uploadedDocs.push(doc);
+      } catch (saveError) {
+        (req as any).log.error({
+          saveError,
+          fileName: file.originalname,
+          s3Key: (file as any).key,
+          s3Url: (file as any).location
+        }, "📤 uploadDocument: FAILED to save document to MongoDB");
+        throw saveError;
+      }
     }
 
     /* ---------- immediate response ---------- */
@@ -185,9 +212,13 @@ export const uploadDocument = async (req, res, next) => {
       (req as any).log.warn("PYTHON_API_URL not set; background processing skipped.")
     }
   } catch (error) {
-    (req as any).log.error(error);
-    return res.status(500).json({ message: "Server error" });
-  }  
+    (req as any).log.error({
+      error,
+      errorMessage: error?.message,
+      errorStack: error?.stack
+    }, "📤 uploadDocument: ERROR in uploadDocument controller");
+    return res.status(500).json({ message: "Server error", error: error?.message });
+  }
 };
 
 
@@ -246,6 +277,8 @@ export const getDocumentFile = async (
     let responseType: string | undefined;
     if (document.fileName?.toLowerCase().endsWith(".pdf")) {
       responseType = "application/pdf";
+    } else if (document.fileName?.toLowerCase().endsWith(".docx")) {
+      responseType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     }
 
     // Build a GetObjectCommand with inline disposition override

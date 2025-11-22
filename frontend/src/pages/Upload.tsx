@@ -72,9 +72,30 @@ const UploadDocument: React.FC = () => {
     if (auth?.isLoggedIn) fetchUsage();
   }, [auth]);
 
-  /* add files */
-  const handleFilesSelected = (fileList: FileList) =>
-    setFiles((prev) => [...prev, ...Array.from(fileList)]);
+  /* add files with validation */
+  const handleFilesSelected = (fileList: FileList) => {
+    const invalidFiles: string[] = [];
+    const validFiles: File[] = [];
+
+    Array.from(fileList).forEach((file) => {
+      const ext = file.name.toLowerCase().split('.').pop();
+      if (ext !== 'pdf' && ext !== 'docx') {
+        invalidFiles.push(file.name);
+      } else {
+        validFiles.push(file);
+      }
+    });
+
+    if (invalidFiles.length > 0) {
+      toast.error(
+        `Invalid file type(s): ${invalidFiles.join(', ')}. Only PDF and DOCX files are supported.`
+      );
+    }
+
+    if (validFiles.length > 0) {
+      setFiles((prev) => [...prev, ...validFiles]);
+    }
+  };
 
   /* remove file */
   const handleRemoveFile = (idx: number) =>
@@ -180,6 +201,11 @@ const UploadDocument: React.FC = () => {
           position: "relative",
         }}
       >
+        {/* help text */}
+        <Typography variant="body2" sx={{ color: "#e8e8e8", textAlign: "center", mb: 1 }}>
+          Supported formats: PDF (.pdf) and Microsoft Word (.docx)
+        </Typography>
+
         {/* file drop zone */}
         <UploadBox onFilesSelected={handleFilesSelected} />
 

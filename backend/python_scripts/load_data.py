@@ -27,6 +27,7 @@ from openai import AsyncOpenAI, RateLimitError, APIConnectionError, Timeout as O
 import config
 from logger_setup import log
 from redis_setup import get_redis
+from docx_processor import extract_docx_paragraphs, extract_docx_metadata, get_docx_stats
 
 # ──────────────────────────────────────────────────────────────
 # CONSTANTS & CLIENTS
@@ -303,6 +304,7 @@ def stream_chunks_to_atlas(
                             "doc_id":     doc_id,
                             "is_summary": False,
                             "page_number": idx + 1,
+                            "source_type": "pdf",  # NEW field for format identification
                         },
                     )
                 )
@@ -347,34 +349,252 @@ def stream_chunks_to_atlas(
 
     return " ".join(summary_parts), summary_parts
 
-# ──────────────────────────────────────────────────────────────
-# MAIN INGEST ENTRY
-# ──────────────────────────────────────────────────────────────
-def load_pdf_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
 
+# ──────────────────────────────────────────────────────────────
+# DOCX PROCESSING PIPELINE
+# ──────────────────────────────────────────────────────────────
+def stream_docx_chunks_to_atlas(
+    docx_stream,
+    *,
+    user_id: str,
+    class_id: str,
+    doc_id: str,
+    file_name: str,
+    batch_chars: int = 8_000,
+) -> tuple[str, list[str]]:
+    """
+    Process DOCX paragraphs and push batches through a queue.
+    Consumer thread embeds + inserts each batch immediately.
+    Returns a tuple: (full_doc_text, summary_parts) for downstream summarization.
+    """
+    q: SimpleQueue[list[tuple[str, dict]]] = SimpleQueue()
+
+    # Ingest metrics counters
+    paragraphs_total = 0
+    chunks_produced = 0
+    chunks_inserted = 0
+    duplicates_skipped = 0
+    embed_batches = 0
+    embed_latency_ms_total = 0
+    insert_retries_total = 0
+    total_chars = 0
+    max_chunk_chars = 0
+
+    # ---------------- consumer (identical to PDF) ----------------
+    def consumer():
+        nonlocal embed_batches, embed_latency_ms_total, duplicates_skipped, chunks_inserted, insert_retries_total
+        while True:
+            batch = q.get()
+            if batch is None:  # poison-pill
+                break
+            texts, metas = zip(*batch)
+            log.info("Embedding + inserting %d texts", len(texts))
+
+            # ① async embed
+            tokens_needed = sum(int(len(t) * TOK_PER_CHAR) for t in texts)
+            acquire_tokens(tokens_needed)
+            t0 = time.time()
+            vectors = embed_texts_sync(list(texts))
+            embed_batches += 1
+            embed_latency_ms_total += int((time.time() - t0) * 1000)
+
+            # ② build docs and insert
+            docs = []
+            seen_hashes: set[str] = set()
+            for vec, txt, meta_d in zip(vectors, texts, metas):
+                doc_record = meta_d.copy()
+                doc_record["text"] = txt
+                doc_record["embedding"] = vec
+                # Dedup hash
+                norm = " ".join(txt.split()).lower()
+                h = hashlib.sha1(norm.encode("utf-8")).hexdigest()
+                if h in seen_hashes:
+                    duplicates_skipped += 1
+                    continue
+                seen_hashes.add(h)
+                doc_record["chunk_hash"] = h
+                docs.append(doc_record)
+
+            if docs:
+                attempts = 0
+                while True:
+                    try:
+                        collection.insert_many(docs)
+                        chunks_inserted += len(docs)
+                        break
+                    except Exception as e:
+                        attempts += 1
+                        insert_retries_total += 1
+                        if attempts > 3:
+                            log.error("insert_many failed after retries: %s", e)
+                            break
+                        time.sleep(0.75 * attempts)
+
+    t_cons = threading.Thread(target=consumer, daemon=True)
+    t_cons.start()
+
+    # ---------------- producer (DOCX paragraph parsing) ----------------
+    try:
+        # Extract metadata
+        docx_stream.seek(0)
+        metadata = extract_docx_metadata(docx_stream)
+        title = metadata.get("title", "Unknown")
+        author = metadata.get("author", "Unknown")
+
+        # Extract paragraphs with sequential numbering
+        docx_stream.seek(0)
+        paragraphs_with_numbers = extract_docx_paragraphs(docx_stream)
+
+        # Get stats for logging
+        docx_stream.seek(0)
+        stats = get_docx_stats(docx_stream)
+        log.info(f"DOCX stats: {stats}")
+
+    except Exception as e:
+        log.error(f"Failed to extract DOCX content: {e}")
+        q.put(None)  # Stop consumer
+        t_cons.join()
+        raise
+
+    summary_parts: list[str] = []
+    batch, char_sum = [], 0
+
+    def flush_batch():
+        nonlocal char_sum
+        if batch:
+            q.put(batch.copy())
+            batch.clear()
+            char_sum = 0
+
+    # Process each paragraph
+    for paragraph_text, paragraph_num in paragraphs_with_numbers:
+        paragraphs_total += 1
+
+        # Use RecursiveCharacterTextSplitter for long paragraphs
+        if len(paragraph_text) > 1200:
+            splitter = RecursiveCharacterTextSplitter(
+                chunk_size=1200, chunk_overlap=120
+            )
+            pieces = splitter.split_text(paragraph_text)
+        else:
+            pieces = [paragraph_text]
+
+        for piece in pieces:
+            summary_parts.append(piece)
+            batch.append(
+                (
+                    piece,
+                    {
+                        "file_name": file_name,
+                        "title": title,
+                        "author": author,
+                        "user_id": user_id,
+                        "class_id": class_id,
+                        "doc_id": doc_id,
+                        "is_summary": False,
+                        "page_number": paragraph_num,  # Store paragraph number as page_number
+                        "source_type": "docx",          # NEW field for format identification
+                    },
+                )
+            )
+            chunks_produced += 1
+            total_chars += len(piece)
+            if len(piece) > max_chunk_chars:
+                max_chunk_chars = len(piece)
+
+            char_sum += len(piece)
+            if char_sum >= batch_chars:
+                flush_batch()
+
+    flush_batch()  # final producer flush
+    q.put(None)    # stop consumer
+    t_cons.join()
+
+    # Emit final metrics
+    try:
+        metrics = {
+            "doc_id": doc_id,
+            "format": "docx",
+            "paragraphs_total": paragraphs_total,
+            "chunks_produced": chunks_produced,
+            "chunks_inserted": chunks_inserted,
+            "duplicates_skipped": duplicates_skipped,
+            "embed_batches": embed_batches,
+            "embed_latency_ms_total": embed_latency_ms_total,
+            "insert_retries_total": insert_retries_total,
+            "total_chars": total_chars,
+            "max_chunk_chars": max_chunk_chars,
+        }
+        log.info("[METRICS] docx_ingest %s", json.dumps(metrics))
+    except Exception:
+        pass
+
+    log.info("DOCX streaming ingest complete")
+    return " ".join(summary_parts), summary_parts
+
+
+# ──────────────────────────────────────────────────────────────
+# MAIN INGEST ENTRY (RENAMED & FORMAT-AGNOSTIC)
+# ──────────────────────────────────────────────────────────────
+def load_document_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
+    """
+    Load and process a document (PDF or DOCX) from S3.
+
+    Detects file type from S3 key extension and routes to appropriate processor.
+    """
+    # ---------- file type detection ----------
+    file_ext = s3_key.lower().split('.')[-1]
+    log.info(f"Processing document: {s3_key} (detected format: {file_ext})")
+
+    if file_ext not in ['pdf', 'docx']:
+        log.error(f"Unsupported file type: {file_ext} for {s3_key}")
+        return
+
+    # ---------- download from S3 ----------
     try:
         obj = s3_client.get_object(
             Bucket=config.AWS_S3_BUCKET_NAME, Key=s3_key
         )
     except Exception:
-        log.error("Error downloading %s from S3", s3_key, exc_info=True); return
-    if obj["ContentLength"] == 0:
-        log.warning("S3 file %s is empty", s3_key); return
+        log.error("Error downloading %s from S3", s3_key, exc_info=True)
+        return
 
-    pdf_stream = BytesIO(obj["Body"].read()); pdf_stream.seek(0)
+    if obj["ContentLength"] == 0:
+        log.warning("S3 file %s is empty", s3_key)
+        return
+
+    # ---------- verify document exists in DB ----------
+    file_stream = BytesIO(obj["Body"].read())
+    file_stream.seek(0)
+
     if not main_collection.find_one({"_id": ObjectId(doc_id)}):
-        log.error("No document with _id=%s", doc_id); return
+        log.error("No document with _id=%s", doc_id)
+        return
 
     file_name = os.path.basename(s3_key)
 
-    # ---------- producer → consumer pipeline ----------
-    full_doc_text, parts = stream_chunks_to_atlas(
-        pdf_stream,
-        user_id=user_id,
-        class_id=class_name,
-        doc_id=doc_id,
-        file_name=file_name,
-    )
+    # ---------- route to format-specific processor ----------
+    if file_ext == 'docx':
+        log.info(f"Processing DOCX: {file_name}")
+        full_doc_text, parts = stream_docx_chunks_to_atlas(
+            file_stream,
+            user_id=user_id,
+            class_id=class_name,
+            doc_id=doc_id,
+            file_name=file_name,
+        )
+    elif file_ext == 'pdf':
+        log.info(f"Processing PDF: {file_name}")
+        full_doc_text, parts = stream_chunks_to_atlas(
+            file_stream,
+            user_id=user_id,
+            class_id=class_name,
+            doc_id=doc_id,
+            file_name=file_name,
+        )
+    else:
+        log.error(f"Unexpected file type after validation: {file_ext}")
+        return
 
     # ---------- summary generation ----------
     def safe_sum(txt: str) -> str:
@@ -460,7 +680,7 @@ if __name__ == "__main__":
     ap.add_argument("--s3_key", required=True)
     ap.add_argument("--doc_id", required=True)
     args = ap.parse_args()
-    load_pdf_data(args.user_id, args.class_name, args.s3_key, args.doc_id)
+    load_document_data(args.user_id, args.class_name, args.s3_key, args.doc_id)
 # Ensure unique index on (doc_id, chunk_hash) for cross-run dedup (only when chunk_hash exists)
 try:
     collection.create_index(

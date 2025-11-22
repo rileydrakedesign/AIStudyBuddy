@@ -41,10 +41,10 @@ def enqueue_ingest(
         raise
 
     # Local import avoids importing PyMuPDF & LangChain in the web process
-    from load_data import load_pdf_data
+    from load_data import load_document_data
 
     job = ingest_q.enqueue(
-        load_pdf_data,
+        load_document_data,
         user_id=user_id,
         class_name=class_name,
         s3_key=s3_key,
