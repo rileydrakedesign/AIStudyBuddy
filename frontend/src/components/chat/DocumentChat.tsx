@@ -13,6 +13,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
+import mammoth from "mammoth";
 import "katex/dist/katex.min.css";
 import "react-pdf/dist/esm/Page/AnnotationLayer.css";
 import "react-pdf/dist/esm/Page/TextLayer.css";
@@ -46,6 +47,12 @@ interface DocumentChatProps {
 const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
   const [docSessionId, setDocSessionId] = useState<string | null>(null);
   const [docUrl, setDocUrl] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [fileType, setFileType] = useState<"pdf" | "docx" | null>(null);
+
+  // DOCX specific state
+  const [docxHtml, setDocxHtml] = useState<string | null>(null);
+  const [docxLoading, setDocxLoading] = useState(false);
 
   // All messages for this document chat
   const [messages, setMessages] = useState<Message[]>([]);
@@ -122,12 +129,25 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
      1) Fetch Document URL from S3
      ------------------------------ */
 useEffect(() => {
-  // Reset URL so we don't briefly show the previous PDF
+  // Reset URL so we don't briefly show the previous document
   setDocUrl(null);
+  setFileName(null);
+  setFileType(null);
+  setDocxHtml(null);
+
   getDocumentFile(docId)
     .then((res) => {
-      if (res.url) {
+      if (res.url && res.fileName) {
         setDocUrl(res.url);
+        setFileName(res.fileName);
+
+        // Detect file type from fileName extension
+        const extension = res.fileName.toLowerCase().split('.').pop();
+        if (extension === 'pdf') {
+          setFileType('pdf');
+        } else if (extension === 'docx') {
+          setFileType('docx');
+        }
       }
     })
     .catch((err) => {
@@ -153,7 +173,38 @@ useEffect(() => {
 }, [docId]);
 
   /* ------------------------------
-     2) Chat Scrolling
+     2) Fetch and convert DOCX to HTML
+     ------------------------------ */
+  useEffect(() => {
+    if (fileType === 'docx' && docUrl && !docxHtml) {
+      setDocxLoading(true);
+
+      // Fetch the DOCX file from the S3 URL
+      fetch(docUrl)
+        .then(response => response.arrayBuffer())
+        .then(arrayBuffer => {
+          // Convert DOCX to HTML using mammoth
+          return mammoth.convertToHtml({ arrayBuffer });
+        })
+        .then(result => {
+          setDocxHtml(result.value);
+          setDocxLoading(false);
+
+          // Log any warnings from mammoth
+          if (result.messages.length > 0) {
+            console.warn("Mammoth conversion warnings:", result.messages);
+          }
+        })
+        .catch(err => {
+          console.error("Error converting DOCX to HTML:", err);
+          toast.error("Failed to load DOCX document");
+          setDocxLoading(false);
+        });
+    }
+  }, [fileType, docUrl, docxHtml]);
+
+  /* ------------------------------
+     3) Chat Scrolling
      ------------------------------ */
   useEffect(() => {
     const container = chatContainerRef.current;
@@ -437,7 +488,11 @@ const handleRetry = async (assistantIdx: number) => {
           }}
         >
           <Typography variant="body2" sx={{ color: "text.primary", fontWeight: 600 }}>
-            {numPages ? `Page ${visibleStartPage} / ${numPages}` : "Loading..."}
+            {fileType === 'pdf' && numPages
+              ? `Page ${visibleStartPage} / ${numPages}`
+              : fileType === 'docx'
+              ? fileName || "Document"
+              : "Loading..."}
           </Typography>
 
           <ToggleButtonGroup
@@ -464,42 +519,45 @@ const handleRetry = async (assistantIdx: number) => {
             }}
           >
             <ToggleButton value="pdf">
-              📄 PDF
+              {fileType === 'docx' ? '📄 Document' : '📄 PDF'}
             </ToggleButton>
             <ToggleButton value="summary">
               📝 Summary
             </ToggleButton>
           </ToggleButtonGroup>
 
-          <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-            <IconButton
-              size="small"
-              onClick={() => setScale((s) => Math.max(0.5, s - 0.1))}
-              sx={{
-                color: "text.primary",
-                bgcolor: "background.default",
-                "&:hover": { bgcolor: "neutral.700" },
-              }}
-            >
-              <RemoveIcon fontSize="small" />
-            </IconButton>
+          {/* Zoom controls - only for PDF files */}
+          {fileType === 'pdf' && (
+            <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+              <IconButton
+                size="small"
+                onClick={() => setScale((s) => Math.max(0.5, s - 0.1))}
+                sx={{
+                  color: "text.primary",
+                  bgcolor: "background.default",
+                  "&:hover": { bgcolor: "neutral.700" },
+                }}
+              >
+                <RemoveIcon fontSize="small" />
+              </IconButton>
 
-            <Typography variant="body2" sx={{ color: "text.primary", minWidth: "50px", textAlign: "center" }}>
-              {Math.round(scale * 100)}%
-            </Typography>
+              <Typography variant="body2" sx={{ color: "text.primary", minWidth: "50px", textAlign: "center" }}>
+                {Math.round(scale * 100)}%
+              </Typography>
 
-            <IconButton
-              size="small"
-              onClick={() => setScale((s) => Math.min(2.0, s + 0.1))}
-              sx={{
-                color: "text.primary",
-                bgcolor: "background.default",
-                "&:hover": { bgcolor: "neutral.700" },
-              }}
-            >
-              <AddIcon fontSize="small" />
-            </IconButton>
-          </Box>
+              <IconButton
+                size="small"
+                onClick={() => setScale((s) => Math.min(2.0, s + 0.1))}
+                sx={{
+                  color: "text.primary",
+                  bgcolor: "background.default",
+                  "&:hover": { bgcolor: "neutral.700" },
+                }}
+              >
+                <AddIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          )}
         </Box>
 
         {/* PDF Content */}
@@ -515,8 +573,8 @@ const handleRetry = async (assistantIdx: number) => {
           ref={pdfContainerRef}
         >
           {viewMode === "pdf" ? (
-            // PDF View
-            docUrl ? (
+            // Document View (PDF or DOCX)
+            fileType === 'pdf' && docUrl ? (
               <div style={{ width: "100%", height: "100%", padding: "1rem" }}>
                 <Document file={docUrl} onLoadSuccess={onDocumentLoadSuccess}>
                   {numPages &&
@@ -546,6 +604,67 @@ const handleRetry = async (assistantIdx: number) => {
                   )}
                 </Document>
               </div>
+            ) : fileType === 'docx' ? (
+              <Box
+                sx={{
+                  width: "100%",
+                  maxWidth: "900px",
+                  p: 3,
+                  mx: "auto",
+                }}
+              >
+                {docxLoading && (
+                  <Typography variant="body1" sx={{ color: "text.secondary", textAlign: "center" }}>
+                    Loading DOCX document...
+                  </Typography>
+                )}
+                {docxHtml && !docxLoading && (
+                  <Box
+                    sx={{
+                      "& p": {
+                        color: "text.secondary",
+                        lineHeight: 1.8,
+                        mb: 1.5,
+                      },
+                      "& h1, & h2, & h3, & h4, & h5, & h6": {
+                        color: "text.primary",
+                        mt: 2,
+                        mb: 1.5,
+                        fontWeight: 600,
+                      },
+                      "& ul, & ol": {
+                        color: "text.secondary",
+                        pl: 3,
+                        mb: 2,
+                      },
+                      "& li": {
+                        mb: 0.5,
+                      },
+                      "& table": {
+                        borderCollapse: "collapse",
+                        width: "100%",
+                        mb: 2,
+                      },
+                      "& td, & th": {
+                        border: "1px solid",
+                        borderColor: "divider",
+                        p: 1,
+                        color: "text.secondary",
+                      },
+                      "& th": {
+                        bgcolor: "rgba(0, 77, 86, 0.07)",
+                        color: "text.primary",
+                        fontWeight: 600,
+                      },
+                      "& img": {
+                        maxWidth: "100%",
+                        height: "auto",
+                      },
+                    }}
+                    dangerouslySetInnerHTML={{ __html: docxHtml }}
+                  />
+                )}
+              </Box>
             ) : (
               <Typography variant="body1" sx={{ m: 2, color: "text.primary" }}>
                 Loading document...

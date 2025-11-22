@@ -291,7 +291,7 @@ export const getDocumentFile = async (
 
     // Generate a short-lived pre-signed URL
     const url = await getSignedUrl(s3Client, command, { expiresIn: 120 });
-    return res.status(200).json({ url });
+    return res.status(200).json({ url, fileName: document.fileName });
   } catch (error) {
     (req as any).log.error(error);
     return res.status(500).json({ message: "Server error" });
