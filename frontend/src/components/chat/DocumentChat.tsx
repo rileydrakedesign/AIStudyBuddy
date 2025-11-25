@@ -180,47 +180,57 @@ useEffect(() => {
      2) Render DOCX with docx-preview
      ------------------------------ */
   useEffect(() => {
-    const container = docxContainerRef.current;
+    const renderDocx = async () => {
+      const container = docxContainerRef.current;
 
-    if (fileType === 'docx' && docUrl && container) {
+      if (!fileType || fileType !== 'docx' || !docUrl || !container) {
+        return;
+      }
+
+      // Validate that container is a proper HTMLElement
+      if (!(container instanceof HTMLElement)) {
+        console.error("Container is not an HTMLElement:", container);
+        toast.error("Document container is invalid");
+        return;
+      }
+
       setDocxLoading(true);
 
-      // Fetch the DOCX file from the S3 URL
-      fetch(docUrl)
-        .then(response => response.blob())
-        .then(blob => {
-          // Ensure container is still valid before rendering
-          if (!docxContainerRef.current) {
-            throw new Error("Container element no longer available");
-          }
+      try {
+        // Fetch the DOCX file from the S3 URL
+        const response = await fetch(docUrl);
+        const blob = await response.blob();
 
-          // Render DOCX with preserved formatting using docx-preview
-          return renderAsync(blob, docxContainerRef.current, {
-            className: "docx-preview-container",
-            inWrapper: true,
-            ignoreWidth: false,
-            ignoreHeight: false,
-            ignoreFonts: false,
-            breakPages: true,
-            ignoreLastRenderedPageBreak: false,
-            experimental: false,
-            trimXmlDeclaration: true,
-            useBase64URL: true,
-            renderHeaders: true,
-            renderFooters: true,
-            renderFootnotes: true,
-            renderEndnotes: true,
-          });
-        })
-        .then(() => {
-          setDocxLoading(false);
-        })
-        .catch(err => {
-          console.error("Error rendering DOCX:", err);
-          toast.error("Failed to load DOCX document");
-          setDocxLoading(false);
+        // Clear any previous content
+        container.innerHTML = '';
+
+        // Render DOCX with preserved formatting using docx-preview
+        await renderAsync(blob, container, {
+          className: "docx-preview-container",
+          inWrapper: true,
+          ignoreWidth: false,
+          ignoreHeight: false,
+          ignoreFonts: false,
+          breakPages: true,
+          ignoreLastRenderedPageBreak: false,
+          experimental: false,
+          trimXmlDeclaration: true,
+          useBase64URL: true,
+          renderHeaders: true,
+          renderFooters: true,
+          renderFootnotes: true,
+          renderEndnotes: true,
         });
-    }
+
+        setDocxLoading(false);
+      } catch (err) {
+        console.error("Error rendering DOCX:", err);
+        toast.error("Failed to load DOCX document");
+        setDocxLoading(false);
+      }
+    };
+
+    renderDocx();
   }, [fileType, docUrl]);
 
   /* ------------------------------
