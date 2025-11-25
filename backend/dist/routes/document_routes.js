@@ -5,7 +5,7 @@ import multer from "multer";
 import dotenv from "dotenv";
 // Utility imports
 import { verifyToken } from "../utils/token_manager.js";
-import { documentUploadValidator, duplicateDocumentValidator, validate } from "../utils/validators.js";
+import { documentUploadValidator, duplicateDocumentValidator, fileTypeValidator, validate } from "../utils/validators.js";
 // Controller imports
 import { uploadDocument, getUserDocuments, getDocumentFile, deleteDocument, getDocumentsByClass, getDocumentSummary, } from "../controllers/document_controllers.js";
 dotenv.config();
@@ -48,6 +48,19 @@ const upload = multer({
             cb(null, s3Key);
         },
     }),
+    // NEW: File type filtering at Multer level
+    fileFilter: function (req, file, cb) {
+        const allowedMimeTypes = [
+            'application/pdf',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        ];
+        if (allowedMimeTypes.includes(file.mimetype)) {
+            cb(null, true);
+        }
+        else {
+            cb(new Error(`Only PDF and DOCX files are allowed. Received: ${file.mimetype}`));
+        }
+    },
     // NEW: Limit file size to prevent overly large uploads
     limits: {
         fileSize: 200 * 1024 * 1024, // 200MB
@@ -59,7 +72,8 @@ const documentRoutes = Router();
  * POST /documents/upload
  * Upload a new document (up to 10 files at once)
  ***************************************************************************/
-documentRoutes.post("/upload", validate(documentUploadValidator), verifyToken, upload.array("files", 10), duplicateDocumentValidator, // check for duplicate files after upload
+documentRoutes.post("/upload", validate(documentUploadValidator), verifyToken, upload.array("files", 10), fileTypeValidator, // NEW: Validate file types (defense in depth)
+duplicateDocumentValidator, // Check for duplicate files after upload
 uploadDocument);
 /***************************************************************************
  * GET /documents/all-documents

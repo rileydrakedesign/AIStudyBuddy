@@ -52,7 +52,7 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
 
   // DOCX specific state
   const [docxLoading, setDocxLoading] = useState(false);
-  const docxContainerRef = useRef<HTMLDivElement | null>(null);
+  const [docxContainer, setDocxContainer] = useState<HTMLDivElement | null>(null);
 
   // All messages for this document chat
   const [messages, setMessages] = useState<Message[]>([]);
@@ -174,38 +174,54 @@ useEffect(() => {
   // Reset scroll positions
   if (chatContainerRef.current) chatContainerRef.current.scrollTop = 0;
   if (pdfContainerRef.current) pdfContainerRef.current.scrollTop = 0;
-}, [docId]);
+  // Clear DOCX container
+  if (docxContainer) {
+    docxContainer.innerHTML = '';
+  }
+}, [docId, docxContainer]);
 
   /* ------------------------------
      2) Render DOCX with docx-preview
      ------------------------------ */
   useEffect(() => {
+    // Only proceed if we have all required values
+    if (!fileType || fileType !== 'docx' || !docUrl || !docxContainer) {
+      return;
+    }
+
+    // Validate that container is a proper HTMLElement
+    if (!(docxContainer instanceof HTMLElement)) {
+      console.error("Container is not an HTMLElement:", docxContainer);
+      toast.error("Document container is invalid");
+      return;
+    }
+
+    // Use a flag to track if this effect is still active
+    let isActive = true;
+
     const renderDocx = async () => {
-      const container = docxContainerRef.current;
-
-      if (!fileType || fileType !== 'docx' || !docUrl || !container) {
-        return;
-      }
-
-      // Validate that container is a proper HTMLElement
-      if (!(container instanceof HTMLElement)) {
-        console.error("Container is not an HTMLElement:", container);
-        toast.error("Document container is invalid");
-        return;
-      }
+      // Double-check container is still valid
+      if (!isActive || !docxContainer) return;
 
       setDocxLoading(true);
 
       try {
         // Fetch the DOCX file from the S3 URL
         const response = await fetch(docUrl);
+        if (!isActive) return; // Exit if effect was cleaned up
+
         const blob = await response.blob();
+        if (!isActive) return; // Exit if effect was cleaned up
 
         // Clear any previous content
-        container.innerHTML = '';
+        docxContainer.innerHTML = '';
+
+        // Wait for next frame to ensure DOM is ready
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        if (!isActive) return; // Exit if effect was cleaned up
 
         // Render DOCX with preserved formatting using docx-preview
-        await renderAsync(blob, container, {
+        await renderAsync(blob, docxContainer, {
           className: "docx-preview-container",
           inWrapper: true,
           ignoreWidth: false,
@@ -222,16 +238,25 @@ useEffect(() => {
           renderEndnotes: true,
         });
 
-        setDocxLoading(false);
+        if (isActive) {
+          setDocxLoading(false);
+        }
       } catch (err) {
         console.error("Error rendering DOCX:", err);
         toast.error("Failed to load DOCX document");
-        setDocxLoading(false);
+        if (isActive) {
+          setDocxLoading(false);
+        }
       }
     };
 
     renderDocx();
-  }, [fileType, docUrl]);
+
+    // Cleanup function
+    return () => {
+      isActive = false;
+    };
+  }, [fileType, docUrl, docxContainer]);
 
   /* ------------------------------
      3) Chat Scrolling
@@ -650,10 +675,11 @@ const handleRetry = async (assistantIdx: number) => {
                   </Typography>
                 )}
                 <div
-                  ref={docxContainerRef}
+                  ref={setDocxContainer}
                   style={{
                     width: "100%",
                     maxWidth: "900px",
+                    minHeight: "100px",
                   }}
                 />
               </Box>

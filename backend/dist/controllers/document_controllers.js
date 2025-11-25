@@ -66,6 +66,7 @@ export const uploadMiddleware = upload.array("files", 5);
  */
 export const uploadDocument = async (req, res, next) => {
     try {
+        req.log.info("📤 uploadDocument: START");
         /* ---------- AUTH ---------- */
         const currentUser = await User.findById(res.locals.jwtData.id);
         if (!currentUser) {
@@ -74,6 +75,11 @@ export const uploadDocument = async (req, res, next) => {
         const userId = currentUser._id.toString();
         const files = req.files;
         const className = req.body.className || "General";
+        req.log.info({
+            filesCount: files?.length || 0,
+            className,
+            userId
+        }, "📤 uploadDocument: Auth and files received");
         if (!files || files.length === 0) {
             return res.status(400).json({ message: "No file uploaded" });
         }
@@ -105,6 +111,13 @@ export const uploadDocument = async (req, res, next) => {
         for (const file of files) {
             if (!file)
                 continue;
+            req.log.info({
+                fileName: file.originalname,
+                s3Key: file.key,
+                s3Url: file.location,
+                mimetype: file.mimetype,
+                size: file.size
+            }, "📤 uploadDocument: Creating document");
             const doc = new Document({
                 userId,
                 fileName: file.originalname,
@@ -114,8 +127,20 @@ export const uploadDocument = async (req, res, next) => {
                 className,
                 isProcessing: true,
             });
-            await doc.save();
-            uploadedDocs.push(doc);
+            try {
+                await doc.save();
+                req.log.info({ docId: doc._id }, "📤 uploadDocument: Document saved successfully");
+                uploadedDocs.push(doc);
+            }
+            catch (saveError) {
+                req.log.error({
+                    saveError,
+                    fileName: file.originalname,
+                    s3Key: file.key,
+                    s3Url: file.location
+                }, "📤 uploadDocument: FAILED to save document to MongoDB");
+                throw saveError;
+            }
         }
         /* ---------- immediate response ---------- */
         res.status(200).json({
@@ -146,8 +171,12 @@ export const uploadDocument = async (req, res, next) => {
         }
     }
     catch (error) {
-        req.log.error(error);
-        return res.status(500).json({ message: "Server error" });
+        req.log.error({
+            error,
+            errorMessage: error?.message,
+            errorStack: error?.stack
+        }, "📤 uploadDocument: ERROR in uploadDocument controller");
+        return res.status(500).json({ message: "Server error", error: error?.message });
     }
 };
 /**
@@ -193,6 +222,9 @@ export const getDocumentFile = async (req, res, next) => {
         if (document.fileName?.toLowerCase().endsWith(".pdf")) {
             responseType = "application/pdf";
         }
+        else if (document.fileName?.toLowerCase().endsWith(".docx")) {
+            responseType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        }
         // Build a GetObjectCommand with inline disposition override
         const command = new GetObjectCommand({
             Bucket: bucketName,
@@ -202,7 +234,7 @@ export const getDocumentFile = async (req, res, next) => {
         });
         // Generate a short-lived pre-signed URL
         const url = await getSignedUrl(s3Client, command, { expiresIn: 120 });
-        return res.status(200).json({ url });
+        return res.status(200).json({ url, fileName: document.fileName });
     }
     catch (error) {
         req.log.error(error);
