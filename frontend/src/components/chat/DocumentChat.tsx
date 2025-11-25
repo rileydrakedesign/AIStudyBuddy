@@ -134,11 +134,6 @@ useEffect(() => {
   setFileName(null);
   setFileType(null);
 
-  // Clear previous DOCX rendering
-  if (docxContainerRef.current) {
-    docxContainerRef.current.innerHTML = '';
-  }
-
   getDocumentFile(docId)
     .then((res) => {
       if (res.url && res.fileName) {
