@@ -180,15 +180,22 @@ useEffect(() => {
      2) Render DOCX with docx-preview
      ------------------------------ */
   useEffect(() => {
-    if (fileType === 'docx' && docUrl && docxContainerRef.current) {
+    const container = docxContainerRef.current;
+
+    if (fileType === 'docx' && docUrl && container) {
       setDocxLoading(true);
 
       // Fetch the DOCX file from the S3 URL
       fetch(docUrl)
         .then(response => response.blob())
         .then(blob => {
+          // Ensure container is still valid before rendering
+          if (!docxContainerRef.current) {
+            throw new Error("Container element no longer available");
+          }
+
           // Render DOCX with preserved formatting using docx-preview
-          return renderAsync(blob, docxContainerRef.current!, {
+          return renderAsync(blob, docxContainerRef.current, {
             className: "docx-preview-container",
             inWrapper: true,
             ignoreWidth: false,
