@@ -1,5 +1,5 @@
 // src/components/documentChat.tsx
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Box, IconButton, Typography, Button, ToggleButtonGroup, ToggleButton } from "@mui/material";
 import { IoMdSend } from "react-icons/io";
 import AddIcon from "@mui/icons-material/Add";
@@ -52,7 +52,7 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
 
   // DOCX specific state
   const [docxLoading, setDocxLoading] = useState(false);
-  const [docxContainer, setDocxContainer] = useState<HTMLDivElement | null>(null);
+  const docxContainerRef = useRef<HTMLDivElement | null>(null);
 
   // All messages for this document chat
   const [messages, setMessages] = useState<Message[]>([]);
@@ -170,53 +170,51 @@ useEffect(() => {
   if (chatContainerRef.current) chatContainerRef.current.scrollTop = 0;
   if (pdfContainerRef.current) pdfContainerRef.current.scrollTop = 0;
   // Clear DOCX container
-  if (docxContainer) {
-    docxContainer.innerHTML = '';
+  if (docxContainerRef.current) {
+    docxContainerRef.current.innerHTML = '';
   }
-}, [docId, docxContainer]);
+}, [docId]);
 
   /* ------------------------------
      2) Render DOCX with docx-preview
      ------------------------------ */
   useEffect(() => {
-    // Only proceed if we have all required values
-    if (!fileType || fileType !== 'docx' || !docUrl || !docxContainer) {
+    // Only proceed if we have a DOCX file
+    if (!fileType || fileType !== 'docx' || !docUrl) {
       return;
     }
 
-    // Validate that container is a proper HTMLElement
-    if (!(docxContainer instanceof HTMLElement)) {
-      console.error("Container is not an HTMLElement:", docxContainer);
-      toast.error("Document container is invalid");
-      return;
-    }
+    const container = docxContainerRef.current;
+    if (!container) return;
 
-    // Use a flag to track if this effect is still active
     let isActive = true;
 
     const renderDocx = async () => {
-      // Double-check container is still valid
-      if (!isActive || !docxContainer) return;
-
       setDocxLoading(true);
 
       try {
         // Fetch the DOCX file from the S3 URL
         const response = await fetch(docUrl);
-        if (!isActive) return; // Exit if effect was cleaned up
+        if (!isActive) return;
 
         const blob = await response.blob();
-        if (!isActive) return; // Exit if effect was cleaned up
+        if (!isActive) return;
 
-        // Clear any previous content
-        docxContainer.innerHTML = '';
+        // Clear the container
+        container.innerHTML = '';
 
-        // Wait for next frame to ensure DOM is ready
-        await new Promise(resolve => requestAnimationFrame(resolve));
-        if (!isActive) return; // Exit if effect was cleaned up
+        // Create a fresh div element to pass to docx-preview
+        const renderTarget = document.createElement('div');
+        renderTarget.style.width = '100%';
+        renderTarget.style.maxWidth = '900px';
 
-        // Render DOCX with preserved formatting using docx-preview
-        await renderAsync(blob, docxContainer, {
+        // Append it to our container
+        container.appendChild(renderTarget);
+
+        if (!isActive) return;
+
+        // Render DOCX into the fresh div element
+        await renderAsync(blob, renderTarget, {
           className: "docx-preview-container",
           inWrapper: true,
           ignoreWidth: false,
@@ -250,8 +248,11 @@ useEffect(() => {
     // Cleanup function
     return () => {
       isActive = false;
+      if (container) {
+        container.innerHTML = '';
+      }
     };
-  }, [fileType, docUrl, docxContainer]);
+  }, [fileType, docUrl]);
 
   /* ------------------------------
      3) Chat Scrolling
@@ -670,11 +671,11 @@ const handleRetry = async (assistantIdx: number) => {
                   </Typography>
                 )}
                 <div
-                  ref={setDocxContainer}
+                  ref={docxContainerRef}
                   style={{
                     width: "100%",
-                    maxWidth: "900px",
-                    minHeight: "100px",
+                    display: "flex",
+                    justifyContent: "center",
                   }}
                 />
               </Box>
