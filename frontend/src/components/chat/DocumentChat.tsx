@@ -1,5 +1,5 @@
 // src/components/documentChat.tsx
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Box, IconButton, Typography, Button, ToggleButtonGroup, ToggleButton } from "@mui/material";
 import { IoMdSend } from "react-icons/io";
 import AddIcon from "@mui/icons-material/Add";
@@ -13,7 +13,6 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
-import { renderAsync } from "docx-preview";
 import "katex/dist/katex.min.css";
 import "react-pdf/dist/esm/Page/AnnotationLayer.css";
 import "react-pdf/dist/esm/Page/TextLayer.css";
@@ -50,9 +49,6 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
   const [fileName, setFileName] = useState<string | null>(null);
   const [fileType, setFileType] = useState<"pdf" | "docx" | null>(null);
 
-  // DOCX specific state
-  const [docxLoading, setDocxLoading] = useState(false);
-  const docxContainerRef = useRef<HTMLDivElement | null>(null);
 
   // All messages for this document chat
   const [messages, setMessages] = useState<Message[]>([]);
@@ -169,90 +165,14 @@ useEffect(() => {
   // Reset scroll positions
   if (chatContainerRef.current) chatContainerRef.current.scrollTop = 0;
   if (pdfContainerRef.current) pdfContainerRef.current.scrollTop = 0;
-  // Clear DOCX container
-  if (docxContainerRef.current) {
-    docxContainerRef.current.innerHTML = '';
-  }
 }, [docId]);
 
   /* ------------------------------
-     2) Render DOCX with docx-preview
+     2) Office Viewer URL for DOCX
      ------------------------------ */
-  useEffect(() => {
-    // Only proceed if we have a DOCX file
-    if (!fileType || fileType !== 'docx' || !docUrl) {
-      return;
-    }
-
-    const container = docxContainerRef.current;
-    if (!container) return;
-
-    let isActive = true;
-
-    const renderDocx = async () => {
-      setDocxLoading(true);
-
-      try {
-        // Fetch the DOCX file from the S3 URL
-        const response = await fetch(docUrl);
-        if (!isActive) return;
-
-        const blob = await response.blob();
-        if (!isActive) return;
-
-        // Clear the container
-        container.innerHTML = '';
-
-        // Create a fresh div element to pass to docx-preview
-        const renderTarget = document.createElement('div');
-        renderTarget.style.width = '100%';
-        renderTarget.style.maxWidth = '900px';
-
-        // Append it to our container
-        container.appendChild(renderTarget);
-
-        if (!isActive) return;
-
-        // Render DOCX into the fresh div element
-        await renderAsync(blob, renderTarget, {
-          className: "docx-preview-container",
-          inWrapper: true,
-          ignoreWidth: false,
-          ignoreHeight: false,
-          ignoreFonts: false,
-          breakPages: true,
-          ignoreLastRenderedPageBreak: false,
-          experimental: false,
-          trimXmlDeclaration: true,
-          useBase64URL: true,
-          renderHeaders: true,
-          renderFooters: true,
-          renderFootnotes: true,
-          renderEndnotes: true,
-        });
-
-        if (isActive) {
-          setDocxLoading(false);
-        }
-      } catch (err) {
-        console.error("Error rendering DOCX:", err);
-        toast.error("Failed to load DOCX document");
-        if (isActive) {
-          setDocxLoading(false);
-        }
-      }
-    };
-
-    renderDocx();
-
-    // Cleanup function
-    return () => {
-      isActive = false;
-      if (container) {
-        container.innerHTML = '';
-      }
-    };
-  }, [fileType, docUrl]);
+  const officeViewerUrl = fileType === 'docx' && docUrl
+    ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(docUrl)}`
+    : null;
 
   /* ------------------------------
      3) Chat Scrolling
@@ -655,28 +575,23 @@ const handleRetry = async (assistantIdx: number) => {
                   )}
                 </Document>
               </div>
-            ) : fileType === 'docx' ? (
+            ) : fileType === 'docx' && officeViewerUrl ? (
               <Box
                 sx={{
                   width: "100%",
-                  maxWidth: "100%",
-                  p: 2,
+                  height: "100%",
                   display: "flex",
-                  justifyContent: "center",
+                  flexDirection: "column",
                 }}
               >
-                {docxLoading && (
-                  <Typography variant="body1" sx={{ color: "text.secondary", textAlign: "center" }}>
-                    Loading DOCX document...
-                  </Typography>
-                )}
-                <div
-                  ref={docxContainerRef}
+                <iframe
+                  src={officeViewerUrl}
                   style={{
                     width: "100%",
-                    display: "flex",
-                    justifyContent: "center",
+                    height: "100%",
+                    border: "none",
                   }}
+                  title="Document Viewer"
                 />
               </Box>
             ) : (
