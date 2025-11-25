@@ -13,7 +13,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
-import mammoth from "mammoth";
+import { renderAsync } from "docx-preview";
 import "katex/dist/katex.min.css";
 import "react-pdf/dist/esm/Page/AnnotationLayer.css";
 import "react-pdf/dist/esm/Page/TextLayer.css";
@@ -51,8 +51,8 @@ const DocumentChat: React.FC<DocumentChatProps> = ({ docId, onClose }) => {
   const [fileType, setFileType] = useState<"pdf" | "docx" | null>(null);
 
   // DOCX specific state
-  const [docxHtml, setDocxHtml] = useState<string | null>(null);
   const [docxLoading, setDocxLoading] = useState(false);
+  const docxContainerRef = useRef<HTMLDivElement | null>(null);
 
   // All messages for this document chat
   const [messages, setMessages] = useState<Message[]>([]);
@@ -133,7 +133,11 @@ useEffect(() => {
   setDocUrl(null);
   setFileName(null);
   setFileType(null);
-  setDocxHtml(null);
+
+  // Clear previous DOCX rendering
+  if (docxContainerRef.current) {
+    docxContainerRef.current.innerHTML = '';
+  }
 
   getDocumentFile(docId)
     .then((res) => {
@@ -173,35 +177,44 @@ useEffect(() => {
 }, [docId]);
 
   /* ------------------------------
-     2) Fetch and convert DOCX to HTML
+     2) Render DOCX with docx-preview
      ------------------------------ */
   useEffect(() => {
-    if (fileType === 'docx' && docUrl && !docxHtml) {
+    if (fileType === 'docx' && docUrl && docxContainerRef.current) {
       setDocxLoading(true);
 
       // Fetch the DOCX file from the S3 URL
       fetch(docUrl)
-        .then(response => response.arrayBuffer())
-        .then(arrayBuffer => {
-          // Convert DOCX to HTML using mammoth
-          return mammoth.convertToHtml({ arrayBuffer });
+        .then(response => response.blob())
+        .then(blob => {
+          // Render DOCX with preserved formatting using docx-preview
+          return renderAsync(blob, docxContainerRef.current!, {
+            className: "docx-preview-container",
+            inWrapper: true,
+            ignoreWidth: false,
+            ignoreHeight: false,
+            ignoreFonts: false,
+            breakPages: true,
+            ignoreLastRenderedPageBreak: false,
+            experimental: false,
+            trimXmlDeclaration: true,
+            useBase64URL: true,
+            renderHeaders: true,
+            renderFooters: true,
+            renderFootnotes: true,
+            renderEndnotes: true,
+          });
         })
-        .then(result => {
-          setDocxHtml(result.value);
+        .then(() => {
           setDocxLoading(false);
-
-          // Log any warnings from mammoth
-          if (result.messages.length > 0) {
-            console.warn("Mammoth conversion warnings:", result.messages);
-          }
         })
         .catch(err => {
-          console.error("Error converting DOCX to HTML:", err);
+          console.error("Error rendering DOCX:", err);
           toast.error("Failed to load DOCX document");
           setDocxLoading(false);
         });
     }
-  }, [fileType, docUrl, docxHtml]);
+  }, [fileType, docUrl]);
 
   /* ------------------------------
      3) Chat Scrolling
@@ -608,9 +621,10 @@ const handleRetry = async (assistantIdx: number) => {
               <Box
                 sx={{
                   width: "100%",
-                  maxWidth: "900px",
-                  p: 3,
-                  mx: "auto",
+                  maxWidth: "100%",
+                  p: 2,
+                  display: "flex",
+                  justifyContent: "center",
                 }}
               >
                 {docxLoading && (
@@ -618,52 +632,13 @@ const handleRetry = async (assistantIdx: number) => {
                     Loading DOCX document...
                   </Typography>
                 )}
-                {docxHtml && !docxLoading && (
-                  <Box
-                    sx={{
-                      "& p": {
-                        color: "text.secondary",
-                        lineHeight: 1.8,
-                        mb: 1.5,
-                      },
-                      "& h1, & h2, & h3, & h4, & h5, & h6": {
-                        color: "text.primary",
-                        mt: 2,
-                        mb: 1.5,
-                        fontWeight: 600,
-                      },
-                      "& ul, & ol": {
-                        color: "text.secondary",
-                        pl: 3,
-                        mb: 2,
-                      },
-                      "& li": {
-                        mb: 0.5,
-                      },
-                      "& table": {
-                        borderCollapse: "collapse",
-                        width: "100%",
-                        mb: 2,
-                      },
-                      "& td, & th": {
-                        border: "1px solid",
-                        borderColor: "divider",
-                        p: 1,
-                        color: "text.secondary",
-                      },
-                      "& th": {
-                        bgcolor: "rgba(0, 77, 86, 0.07)",
-                        color: "text.primary",
-                        fontWeight: 600,
-                      },
-                      "& img": {
-                        maxWidth: "100%",
-                        height: "auto",
-                      },
-                    }}
-                    dangerouslySetInnerHTML={{ __html: docxHtml }}
-                  />
-                )}
+                <div
+                  ref={docxContainerRef}
+                  style={{
+                    width: "100%",
+                    maxWidth: "900px",
+                  }}
+                />
               </Box>
             ) : (
               <Typography variant="body1" sx={{ m: 2, color: "text.primary" }}>
