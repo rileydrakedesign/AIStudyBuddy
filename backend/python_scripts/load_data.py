@@ -27,7 +27,7 @@ from openai import AsyncOpenAI, RateLimitError, APIConnectionError, Timeout as O
 import config
 from logger_setup import log
 from redis_setup import get_redis
-from docx_processor import extract_docx_paragraphs, extract_docx_metadata, get_docx_stats
+from docx_processor import extract_docx_paragraphs, extract_docx_metadata, get_docx_stats, convert_docx_to_pdf
 
 # ──────────────────────────────────────────────────────────────
 # CONSTANTS & CLIENTS
@@ -572,6 +572,42 @@ def load_document_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
         return
 
     file_name = os.path.basename(s3_key)
+
+    # ---------- DOCX → PDF conversion for viewing ----------
+    if file_ext == 'docx':
+        log.info(f"Converting DOCX to PDF for viewing: {file_name}")
+        try:
+            # Convert DOCX to PDF
+            file_stream.seek(0)  # Reset stream position
+            pdf_buffer = convert_docx_to_pdf(file_stream)
+
+            # Generate PDF S3 key (replace .docx with -converted.pdf)
+            pdf_s3_key = s3_key.rsplit('.', 1)[0] + '-converted.pdf'
+
+            # Upload PDF to S3
+            s3_client.put_object(
+                Bucket=config.AWS_S3_BUCKET_NAME,
+                Key=pdf_s3_key,
+                Body=pdf_buffer.getvalue(),
+                ContentType='application/pdf',
+                ContentDisposition='inline'
+            )
+
+            log.info(f"Uploaded converted PDF to S3: {pdf_s3_key}")
+
+            # Update document record with PDF key for viewing
+            main_collection.update_one(
+                {"_id": ObjectId(doc_id)},
+                {"$set": {"pdfS3Key": pdf_s3_key}}
+            )
+
+            log.info(f"Updated document {doc_id} with PDF s3 key")
+        except Exception as e:
+            log.error(f"Failed to convert DOCX to PDF: {e}")
+            # Continue with normal processing even if conversion fails
+
+        # Reset stream for text extraction
+        file_stream.seek(0)
 
     # ---------- route to format-specific processor ----------
     if file_ext == 'docx':

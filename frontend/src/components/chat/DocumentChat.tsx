@@ -136,12 +136,18 @@ useEffect(() => {
         setDocUrl(res.url);
         setFileName(res.fileName);
 
-        // Detect file type from fileName extension
-        const extension = res.fileName.toLowerCase().split('.').pop();
-        if (extension === 'pdf') {
+        // Detect file type - check if URL contains converted PDF
+        // Backend converts DOCX to PDF for viewing, so check URL first
+        if (res.url.includes('-converted.pdf') || res.url.includes('.pdf')) {
           setFileType('pdf');
-        } else if (extension === 'docx') {
-          setFileType('docx');
+        } else {
+          // Fall back to fileName extension
+          const extension = res.fileName.toLowerCase().split('.').pop();
+          if (extension === 'pdf') {
+            setFileType('pdf');
+          } else if (extension === 'docx') {
+            setFileType('docx');
+          }
         }
       }
     })

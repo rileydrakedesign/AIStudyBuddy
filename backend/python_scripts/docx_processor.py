@@ -1,7 +1,12 @@
-# docx_processor.py - DOCX text extraction for document ingestion
+# docx_processor.py - DOCX text extraction and conversion for document ingestion
 from io import BytesIO
 from typing import List, Tuple, Dict, Optional
 from docx import Document
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle
+from reportlab.lib import colors
 
 from logger_setup import log
 
@@ -161,3 +166,96 @@ def get_docx_stats(file_stream: BytesIO) -> Dict[str, int]:
             "table_count": 0,
             "character_count": 0
         }
+
+
+def convert_docx_to_pdf(docx_stream: BytesIO) -> BytesIO:
+    """
+    Convert a DOCX file to PDF format using reportlab.
+
+    Args:
+        docx_stream: BytesIO stream containing DOCX file data
+
+    Returns:
+        BytesIO stream containing the generated PDF
+
+    Raises:
+        Exception: If conversion fails
+    """
+    try:
+        # Read DOCX
+        doc = Document(docx_stream)
+
+        # Create PDF buffer
+        pdf_buffer = BytesIO()
+        pdf_doc = SimpleDocTemplate(
+            pdf_buffer,
+            pagesize=letter,
+            rightMargin=inch,
+            leftMargin=inch,
+            topMargin=inch,
+            bottomMargin=inch
+        )
+
+        # Build PDF content
+        story = []
+        styles = getSampleStyleSheet()
+        normal_style = styles['Normal']
+        heading_style = styles['Heading1']
+
+        # Process paragraphs
+        for para in doc.paragraphs:
+            text = para.text.strip()
+            if not text:
+                story.append(Spacer(1, 0.2 * inch))
+                continue
+
+            # Detect headings (basic heuristic: short, bold, or all caps)
+            is_heading = (len(text) < 60 and text.isupper()) or len(text) < 40
+
+            try:
+                if is_heading:
+                    p = Paragraph(text, heading_style)
+                else:
+                    p = Paragraph(text, normal_style)
+                story.append(p)
+                story.append(Spacer(1, 0.1 * inch))
+            except Exception as e:
+                log.warning(f"Could not add paragraph to PDF: {e}")
+                continue
+
+        # Process tables
+        for table in doc.tables:
+            table_data = []
+            for row in table.rows:
+                row_data = [cell.text.strip() for cell in row.cells]
+                table_data.append(row_data)
+
+            if table_data:
+                try:
+                    pdf_table = Table(table_data)
+                    pdf_table.setStyle(TableStyle([
+                        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                        ('FONTSIZE', (0, 0), (-1, 0), 10),
+                        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+                    ]))
+                    story.append(pdf_table)
+                    story.append(Spacer(1, 0.2 * inch))
+                except Exception as e:
+                    log.warning(f"Could not add table to PDF: {e}")
+                    continue
+
+        # Build PDF
+        pdf_doc.build(story)
+        pdf_buffer.seek(0)
+
+        log.info("Successfully converted DOCX to PDF")
+        return pdf_buffer
+
+    except Exception as e:
+        log.error(f"Failed to convert DOCX to PDF: {e}")
+        raise

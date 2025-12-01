@@ -218,8 +218,12 @@ export const getDocumentFile = async (req, res, next) => {
         if (document.userId.toString() !== currentUser._id.toString()) {
             return res.status(403).json({ message: "Unauthorized access" });
         }
+        // For DOCX files, check if we have a converted PDF available
+        // If pdfS3Key exists, serve the PDF instead of the DOCX for viewing
+        const viewKey = document.pdfS3Key || document.s3Key;
+        const isPdfView = !!document.pdfS3Key;
         let responseType;
-        if (document.fileName?.toLowerCase().endsWith(".pdf")) {
+        if (isPdfView || document.fileName?.toLowerCase().endsWith(".pdf")) {
             responseType = "application/pdf";
         }
         else if (document.fileName?.toLowerCase().endsWith(".docx")) {
@@ -228,7 +232,7 @@ export const getDocumentFile = async (req, res, next) => {
         // Build a GetObjectCommand with inline disposition override
         const command = new GetObjectCommand({
             Bucket: bucketName,
-            Key: document.s3Key,
+            Key: viewKey,
             ResponseContentDisposition: "inline",
             ResponseContentType: responseType,
         });
