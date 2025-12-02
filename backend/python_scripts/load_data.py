@@ -573,53 +573,6 @@ def load_document_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
 
     file_name = os.path.basename(s3_key)
 
-    # ---------- DOCX → PDF conversion for viewing ----------
-    if file_ext == 'docx':
-        log.info(f"[DOCX-PDF] Starting conversion for: {file_name}, doc_id: {doc_id}")
-        try:
-            # Convert DOCX to PDF
-            file_stream.seek(0)  # Reset stream position
-            log.info(f"[DOCX-PDF] Calling convert_docx_to_pdf...")
-            pdf_buffer = convert_docx_to_pdf(file_stream)
-            log.info(f"[DOCX-PDF] Conversion successful, PDF size: {len(pdf_buffer.getvalue())} bytes")
-
-            # Generate PDF S3 key (replace .docx with -converted.pdf)
-            pdf_s3_key = s3_key.rsplit('.', 1)[0] + '-converted.pdf'
-            log.info(f"[DOCX-PDF] Generated S3 key: {pdf_s3_key}")
-
-            # Upload PDF to S3
-            log.info(f"[DOCX-PDF] Uploading to S3...")
-            s3_client.put_object(
-                Bucket=config.AWS_S3_BUCKET_NAME,
-                Key=pdf_s3_key,
-                Body=pdf_buffer.getvalue(),
-                ContentType='application/pdf',
-                ContentDisposition='inline'
-            )
-            log.info(f"[DOCX-PDF] Successfully uploaded converted PDF to S3: {pdf_s3_key}")
-
-            # Update document record with PDF key for viewing
-            log.info(f"[DOCX-PDF] Updating MongoDB document {doc_id} with pdfS3Key...")
-            result = main_collection.update_one(
-                {"_id": ObjectId(doc_id)},
-                {"$set": {"pdfS3Key": pdf_s3_key}}
-            )
-            log.info(f"[DOCX-PDF] MongoDB update result - matched: {result.matched_count}, modified: {result.modified_count}")
-
-            # Verify the update
-            updated_doc = main_collection.find_one({"_id": ObjectId(doc_id)})
-            if updated_doc and 'pdfS3Key' in updated_doc:
-                log.info(f"[DOCX-PDF] ✓ Verified pdfS3Key in document: {updated_doc.get('pdfS3Key')}")
-            else:
-                log.error(f"[DOCX-PDF] ✗ pdfS3Key not found in document after update!")
-
-        except Exception as e:
-            log.error(f"[DOCX-PDF] Failed to convert DOCX to PDF: {e}", exc_info=True)
-            # Continue with normal processing even if conversion fails
-
-        # Reset stream for text extraction
-        file_stream.seek(0)
-
     # ---------- route to format-specific processor ----------
     if file_ext == 'docx':
         log.info(f"Processing DOCX: {file_name}")
