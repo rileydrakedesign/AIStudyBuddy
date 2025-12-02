@@ -279,6 +279,19 @@ export const getDocumentFile = async (
     const viewKey = (document as any).pdfS3Key || document.s3Key;
     const isPdfView = !!(document as any).pdfS3Key;
 
+    // LOG: Debug DOCX conversion
+    if (document.fileName?.toLowerCase().endsWith(".docx")) {
+      (req as any).log.info({
+        docId: documentId,
+        fileName: document.fileName,
+        hasPdfS3Key: !!((document as any).pdfS3Key),
+        pdfS3Key: (document as any).pdfS3Key,
+        originalS3Key: document.s3Key,
+        viewKey: viewKey,
+        isPdfView: isPdfView
+      }, "DOCX file - checking for converted PDF");
+    }
+
     let responseType: string | undefined;
     if (isPdfView || document.fileName?.toLowerCase().endsWith(".pdf")) {
       responseType = "application/pdf";
@@ -296,6 +309,15 @@ export const getDocumentFile = async (
 
     // Generate a short-lived pre-signed URL
     const url = await getSignedUrl(s3Client, command, { expiresIn: 120 });
+
+    // LOG: Debug URL generation
+    (req as any).log.info({
+      docId: documentId,
+      fileName: document.fileName,
+      viewKey: viewKey,
+      urlContainsPdf: url.includes('.pdf')
+    }, "Generated pre-signed URL");
+
     return res.status(200).json({ url, fileName: document.fileName });
   } catch (error) {
     (req as any).log.error(error);

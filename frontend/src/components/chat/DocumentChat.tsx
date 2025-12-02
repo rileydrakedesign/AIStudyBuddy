@@ -138,14 +138,28 @@ useEffect(() => {
 
         // Detect file type - check if URL contains converted PDF
         // Backend converts DOCX to PDF for viewing, so check URL first
-        if (res.url.includes('-converted.pdf') || res.url.includes('.pdf')) {
+        const urlContainsPdf = res.url.includes('-converted.pdf') || res.url.includes('.pdf');
+        const fileExtension = res.fileName.toLowerCase().split('.').pop();
+
+        // LOG: Debug file type detection
+        console.log('[DocumentChat] File type detection:', {
+          fileName: res.fileName,
+          fileExtension: fileExtension,
+          urlContainsPdf: urlContainsPdf,
+          urlContainsConvertedPdf: res.url.includes('-converted.pdf'),
+          urlSnippet: res.url.substring(res.url.lastIndexOf('/'), res.url.indexOf('?'))
+        });
+
+        if (urlContainsPdf) {
+          console.log('[DocumentChat] Setting fileType to PDF (detected from URL)');
           setFileType('pdf');
         } else {
           // Fall back to fileName extension
-          const extension = res.fileName.toLowerCase().split('.').pop();
-          if (extension === 'pdf') {
+          if (fileExtension === 'pdf') {
+            console.log('[DocumentChat] Setting fileType to PDF (from file extension)');
             setFileType('pdf');
-          } else if (extension === 'docx') {
+          } else if (fileExtension === 'docx') {
+            console.log('[DocumentChat] Setting fileType to DOCX (from file extension)');
             setFileType('docx');
           }
         }
