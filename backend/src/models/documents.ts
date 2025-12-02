@@ -12,6 +12,8 @@ export interface IDocument extends Document {
   className: string;
   // NEW: optional isProcessing to track whether this doc is still uploading/processing
   isProcessing?: boolean;
+  // NEW: optional pdfS3Key for DOCX files converted to PDF for viewing
+  pdfS3Key?: string;
 }
 
 const documentSchema = new Schema<IDocument>({
@@ -48,6 +50,11 @@ const documentSchema = new Schema<IDocument>({
   isProcessing: {
     type: Boolean,
     default: false,
+  },
+  // NEW: pdfS3Key for DOCX files converted to PDF for viewing
+  pdfS3Key: {
+    type: String,
+    required: false,
   },
 });
 

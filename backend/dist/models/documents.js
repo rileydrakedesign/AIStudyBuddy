@@ -35,6 +35,11 @@ const documentSchema = new Schema({
         type: Boolean,
         default: false,
     },
+    // NEW: pdfS3Key for DOCX files converted to PDF for viewing
+    pdfS3Key: {
+        type: String,
+        required: false,
+    },
 });
 export default mongoose.model("Document", documentSchema);
 //# sourceMappingURL=documents.js.map

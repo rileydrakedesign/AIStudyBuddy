@@ -276,16 +276,16 @@ export const getDocumentFile = async (
 
     // For DOCX files, check if we have a converted PDF available
     // If pdfS3Key exists, serve the PDF instead of the DOCX for viewing
-    const viewKey = (document as any).pdfS3Key || document.s3Key;
-    const isPdfView = !!(document as any).pdfS3Key;
+    const viewKey = document.pdfS3Key || document.s3Key;
+    const isPdfView = !!document.pdfS3Key;
 
     // LOG: Debug DOCX conversion
     if (document.fileName?.toLowerCase().endsWith(".docx")) {
       (req as any).log.info({
         docId: documentId,
         fileName: document.fileName,
-        hasPdfS3Key: !!((document as any).pdfS3Key),
-        pdfS3Key: (document as any).pdfS3Key,
+        hasPdfS3Key: !!document.pdfS3Key,
+        pdfS3Key: document.pdfS3Key,
         originalS3Key: document.s3Key,
         viewKey: viewKey,
         isPdfView: isPdfView

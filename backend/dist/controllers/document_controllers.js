@@ -222,6 +222,18 @@ export const getDocumentFile = async (req, res, next) => {
         // If pdfS3Key exists, serve the PDF instead of the DOCX for viewing
         const viewKey = document.pdfS3Key || document.s3Key;
         const isPdfView = !!document.pdfS3Key;
+        // LOG: Debug DOCX conversion
+        if (document.fileName?.toLowerCase().endsWith(".docx")) {
+            req.log.info({
+                docId: documentId,
+                fileName: document.fileName,
+                hasPdfS3Key: !!document.pdfS3Key,
+                pdfS3Key: document.pdfS3Key,
+                originalS3Key: document.s3Key,
+                viewKey: viewKey,
+                isPdfView: isPdfView
+            }, "DOCX file - checking for converted PDF");
+        }
         let responseType;
         if (isPdfView || document.fileName?.toLowerCase().endsWith(".pdf")) {
             responseType = "application/pdf";
@@ -238,6 +250,13 @@ export const getDocumentFile = async (req, res, next) => {
         });
         // Generate a short-lived pre-signed URL
         const url = await getSignedUrl(s3Client, command, { expiresIn: 120 });
+        // LOG: Debug URL generation
+        req.log.info({
+            docId: documentId,
+            fileName: document.fileName,
+            viewKey: viewKey,
+            urlContainsPdf: url.includes('.pdf')
+        }, "Generated pre-signed URL");
         return res.status(200).json({ url, fileName: document.fileName });
     }
     catch (error) {
