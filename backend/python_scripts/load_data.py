@@ -27,7 +27,7 @@ from openai import AsyncOpenAI, RateLimitError, APIConnectionError, Timeout as O
 import config
 from logger_setup import log
 from redis_setup import get_redis
-from docx_processor import extract_docx_paragraphs, extract_docx_metadata, get_docx_stats, convert_docx_to_pdf
+from docx_processor import extract_docx_paragraphs, extract_docx_metadata, get_docx_stats, convert_docx_to_pdf, convert_docx_to_pdf_cloudmersive
 
 # ──────────────────────────────────────────────────────────────
 # CONSTANTS & CLIENTS
@@ -576,6 +576,43 @@ def load_document_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
     # ---------- route to format-specific processor ----------
     if file_ext == 'docx':
         log.info(f"Processing DOCX: {file_name}")
+
+        # Convert DOCX to PDF for viewing (with citation navigation)
+        pdf_s3_key = None
+        try:
+            cloudmersive_api_key = os.getenv("CLOUDMERSIVE_API_KEY")
+            if cloudmersive_api_key:
+                log.info("[DOCX-CONVERSION] Converting DOCX to PDF using Cloudmersive")
+                file_stream.seek(0)
+                pdf_buffer = convert_docx_to_pdf_cloudmersive(file_stream, cloudmersive_api_key)
+
+                # Upload converted PDF to S3
+                base_name = os.path.splitext(s3_key)[0]  # Remove .docx extension
+                pdf_s3_key = f"{base_name}-converted.pdf"
+
+                log.info(f"[DOCX-CONVERSION] Uploading converted PDF to S3: {pdf_s3_key}")
+                s3_client.put_object(
+                    Bucket=config.AWS_S3_BUCKET_NAME,
+                    Key=pdf_s3_key,
+                    Body=pdf_buffer.getvalue(),
+                    ContentType="application/pdf"
+                )
+                log.info(f"[DOCX-CONVERSION] Successfully uploaded PDF to S3: {pdf_s3_key}")
+
+                # Update document record with pdfS3Key
+                main_collection.update_one(
+                    {"_id": ObjectId(doc_id)},
+                    {"$set": {"pdfS3Key": pdf_s3_key}}
+                )
+                log.info(f"[DOCX-CONVERSION] Updated document {doc_id} with pdfS3Key")
+            else:
+                log.warning("[DOCX-CONVERSION] CLOUDMERSIVE_API_KEY not set - skipping PDF conversion")
+        except Exception as e:
+            log.error(f"[DOCX-CONVERSION] Failed to convert DOCX to PDF: {e}", exc_info=True)
+            # Continue with DOCX processing even if conversion fails
+
+        # Process DOCX text for RAG (always use original DOCX)
+        file_stream.seek(0)
         full_doc_text, parts = stream_docx_chunks_to_atlas(
             file_stream,
             user_id=user_id,

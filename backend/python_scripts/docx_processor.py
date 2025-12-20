@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import os
 import shutil
+import requests
 
 from logger_setup import log
 
@@ -281,3 +282,85 @@ def convert_docx_to_pdf(docx_stream: BytesIO) -> BytesIO:
                 log.debug(f"[DOCX-PDF] Cleaned up temp directory: {temp_dir}")
             except Exception as e:
                 log.warning(f"[DOCX-PDF] Failed to clean up temp directory: {e}")
+
+
+def convert_docx_to_pdf_cloudmersive(docx_stream: BytesIO, api_key: str) -> BytesIO:
+    """
+    Convert a DOCX file to PDF using the Cloudmersive API.
+    Provides high-fidelity conversion without local dependencies.
+
+    Args:
+        docx_stream: BytesIO stream containing DOCX file data
+        api_key: Cloudmersive API key
+
+    Returns:
+        BytesIO stream containing the generated PDF
+
+    Raises:
+        Exception: If conversion fails or API returns error
+    """
+    try:
+        log.info("[CLOUDMERSIVE] Starting DOCX to PDF conversion")
+
+        # Cloudmersive conversion endpoint
+        url = "https://api.cloudmersive.com/convert/docx/to/pdf"
+
+        headers = {
+            "Apikey": api_key
+        }
+
+        # Prepare file for upload
+        docx_stream.seek(0)
+        files = {
+            "inputFile": ("document.docx", docx_stream, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        }
+
+        log.info("[CLOUDMERSIVE] Sending conversion request to API")
+
+        # Make API request with timeout
+        response = requests.post(
+            url,
+            headers=headers,
+            files=files,
+            timeout=60  # 60 second timeout
+        )
+
+        # Check response status
+        if response.status_code == 200:
+            pdf_data = response.content
+            log.info(f"[CLOUDMERSIVE] Successfully converted DOCX to PDF ({len(pdf_data)} bytes)")
+
+            pdf_buffer = BytesIO(pdf_data)
+            pdf_buffer.seek(0)
+            return pdf_buffer
+
+        elif response.status_code == 401:
+            log.error("[CLOUDMERSIVE] Authentication failed - check API key")
+            raise Exception("Cloudmersive API authentication failed. Please verify your API key.")
+
+        elif response.status_code == 429:
+            log.error("[CLOUDMERSIVE] Rate limit exceeded")
+            raise Exception("Cloudmersive API rate limit exceeded. Please try again later or upgrade your plan.")
+
+        else:
+            error_msg = f"Cloudmersive API returned status {response.status_code}"
+            try:
+                error_detail = response.json()
+                error_msg += f": {error_detail}"
+            except:
+                error_msg += f": {response.text[:200]}"
+
+            log.error(f"[CLOUDMERSIVE] {error_msg}")
+            raise Exception(error_msg)
+
+    except requests.exceptions.Timeout:
+        log.error("[CLOUDMERSIVE] Conversion request timed out after 60 seconds")
+        raise Exception("DOCX to PDF conversion timed out")
+
+    except requests.exceptions.RequestException as e:
+        log.error(f"[CLOUDMERSIVE] Network error during conversion: {e}", exc_info=True)
+        raise Exception(f"Network error during DOCX to PDF conversion: {str(e)}")
+
+    except Exception as e:
+        log.error(f"[CLOUDMERSIVE] Failed to convert DOCX to PDF: {e}", exc_info=True)
+        raise

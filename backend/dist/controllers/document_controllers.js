@@ -287,6 +287,11 @@ export const deleteDocument = async (req, res, next) => {
         }
         // Delete the file from S3
         await deleteFileFromS3(document.s3Key);
+        // Also delete converted PDF if it exists
+        if (document.pdfS3Key) {
+            req.log.info({ pdfS3Key: document.pdfS3Key }, "Deleting converted PDF from S3");
+            await deleteFileFromS3(document.pdfS3Key);
+        }
         // Delete document record from MongoDB
         await Document.deleteOne({ _id: documentId });
         // Cascade deletion: Remove chat sessions that reference this document
