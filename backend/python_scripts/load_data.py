@@ -579,6 +579,7 @@ def load_document_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
 
         # Convert DOCX to PDF for viewing (with citation navigation)
         pdf_s3_key = None
+        pdf_buffer = None
         try:
             cloudmersive_api_key = os.getenv("CLOUDMERSIVE_API_KEY")
             if cloudmersive_api_key:
@@ -609,17 +610,29 @@ def load_document_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
                 log.warning("[DOCX-CONVERSION] CLOUDMERSIVE_API_KEY not set - skipping PDF conversion")
         except Exception as e:
             log.error(f"[DOCX-CONVERSION] Failed to convert DOCX to PDF: {e}", exc_info=True)
-            # Continue with DOCX processing even if conversion fails
+            # pdf_buffer will remain None, fall back to DOCX processing
 
-        # Process DOCX text for RAG (always use original DOCX)
-        file_stream.seek(0)
-        full_doc_text, parts = stream_docx_chunks_to_atlas(
-            file_stream,
-            user_id=user_id,
-            class_id=class_name,
-            doc_id=doc_id,
-            file_name=file_name,
-        )
+        # Process converted PDF for RAG (if conversion succeeded) or fall back to DOCX
+        if pdf_buffer is not None:
+            log.info(f"[DOCX-CONVERSION] Processing converted PDF for text extraction and chunking")
+            pdf_buffer.seek(0)
+            full_doc_text, parts = stream_chunks_to_atlas(
+                pdf_buffer,
+                user_id=user_id,
+                class_id=class_name,
+                doc_id=doc_id,
+                file_name=file_name,
+            )
+        else:
+            log.warning(f"[DOCX-CONVERSION] PDF conversion failed or disabled - falling back to DOCX processing")
+            file_stream.seek(0)
+            full_doc_text, parts = stream_docx_chunks_to_atlas(
+                file_stream,
+                user_id=user_id,
+                class_id=class_name,
+                doc_id=doc_id,
+                file_name=file_name,
+            )
     elif file_ext == 'pdf':
         log.info(f"Processing PDF: {file_name}")
         full_doc_text, parts = stream_chunks_to_atlas(
