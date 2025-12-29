@@ -29,6 +29,73 @@ from logger_setup import log
 from redis_setup import get_redis
 from docx_processor import extract_docx_paragraphs, extract_docx_metadata, get_docx_stats, convert_docx_to_pdf, convert_docx_to_pdf_cloudmersive
 
+
+# ──────────────────────────────────────────────────────────────
+# CONTEXTUAL CHUNK HEADERS (P0 - RAG Architecture v1.1)
+# ──────────────────────────────────────────────────────────────
+def create_contextual_header(
+    doc_title: str,
+    section_headers: list[str] | None = None,
+    doc_type: str | None = None,
+    page_number: int | None = None
+) -> str:
+    """
+    Create a contextual header to prepend to chunks.
+    This improves retrieval by embedding document context with content.
+
+    Args:
+        doc_title: The document filename or title
+        section_headers: List of section headers from markdown parsing
+        doc_type: File type (pdf, docx)
+        page_number: Page or paragraph number
+
+    Returns:
+        Formatted header string to prepend to chunk text
+    """
+    parts = [f"Document: {doc_title}"]
+
+    if doc_type:
+        parts.append(f"Type: {doc_type.upper()}")
+
+    if page_number is not None:
+        parts.append(f"Page: {page_number}")
+
+    if section_headers:
+        # Include up to 2 levels of section hierarchy
+        hierarchy = " > ".join(section_headers[-2:])
+        parts.append(f"Section: {hierarchy}")
+
+    return " | ".join(parts) + "\n\n"
+
+
+def add_context_to_chunk(
+    chunk_text: str,
+    doc_title: str,
+    section_headers: list[str] | None = None,
+    doc_type: str | None = None,
+    page_number: int | None = None
+) -> tuple[str, str]:
+    """
+    Prepend contextual header to chunk text before embedding.
+    The header is included in the embedding but original text is preserved for display.
+
+    Args:
+        chunk_text: Original chunk content
+        doc_title: Document filename or title
+        section_headers: Section hierarchy from markdown parsing
+        doc_type: File type (pdf, docx)
+        page_number: Page or paragraph number
+
+    Returns:
+        Tuple of (contextualized_text, original_text)
+    """
+    if not config.CONTEXTUAL_HEADERS_ENABLED:
+        return chunk_text, chunk_text
+
+    header = create_contextual_header(doc_title, section_headers, doc_type, page_number)
+    contextualized = header + chunk_text
+    return contextualized, chunk_text
+
 # ──────────────────────────────────────────────────────────────
 # CONSTANTS & CLIENTS
 # ──────────────────────────────────────────────────────────────
@@ -292,9 +359,23 @@ def stream_chunks_to_atlas(
                 pieces = [text]
             for piece in pieces:
                 summary_parts.append(piece)
+                # Extract section headers from markdown metadata if available
+                section_headers = d.metadata.get("Header 1", []) if hasattr(d, "metadata") else []
+                if isinstance(section_headers, str):
+                    section_headers = [section_headers]
+
+                # Add contextual header to chunk for improved retrieval (P0)
+                contextualized_text, original_text = add_context_to_chunk(
+                    chunk_text=piece,
+                    doc_title=file_name,
+                    section_headers=section_headers if section_headers else None,
+                    doc_type="pdf",
+                    page_number=idx + 1
+                )
+
                 page_items.append(
                     (
-                        piece,
+                        contextualized_text,  # This gets embedded
                         {
                             "file_name":  file_name,
                             "title":      title,
@@ -304,7 +385,9 @@ def stream_chunks_to_atlas(
                             "doc_id":     doc_id,
                             "is_summary": False,
                             "page_number": idx + 1,
-                            "source_type": "pdf",  # NEW field for format identification
+                            "source_type": "pdf",
+                            "original_text": original_text,  # For display without header
+                            "section_headers": section_headers if section_headers else [],
                         },
                     )
                 )
@@ -481,9 +564,19 @@ def stream_docx_chunks_to_atlas(
 
         for piece in pieces:
             summary_parts.append(piece)
+
+            # Add contextual header to chunk for improved retrieval (P0)
+            contextualized_text, original_text = add_context_to_chunk(
+                chunk_text=piece,
+                doc_title=file_name,
+                section_headers=None,  # DOCX paragraph extraction doesn't preserve headers
+                doc_type="docx",
+                page_number=paragraph_num
+            )
+
             batch.append(
                 (
-                    piece,
+                    contextualized_text,  # This gets embedded
                     {
                         "file_name": file_name,
                         "title": title,
@@ -493,7 +586,9 @@ def stream_docx_chunks_to_atlas(
                         "doc_id": doc_id,
                         "is_summary": False,
                         "page_number": paragraph_num,  # Store paragraph number as page_number
-                        "source_type": "docx",          # NEW field for format identification
+                        "source_type": "docx",
+                        "original_text": original_text,  # For display without header
+                        "section_headers": [],
                     },
                 )
             )

@@ -78,6 +78,19 @@ collection = client[db_name][collection_name]
 # OpenAI embedding model
 embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
 
+# ──────────────────────────────────────────────────────────────
+# FEATURE FLAG STARTUP LOGGING (P0/P1 - RAG Architecture v1.1)
+# ──────────────────────────────────────────────────────────────
+log.info(
+    "[CONFIG] RAG Feature Flags: "
+    f"contextual_headers={config.CONTEXTUAL_HEADERS_ENABLED}, "
+    f"hybrid_search={config.HYBRID_SEARCH_ENABLED}, "
+    f"reranking={config.RERANKING_ENABLED}, "
+    f"multi_query={config.MULTI_QUERY_ENABLED}, "
+    f"hierarchical_chunks={config.HIERARCHICAL_CHUNKING_ENABLED}"
+)
+log.info(f"[CONFIG] Route Models: {config.ROUTE_MODELS}")
+
 # Route-specific RAG configuration
 ROUTE_CONFIG = {
     "general_qa": {
@@ -114,9 +127,18 @@ ROUTE_CONFIG = {
 
 
 def get_llm(route: str) -> ChatOpenAI:
-    """Get a ChatOpenAI instance configured for the specified route."""
+    """
+    Get a ChatOpenAI instance configured for the specified route.
+
+    Uses route-specific models from config.ROUTE_MODELS for quality/cost optimization.
+    Falls back to OPENAI_CHAT_MODEL if route not found.
+    """
     cfg = ROUTE_CONFIG.get(route, ROUTE_CONFIG["general_qa"])
-    return ChatOpenAI(model=config.OPENAI_CHAT_MODEL, temperature=cfg["temperature"])
+
+    # P1: Route-specific model selection
+    model_name = config.ROUTE_MODELS.get(route, config.OPENAI_CHAT_MODEL)
+
+    return ChatOpenAI(model=model_name, temperature=cfg["temperature"])
 
 
 # Backend URL for file citations
@@ -1415,11 +1437,13 @@ async def stream_semantic_search(
                 return
 
             # ── STREAMING LLM INVOCATION (NEW) ──
-            log.info(f"[STREAM] About to invoke LLM | chunks={len(chunk_array)}")
+            # P1: Use route-specific model for streaming as well
+            model_name = config.ROUTE_MODELS.get(route, config.OPENAI_CHAT_MODEL)
+            log.info(f"[STREAM] About to invoke LLM | chunks={len(chunk_array)} | model={model_name}")
 
             callback = TokenStreamingCallback()
             llm = ChatOpenAI(
-                model=config.OPENAI_CHAT_MODEL,
+                model=model_name,
                 temperature=cfg["temperature"],
                 streaming=True,
                 callbacks=[callback]

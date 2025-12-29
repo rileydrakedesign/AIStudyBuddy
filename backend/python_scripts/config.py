@@ -151,6 +151,46 @@ MAX_PROMPT_TOKENS: int = _get_int_env("MAX_PROMPT_TOKENS", 8000)
 CONTEXT_BUDGET_TOKENS: int = _get_int_env("CONTEXT_BUDGET_TOKENS", 6000)
 HISTORY_BUDGET_TOKENS: int = _get_int_env("HISTORY_BUDGET_TOKENS", 2000)
 
+# ────────────────────────────────────────────────────────────────
+# RAG ARCHITECTURE FEATURE FLAGS (v1.1)
+# All flags default to False for safe rollout
+# ────────────────────────────────────────────────────────────────
+
+# P0: Contextual Chunk Headers
+# Prepends document/section context to chunks at ingestion time
+CONTEXTUAL_HEADERS_ENABLED: bool = _get_bool_env("CONTEXTUAL_HEADERS_ENABLED", True)
+
+# P0: Hybrid Search (BM25 + Vector) - REQUIRES MongoDB Atlas M10+
+HYBRID_SEARCH_ENABLED: bool = _get_bool_env("HYBRID_SEARCH_ENABLED", False)
+HYBRID_VECTOR_WEIGHT: float = _get_float_env("HYBRID_VECTOR_WEIGHT", 0.6)
+HYBRID_TEXT_WEIGHT: float = _get_float_env("HYBRID_TEXT_WEIGHT", 0.4)
+
+# P1: Cross-Encoder Reranking - REQUIRES Heroku Standard-2X dyno
+RERANKING_ENABLED: bool = _get_bool_env("RERANKING_ENABLED", False)
+RERANKER_MODEL: str = _get_optional_env("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+RERANKER_MAX_LENGTH: int = _get_int_env("RERANKER_MAX_LENGTH", 512)
+
+# P1: Route-Specific LLM Models
+# Allows different models for different query types (quality/cost optimization)
+ROUTE_MODELS: dict = {
+    "general_qa": _get_optional_env("MODEL_GENERAL_QA", "gpt-4o-mini"),
+    "follow_up": _get_optional_env("MODEL_FOLLOW_UP", "gpt-4o-mini"),
+    "quote_finding": _get_optional_env("MODEL_QUOTE", "gpt-4o-mini"),
+    "generate_study_guide": _get_optional_env("MODEL_STUDY_GUIDE", "gpt-4o"),  # Higher quality
+    "summary": _get_optional_env("MODEL_SUMMARY", "gpt-4o-mini"),
+}
+
+# P2: Multi-Query Retrieval (DEFERRED - adds 100-200ms latency)
+MULTI_QUERY_ENABLED: bool = _get_bool_env("MULTI_QUERY_ENABLED", False)
+MULTI_QUERY_COUNT: int = _get_int_env("MULTI_QUERY_COUNT", 3)
+
+# P2: Hierarchical Chunking (DEFERRED - requires re-ingestion)
+HIERARCHICAL_CHUNKING_ENABLED: bool = _get_bool_env("HIERARCHICAL_CHUNKING", False)
+PARENT_CHUNK_SIZE: int = _get_int_env("PARENT_CHUNK_SIZE", 2400)
+PARENT_CHUNK_OVERLAP: int = _get_int_env("PARENT_CHUNK_OVERLAP", 200)
+CHILD_CHUNK_SIZE: int = _get_int_env("CHILD_CHUNK_SIZE", 600)
+CHILD_CHUNK_OVERLAP: int = _get_int_env("CHILD_CHUNK_OVERLAP", 60)
+
 
 # ────────────────────────────────────────────────────────────────
 # STARTUP VALIDATION
