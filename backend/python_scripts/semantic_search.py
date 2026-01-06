@@ -326,6 +326,177 @@ def fetch_summary_chunk(user_id: str, class_name: str, doc_id: str):
     return collection.find_one(filters)
 
 
+# ──────────────────────────────────────────────────────────────
+# ON-DEMAND SUMMARY GENERATION (Lazy Summarization)
+# ──────────────────────────────────────────────────────────────
+def fetch_document_chunks_for_summary(user_id: str, doc_id: str, limit: int = 50) -> list[dict]:
+    """
+    Fetch document chunks for on-demand summarization.
+    Returns chunks ordered by page number.
+    """
+    pipeline = [
+        {
+            "$match": {
+                "user_id": user_id,
+                "doc_id": doc_id,
+                "is_summary": False,
+            }
+        },
+        {"$sort": {"page_number": 1}},
+        {"$limit": limit},
+        {"$project": {"text": 1, "original_text": 1, "page_number": 1, "file_name": 1}},
+    ]
+    return list(collection.aggregate(pipeline))
+
+
+def generate_summary_on_demand(
+    user_id: str,
+    class_name: str,
+    doc_id: str,
+    file_name: str | None = None,
+    llm: ChatOpenAI | None = None,
+) -> dict | None:
+    """
+    Generate a document summary on-demand when no cached summary exists.
+
+    This is the fallback for lazy summarization - when a user requests
+    a summary before the background job has completed.
+
+    Returns a summary document dict compatible with fetch_summary_chunk format,
+    or None if generation fails.
+    """
+    log.info("[ON-DEMAND] Generating summary for doc %s", doc_id)
+
+    try:
+        # Fetch chunks for this document
+        chunks = fetch_document_chunks_for_summary(user_id, doc_id, limit=60)
+
+        if not chunks:
+            log.warning("[ON-DEMAND] No chunks found for doc %s", doc_id)
+            return None
+
+        # Get file_name from first chunk if not provided
+        if not file_name and chunks:
+            file_name = chunks[0].get("file_name", "Unknown Document")
+
+        # Combine chunk texts (prefer original_text without contextual header)
+        texts = []
+        for chunk in chunks:
+            text = chunk.get("original_text") or chunk.get("text", "")
+            if text:
+                texts.append(text)
+
+        if not texts:
+            log.warning("[ON-DEMAND] No text content in chunks for doc %s", doc_id)
+            return None
+
+        full_text = "\n\n".join(texts)
+
+        # Estimate tokens and truncate if needed
+        est_tokens_count = int(len(full_text) * TOK_PER_CHAR)
+        max_context = config.MAX_PROMPT_TOKENS * 3  # Allow more for summarization
+
+        if est_tokens_count > max_context:
+            # Truncate to fit context window
+            max_chars = int(max_context / TOK_PER_CHAR)
+            full_text = full_text[:max_chars]
+            log.info("[ON-DEMAND] Truncated text from %d to %d chars", len(full_text), max_chars)
+
+        # Use provided LLM or create one
+        if llm is None:
+            llm = get_llm("summary")
+
+        # Generate summary
+        summary_prompt = PromptTemplate.from_template(
+            "You are an expert study assistant.\n\n"
+            "Document content below:\n\n{context}\n\n"
+            "Write a comprehensive summary in markdown format capturing all key ideas, "
+            "definitions, and results. Use clear headings (##), bullet points, and "
+            "**bold** for key terms. Aim for 300-500 words."
+        )
+
+        summary_text = (summary_prompt | llm | StrOutputParser()).invoke({"context": full_text})
+
+        if not summary_text:
+            log.error("[ON-DEMAND] Empty summary generated for doc %s", doc_id)
+            return None
+
+        log.info("[ON-DEMAND] Generated summary for doc %s (%d chars)", doc_id, len(summary_text))
+
+        # Cache the summary in MongoDB for future requests
+        try:
+            from langchain_mongodb import MongoDBAtlasVectorSearch
+
+            summary_meta = {
+                "file_name": file_name,
+                "title": file_name,
+                "author": "Unknown",
+                "user_id": user_id,
+                "class_id": class_name,
+                "doc_id": doc_id,
+                "is_summary": True,
+                "page_number": None,
+                "source_type": "on_demand",
+            }
+
+            MongoDBAtlasVectorSearch.from_texts(
+                [summary_text],
+                embedding_model,
+                metadatas=[summary_meta],
+                collection=collection
+            )
+            log.info("[ON-DEMAND] Cached summary for doc %s", doc_id)
+        except Exception as cache_err:
+            log.warning("[ON-DEMAND] Failed to cache summary: %s", cache_err)
+
+        # Return in the same format as fetch_summary_chunk
+        return {
+            "_id": ObjectId(),  # Temporary ID for response
+            "text": summary_text,
+            "file_name": file_name,
+            "doc_id": doc_id,
+            "user_id": user_id,
+            "class_id": class_name,
+            "is_summary": True,
+            "page_number": None,
+        }
+
+    except Exception as e:
+        log.error("[ON-DEMAND] Failed to generate summary for doc %s: %s", doc_id, e, exc_info=True)
+        return None
+
+
+def get_summary_with_fallback(
+    user_id: str,
+    class_name: str,
+    doc_id: str,
+    llm: ChatOpenAI | None = None,
+) -> dict | None:
+    """
+    Get document summary, falling back to on-demand generation if not cached.
+
+    This is the main entry point for retrieving summaries with lazy summarization.
+
+    1. Try to fetch cached summary
+    2. If not found, generate on-demand and cache
+    3. Return summary dict or None
+    """
+    # First, try to fetch cached summary
+    cached = fetch_summary_chunk(user_id, class_name, doc_id)
+    if cached:
+        log.info("[SUMMARY] Using cached summary for doc %s", doc_id)
+        return cached
+
+    # No cached summary - generate on-demand
+    log.info("[SUMMARY] No cached summary for doc %s, generating on-demand", doc_id)
+    return generate_summary_on_demand(
+        user_id=user_id,
+        class_name=class_name,
+        doc_id=doc_id,
+        llm=llm,
+    )
+
+
 def fetch_chapter_text(
     user_id: str, class_name: str, doc_id: str, chapters: List[int]
 ) -> Tuple[str, List[dict]]:
@@ -413,6 +584,77 @@ def fetch_class_summaries(user_id: str, class_name: str):
         "class_id": class_name,
         "is_summary": True
     }).sort("file_name", 1))
+
+
+def get_class_summaries_with_fallback(user_id: str, class_name: str, max_on_demand: int = 3) -> list[dict]:
+    """
+    Get class summaries, generating on-demand for documents without cached summaries.
+
+    This ensures study guides and class summaries work even before background
+    summarization jobs complete.
+
+    Args:
+        user_id: User ID
+        class_name: Class name
+        max_on_demand: Maximum number of on-demand summaries to generate (to limit latency)
+
+    Returns:
+        List of summary documents
+    """
+    if class_name in (None, "", "null"):
+        return []
+
+    # Fetch existing summaries
+    existing_summaries = fetch_class_summaries(user_id, class_name)
+    existing_doc_ids = {s.get("doc_id") for s in existing_summaries}
+
+    # Find documents in this class that don't have summaries
+    docs_without_summary = list(collection.aggregate([
+        {
+            "$match": {
+                "user_id": user_id,
+                "class_id": class_name,
+                "is_summary": False,
+            }
+        },
+        {"$group": {"_id": "$doc_id", "file_name": {"$first": "$file_name"}}},
+        {"$match": {"_id": {"$nin": list(existing_doc_ids)}}},
+        {"$limit": max_on_demand},
+    ]))
+
+    if not docs_without_summary:
+        # All documents have summaries (or no documents exist)
+        return existing_summaries
+
+    log.info(
+        "[CLASS-SUMMARY] Found %d docs without summaries in class %s, generating up to %d on-demand",
+        len(docs_without_summary), class_name, max_on_demand
+    )
+
+    # Generate on-demand summaries for documents missing them
+    new_summaries = []
+    for doc in docs_without_summary[:max_on_demand]:
+        doc_id = doc["_id"]
+        file_name = doc.get("file_name", "Unknown")
+
+        summary = generate_summary_on_demand(
+            user_id=user_id,
+            class_name=class_name,
+            doc_id=doc_id,
+            file_name=file_name,
+        )
+        if summary:
+            new_summaries.append(summary)
+
+    # Combine existing and newly generated summaries
+    all_summaries = existing_summaries + new_summaries
+
+    log.info(
+        "[CLASS-SUMMARY] Returning %d summaries (%d cached, %d on-demand)",
+        len(all_summaries), len(existing_summaries), len(new_summaries)
+    )
+
+    return all_summaries
 
 def condense_class_summaries(text: str, user_query: str, llm: ChatOpenAI) -> str:
     prompt = PromptTemplate.from_template(
@@ -563,7 +805,8 @@ def process_semantic_search(
     if route == "generate_study_guide" or mode == "study_guide":
         # -------- Single-document study guide --------
         if doc_id and doc_id != "null":
-            summary_doc = fetch_summary_chunk(user_id, class_name, doc_id)
+            # Use fallback to generate on-demand if no cached summary
+            summary_doc = get_summary_with_fallback(user_id, class_name, doc_id)
             if summary_doc:
                 context_txt = summary_doc["text"]
                 if est_tokens(context_txt) > MAX_PROMPT_TOKENS:
@@ -592,7 +835,8 @@ def process_semantic_search(
 
         # -------- Class-level study guide --------
         if class_name and class_name != "null":
-            docs = fetch_class_summaries(user_id, class_name)
+            # Use fallback to generate on-demand for docs without cached summaries
+            docs = get_class_summaries_with_fallback(user_id, class_name)
             if docs:
                 combined = "\n\n---\n\n".join(d["text"] for d in docs)
                 if est_tokens(combined) > MAX_PROMPT_TOKENS:
@@ -804,9 +1048,10 @@ def process_semantic_search(
     # WHOLE-DOCUMENT SUMMARY MODE  (returns condensed version)
     # ----------------------------------------------------------------
     if mode == "doc_summary":
-        summary_doc = fetch_summary_chunk(user_id, class_name, doc_id)
+        # Use fallback to generate on-demand if no cached summary
+        summary_doc = get_summary_with_fallback(user_id, class_name, doc_id)
         if not summary_doc:
-            log.warning("No stored summary found; falling back to specific search")
+            log.warning("No stored summary found and on-demand generation failed; falling back to specific search")
             mode = "specific"
         else:
             # 1. Condense the long stored summary
@@ -845,9 +1090,10 @@ def process_semantic_search(
     # CLASS-LEVEL SUMMARY (aggregate doc summaries for the class)
     # ----------------------------------------------------------------
     if mode == "class_summary":
-        docs = fetch_class_summaries(user_id, class_name)
+        # Use fallback to generate on-demand for docs without cached summaries
+        docs = get_class_summaries_with_fallback(user_id, class_name)
         if not docs:
-            log.warning("No summaries found for this class; falling back to specific search.")
+            log.warning("No summaries found for this class and on-demand generation failed; falling back to specific search.")
             mode = "specific"            # fall through to normal retrieval
         else:
             combined = "\n\n---\n\n".join(d["text"] for d in docs)
@@ -1243,7 +1489,8 @@ async def stream_semantic_search(
             if route == "generate_study_guide" or mode == "study_guide":
                 # Single-document study guide
                 if doc_id and doc_id != "null":
-                    summary_doc = fetch_summary_chunk(user_id, class_name, doc_id)
+                    # Use fallback to generate on-demand if no cached summary
+                    summary_doc = get_summary_with_fallback(user_id, class_name, doc_id)
                     if summary_doc:
                         context_txt = summary_doc["text"]
                         if est_tokens(context_txt) > MAX_PROMPT_TOKENS:
@@ -1261,7 +1508,8 @@ async def stream_semantic_search(
 
                 # Class-level study guide
                 if class_name and class_name != "null":
-                    docs = fetch_class_summaries(user_id, class_name)
+                    # Use fallback to generate on-demand for docs without cached summaries
+                    docs = get_class_summaries_with_fallback(user_id, class_name)
                     if docs:
                         combined = "\n\n---\n\n".join(d["text"] for d in docs)
                         if est_tokens(combined) > MAX_PROMPT_TOKENS:
@@ -1279,9 +1527,10 @@ async def stream_semantic_search(
 
             # ── Document summary mode (STREAMING) ──
             if mode == "doc_summary":
-                summary_doc = fetch_summary_chunk(user_id, class_name, doc_id)
+                # Use fallback to generate on-demand if no cached summary
+                summary_doc = get_summary_with_fallback(user_id, class_name, doc_id)
                 if not summary_doc:
-                    log.warning("[STREAM] No stored summary found; falling back to specific search")
+                    log.warning("[STREAM] No stored summary found and on-demand generation failed; falling back to specific search")
                     mode = "specific"
                 else:
                     condensed_text = condense_summary(summary_doc["text"], user_query, get_llm("summary"))
@@ -1297,9 +1546,10 @@ async def stream_semantic_search(
 
             # ── Class summary mode (STREAMING) ──
             if mode == "class_summary":
-                docs = fetch_class_summaries(user_id, class_name)
+                # Use fallback to generate on-demand for docs without cached summaries
+                docs = get_class_summaries_with_fallback(user_id, class_name)
                 if not docs:
-                    log.warning("[STREAM] No summaries found for this class; falling back to specific search.")
+                    log.warning("[STREAM] No summaries found for this class and on-demand generation failed; falling back to specific search.")
                     mode = "specific"
                 else:
                     combined = "\n\n---\n\n".join(d["text"] for d in docs)

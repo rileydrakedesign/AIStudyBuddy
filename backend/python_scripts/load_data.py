@@ -741,68 +741,20 @@ def load_document_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
         log.error(f"Unexpected file type after validation: {file_ext}")
         return
 
-    # ---------- summary generation ----------
-    def safe_sum(txt: str) -> str:
-        try:
-            return summarize_document(txt) if est_tokens(txt) <= MAX_TOKENS_PER_REQUEST else ""
-        except Exception:
-            return ""
-
-    def map_reduce_summary(chunks: list[str]) -> str:
-        if not chunks:
-            return ""
-        # Group chunks into ~8k-char blocks, summarise each, then merge
-        block, acc, out_summaries = [], 0, []
-        for ch in chunks:
-            L = len(ch)
-            if acc + L > 8000 and block:
-                block_text = " \n\n".join(block)
-                sm = safe_sum(block_text)
-                if sm:
-                    out_summaries.append(sm)
-                block, acc = [], 0
-            block.append(ch); acc += L
-        if block:
-            sm = safe_sum(" \n\n".join(block))
-            if sm:
-                out_summaries.append(sm)
-        if not out_summaries:
-            return ""
-        merged = "\n\n---\n\n".join(out_summaries)
-        final = safe_sum(merged)
-        return final or merged[:3000]
-
-    summary_text = ""
-    method = "single"
-    if est_tokens(full_doc_text) <= MAX_TOKENS_PER_REQUEST:
-        summary_text = safe_sum(full_doc_text)
-    if not summary_text:
-        summary_text = map_reduce_summary(parts)
-        method = "map_reduce"
+    # ---------- enqueue background summary job (lazy summarization) ----------
+    # Instead of blocking ingestion for summarization, we enqueue a background job.
+    # This makes documents available immediately after chunking/embedding.
     try:
-        log.info("[METRICS] summarizer %s", json.dumps({
-            "doc_id": doc_id,
-            "method": method,
-            "input_chars": len(full_doc_text),
-            "summary_chars": len(summary_text or "")
-        }))
-    except Exception:
-        pass
-
-    if summary_text:
-        summary_meta = {
-            "file_name":  file_name,
-            "title":      file_name,
-            "author":     "Unknown",
-            "user_id":    user_id,
-            "class_id":   class_name,
-            "doc_id":     doc_id,
-            "is_summary": True,
-            "page_number": None,
-        }
-        MongoDBAtlasVectorSearch.from_texts(
-            [summary_text], embeddings, metadatas=[summary_meta], collection=collection
+        from tasks import enqueue_summary
+        enqueue_summary(
+            user_id=user_id,
+            class_name=class_name,
+            doc_id=doc_id,
+            file_name=file_name,
         )
+        log.info("[INGEST] Enqueued background summary job for doc %s", doc_id)
+    except Exception as e:
+        log.warning("[INGEST] Failed to enqueue summary job for doc %s: %s (will generate on-demand)", doc_id, e)
 
     # ---------- mark complete ----------
     try:
