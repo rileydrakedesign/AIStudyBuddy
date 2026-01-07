@@ -1618,7 +1618,7 @@ async def stream_semantic_search(
                         # Stream complete guide as single response
                         yield f"data: {json.dumps({'type': 'token', 'content': guide})}\n\n"
 
-                        citation = [{"text": summary_doc.get("s3_key", "Unknown"), "url": f"{backend_url}/file?key={quote(summary_doc.get('s3_key', ''))}"}]
+                        citation = get_file_citation([summary_doc])
                         chunk_refs = [{"chunkId": str(summary_doc["_id"]), "displayNumber": 1, "pageNumber": None}]
 
                         yield f"data: {json.dumps({'type': 'done', 'citations': citation, 'chunkReferences': chunk_refs})}\n\n"
@@ -1656,7 +1656,7 @@ async def stream_semantic_search(
                     # Stream complete summary as single response
                     yield f"data: {json.dumps({'type': 'token', 'content': condensed_text})}\n\n"
 
-                    citation = [{"text": summary_doc.get("s3_key", "Unknown"), "url": f"{backend_url}/file?key={quote(summary_doc.get('s3_key', ''))}"}]
+                    citation = get_file_citation([summary_doc])
                     chunk_refs = [{"chunkId": str(summary_doc["_id"]), "displayNumber": 1, "pageNumber": None}]
 
                     yield f"data: {json.dumps({'type': 'done', 'citations': citation, 'chunkReferences': chunk_refs})}\n\n"
