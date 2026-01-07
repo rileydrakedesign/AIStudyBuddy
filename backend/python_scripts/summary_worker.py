@@ -144,6 +144,59 @@ def fetch_document_chunks(user_id: str, doc_id: str) -> list[str]:
     return texts
 
 
+def fetch_section_summaries(user_id: str, doc_id: str) -> list[dict]:
+    """
+    Retrieve section summaries for a document, ordered by section index.
+    Returns list of section summary documents.
+    """
+    pipeline = [
+        {
+            "$match": {
+                "user_id": user_id,
+                "doc_id": doc_id,
+                "is_summary": True,
+                "summary_type": "section",
+            }
+        },
+        {"$sort": {"section_index": 1}},
+        {"$project": {"text": 1, "section_index": 1, "start_page": 1, "end_page": 1}},
+    ]
+
+    return list(collection.aggregate(pipeline))
+
+
+def combine_section_summaries(section_summaries: list[dict]) -> str:
+    """
+    Combine section summaries into a final document summary.
+    Much faster than summarizing all chunks.
+    """
+    if not section_summaries:
+        return ""
+
+    # Combine all section summaries
+    combined_text = "\n\n---\n\n".join(s["text"] for s in section_summaries)
+
+    # Generate final summary from combined sections
+    final_prompt = PromptTemplate.from_template(
+        "You are an expert study assistant.\n\n"
+        "Below are summaries of different sections of a document:\n\n"
+        "{context}\n\n"
+        "Write a comprehensive document summary in markdown format that:\n"
+        "- Captures the main themes and key ideas from all sections\n"
+        "- Uses ## for main headings and ### for subheadings\n"
+        "- Highlights **key terms** and important concepts\n"
+        "- Is well-organized and flows logically\n"
+        "- Is approximately 300-500 words\n"
+    )
+
+    try:
+        return (final_prompt | llm | StrOutputParser()).invoke({"context": combined_text})
+    except Exception as e:
+        log.error("[SUMMARY] Failed to combine section summaries: %s", e)
+        # Fallback: return combined text truncated
+        return combined_text[:4000]
+
+
 # ──────────────────────────────────────────────────────────────
 # MAIN WORKER FUNCTION
 # ──────────────────────────────────────────────────────────────
@@ -158,10 +211,11 @@ def generate_document_summary(
     Background job to generate and store a document summary.
 
     This function:
-    1. Fetches all chunks for the document
-    2. Generates a summary (single-pass or map-reduce for large docs)
-    3. Stores the summary in MongoDB with is_summary=True
-    4. Updates the document record with summary_status
+    1. First checks for section summaries (generated during ingestion)
+    2. If section summaries exist, combines them (fast path)
+    3. Otherwise, falls back to chunk-based summarization (slow path)
+    4. Stores the summary in MongoDB with is_summary=True
+    5. Updates the document record with summary_status
 
     Returns a dict with status and summary info.
     """
@@ -177,32 +231,45 @@ def generate_document_summary(
         log.warning("[SUMMARY] Could not update summaryStatus to processing: %s", e)
 
     try:
-        # Fetch all chunks for this document
-        chunks = fetch_document_chunks(user_id, doc_id)
+        # FAST PATH: Check for section summaries first
+        section_summaries = fetch_section_summaries(user_id, doc_id)
 
-        if not chunks:
-            log.warning("[SUMMARY] No chunks found for doc %s", doc_id)
-            main_collection.update_one(
-                {"_id": ObjectId(doc_id)},
-                {"$set": {"summaryStatus": "no_chunks"}}
-            )
-            return {"status": "no_chunks", "doc_id": doc_id}
-
-        # Combine all chunks to estimate total size
-        full_text = "\n\n".join(chunks)
-        total_tokens = est_tokens(full_text)
-
-        log.info("[SUMMARY] Doc %s: %d chunks, ~%d tokens", doc_id, len(chunks), total_tokens)
-
-        # Choose summarization strategy based on size
-        if total_tokens <= MAX_TOKENS_PER_REQUEST:
-            # Single-pass summarization for smaller documents
-            summary_text = safe_summarize(full_text)
-            method = "single"
+        if section_summaries:
+            log.info("[SUMMARY] Found %d section summaries for doc %s, using fast path",
+                     len(section_summaries), doc_id)
+            summary_text = combine_section_summaries(section_summaries)
+            method = "section_combine"
+            total_tokens = sum(est_tokens(s["text"]) for s in section_summaries)
         else:
-            # Map-reduce for large documents
-            summary_text = map_reduce_summary(chunks)
-            method = "map_reduce"
+            # SLOW PATH: Fall back to chunk-based summarization
+            log.info("[SUMMARY] No section summaries found for doc %s, using chunk-based summarization", doc_id)
+
+            # Fetch all chunks for this document
+            chunks = fetch_document_chunks(user_id, doc_id)
+
+            if not chunks:
+                log.warning("[SUMMARY] No chunks found for doc %s", doc_id)
+                main_collection.update_one(
+                    {"_id": ObjectId(doc_id)},
+                    {"$set": {"summaryStatus": "no_chunks"}}
+                )
+                return {"status": "no_chunks", "doc_id": doc_id}
+
+            # Combine all chunks to estimate total size
+            full_text = "\n\n".join(chunks)
+            total_tokens = est_tokens(full_text)
+
+            log.info("[SUMMARY] Doc %s: %d chunks, ~%d tokens", doc_id, len(chunks), total_tokens)
+
+            # Choose summarization strategy based on size
+            if total_tokens <= MAX_TOKENS_PER_REQUEST:
+                # Single-pass summarization for smaller documents
+                summary_text = safe_summarize(full_text)
+                method = "single"
+            else:
+                # Map-reduce for large documents
+                summary_text = map_reduce_summary(chunks)
+                method = "map_reduce"
 
         if not summary_text:
             log.error("[SUMMARY] Failed to generate summary for doc %s", doc_id)

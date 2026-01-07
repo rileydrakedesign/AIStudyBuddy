@@ -230,6 +230,172 @@ def summarize_document(text_input: str) -> str:
     )
     return (prompt | llm | StrOutputParser()).invoke({"context": text_input})
 
+
+# ──────────────────────────────────────────────────────────────
+# SECTION SUMMARIES (Ingestion-Time)
+# Generate section-level summaries during ingestion for fast
+# query-time document summarization.
+# ──────────────────────────────────────────────────────────────
+def generate_section_summary(
+    section_text: str,
+    section_index: int,
+    start_page: int,
+    end_page: int,
+) -> str:
+    """
+    Generate a summary for a section of the document.
+    Uses a faster/cheaper model for speed during ingestion.
+    """
+    section_llm = ChatOpenAI(model=config.SECTION_SUMMARY_MODEL, temperature=0)
+
+    prompt = PromptTemplate.from_template(
+        "You are an expert study assistant.\n\n"
+        "Below is a section of a document (pages {start_page}-{end_page}).\n\n"
+        "<section>\n{context}\n</section>\n\n"
+        "Write a concise summary (150-300 words) capturing the key ideas, "
+        "concepts, and important details from this section. "
+        "Use markdown formatting with bullet points for clarity."
+    )
+
+    try:
+        return (prompt | section_llm | StrOutputParser()).invoke({
+            "context": section_text,
+            "start_page": start_page,
+            "end_page": end_page,
+        })
+    except Exception as e:
+        log.error(f"[SECTION-SUMMARY] Failed to generate summary for section {section_index}: {e}")
+        return ""
+
+
+def generate_section_summaries_parallel(
+    chunks_by_page: dict[int, list[str]],
+    user_id: str,
+    class_name: str,
+    doc_id: str,
+    file_name: str,
+) -> list[dict]:
+    """
+    Generate section summaries in parallel during ingestion.
+
+    Args:
+        chunks_by_page: Dict mapping page numbers to list of chunk texts
+        user_id, class_name, doc_id, file_name: Document metadata
+
+    Returns:
+        List of section summary metadata dicts ready for storage
+    """
+    if not config.SECTION_SUMMARIES_ENABLED:
+        log.info("[SECTION-SUMMARY] Disabled by config, skipping")
+        return []
+
+    if not chunks_by_page:
+        return []
+
+    pages_per_section = config.SECTION_SUMMARY_PAGES
+    max_concurrency = config.SECTION_SUMMARY_CONCURRENCY
+
+    # Sort pages and group into sections
+    sorted_pages = sorted(chunks_by_page.keys())
+    total_pages = len(sorted_pages)
+
+    if total_pages < 5:
+        # Too small for section summaries - will use direct summarization
+        log.info(f"[SECTION-SUMMARY] Document too small ({total_pages} pages), skipping sections")
+        return []
+
+    # Build sections
+    sections = []
+    for i in range(0, total_pages, pages_per_section):
+        section_pages = sorted_pages[i:i + pages_per_section]
+        start_page = section_pages[0]
+        end_page = section_pages[-1]
+
+        # Combine all chunk texts for this section
+        section_chunks = []
+        for page in section_pages:
+            section_chunks.extend(chunks_by_page[page])
+
+        section_text = "\n\n".join(section_chunks)
+
+        sections.append({
+            "index": len(sections),
+            "start_page": start_page,
+            "end_page": end_page,
+            "text": section_text,
+        })
+
+    log.info(f"[SECTION-SUMMARY] Generating {len(sections)} section summaries for {total_pages} pages")
+
+    # Generate summaries in parallel
+    section_summaries = []
+
+    def process_section(section):
+        summary_text = generate_section_summary(
+            section_text=section["text"],
+            section_index=section["index"],
+            start_page=section["start_page"],
+            end_page=section["end_page"],
+        )
+
+        if summary_text:
+            return {
+                "text": summary_text,
+                "file_name": file_name,
+                "title": file_name,
+                "author": "Unknown",
+                "user_id": user_id,
+                "class_id": class_name,
+                "doc_id": doc_id,
+                "is_summary": True,
+                "summary_type": "section",
+                "section_index": section["index"],
+                "start_page": section["start_page"],
+                "end_page": section["end_page"],
+                "page_number": None,
+                "source_type": "section_summary",
+            }
+        return None
+
+    with ThreadPoolExecutor(max_workers=max_concurrency) as executor:
+        futures = {executor.submit(process_section, s): s for s in sections}
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                section_summaries.append(result)
+
+    # Sort by section index
+    section_summaries.sort(key=lambda x: x["section_index"])
+
+    log.info(f"[SECTION-SUMMARY] Generated {len(section_summaries)} section summaries")
+    return section_summaries
+
+
+def store_section_summaries(section_summaries: list[dict]) -> int:
+    """
+    Store section summaries in MongoDB with embeddings.
+
+    Returns number of summaries stored.
+    """
+    if not section_summaries:
+        return 0
+
+    texts = [s["text"] for s in section_summaries]
+    metadatas = [{k: v for k, v in s.items() if k != "text"} for s in section_summaries]
+
+    try:
+        MongoDBAtlasVectorSearch.from_texts(
+            texts,
+            embeddings,
+            metadatas=metadatas,
+            collection=collection
+        )
+        log.info(f"[SECTION-SUMMARY] Stored {len(section_summaries)} section summaries")
+        return len(section_summaries)
+    except Exception as e:
+        log.error(f"[SECTION-SUMMARY] Failed to store summaries: {e}")
+        return 0
+
 # ──────────────────────────────────────────────────────────────
 # PRODUCER → CONSUMER INGEST
 # ──────────────────────────────────────────────────────────────
@@ -241,11 +407,12 @@ def stream_chunks_to_atlas(
     doc_id: str,
     file_name: str,
     batch_chars: int = 8_000,
-) -> tuple[str, list[str]]:
+) -> tuple[str, list[str], dict[int, list[str]]]:
     """
     Parse PDF pages in parallel, push small batches through a queue.
     Consumer thread embeds + inserts each batch immediately.
-    Returns a tuple: (full_doc_text, summary_parts) for downstream summarisation.
+    Returns a tuple: (full_doc_text, summary_parts, chunks_by_page) for downstream summarisation.
+    chunks_by_page maps page numbers to original chunk texts for section summary generation.
     """
     q: SimpleQueue[list[tuple[str, dict]]] = SimpleQueue()
     # Ingest metrics counters
@@ -327,6 +494,7 @@ def stream_chunks_to_atlas(
     author = meta.get("author", "Unknown")
 
     summary_parts: list[str] = []
+    chunks_by_page: dict[int, list[str]] = {}  # Track original chunks by page for section summaries
     batch, char_sum = [], 0
 
     def flush_batch():
@@ -336,7 +504,7 @@ def stream_chunks_to_atlas(
             batch.clear(); char_sum = 0
 
     def parse_page(idx: int):
-        nonlocal pages_total, pages_empty, chunks_produced, total_chars, max_chunk_chars
+        nonlocal pages_total, pages_empty, chunks_produced, total_chars, max_chunk_chars, chunks_by_page
         page_md = doc.load_page(idx).get_text("markdown")
         pages_total += 1
         if not page_md.strip():
@@ -359,6 +527,11 @@ def stream_chunks_to_atlas(
                 pieces = [text]
             for piece in pieces:
                 summary_parts.append(piece)
+                # Track chunks by page for section summary generation
+                page_num = idx + 1
+                if page_num not in chunks_by_page:
+                    chunks_by_page[page_num] = []
+                chunks_by_page[page_num].append(piece)
                 # Extract section headers from markdown metadata if available
                 section_headers = d.metadata.get("Header 1", []) if hasattr(d, "metadata") else []
                 if isinstance(section_headers, str):
@@ -430,7 +603,7 @@ def stream_chunks_to_atlas(
         pass
     log.info("Streaming ingest complete")
 
-    return " ".join(summary_parts), summary_parts
+    return " ".join(summary_parts), summary_parts, chunks_by_page
 
 
 # ──────────────────────────────────────────────────────────────
@@ -444,11 +617,12 @@ def stream_docx_chunks_to_atlas(
     doc_id: str,
     file_name: str,
     batch_chars: int = 8_000,
-) -> tuple[str, list[str]]:
+) -> tuple[str, list[str], dict[int, list[str]]]:
     """
     Process DOCX paragraphs and push batches through a queue.
     Consumer thread embeds + inserts each batch immediately.
-    Returns a tuple: (full_doc_text, summary_parts) for downstream summarization.
+    Returns a tuple: (full_doc_text, summary_parts, chunks_by_page) for downstream summarization.
+    chunks_by_page maps paragraph numbers to original chunk texts for section summary generation.
     """
     q: SimpleQueue[list[tuple[str, dict]]] = SimpleQueue()
 
@@ -540,6 +714,7 @@ def stream_docx_chunks_to_atlas(
         raise
 
     summary_parts: list[str] = []
+    chunks_by_page: dict[int, list[str]] = {}  # Track original chunks by paragraph for section summaries
     batch, char_sum = [], 0
 
     def flush_batch():
@@ -564,6 +739,10 @@ def stream_docx_chunks_to_atlas(
 
         for piece in pieces:
             summary_parts.append(piece)
+            # Track chunks by paragraph for section summary generation
+            if paragraph_num not in chunks_by_page:
+                chunks_by_page[paragraph_num] = []
+            chunks_by_page[paragraph_num].append(piece)
 
             # Add contextual header to chunk for improved retrieval (P0)
             contextualized_text, original_text = add_context_to_chunk(
@@ -625,7 +804,7 @@ def stream_docx_chunks_to_atlas(
         pass
 
     log.info("DOCX streaming ingest complete")
-    return " ".join(summary_parts), summary_parts
+    return " ".join(summary_parts), summary_parts, chunks_by_page
 
 
 # ──────────────────────────────────────────────────────────────
@@ -711,7 +890,7 @@ def load_document_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
         if pdf_buffer is not None:
             log.info(f"[DOCX-CONVERSION] Processing converted PDF for text extraction and chunking")
             pdf_buffer.seek(0)
-            full_doc_text, parts = stream_chunks_to_atlas(
+            full_doc_text, parts, chunks_by_page = stream_chunks_to_atlas(
                 pdf_buffer,
                 user_id=user_id,
                 class_id=class_name,
@@ -721,7 +900,7 @@ def load_document_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
         else:
             log.warning(f"[DOCX-CONVERSION] PDF conversion failed or disabled - falling back to DOCX processing")
             file_stream.seek(0)
-            full_doc_text, parts = stream_docx_chunks_to_atlas(
+            full_doc_text, parts, chunks_by_page = stream_docx_chunks_to_atlas(
                 file_stream,
                 user_id=user_id,
                 class_id=class_name,
@@ -730,7 +909,7 @@ def load_document_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
             )
     elif file_ext == 'pdf':
         log.info(f"Processing PDF: {file_name}")
-        full_doc_text, parts = stream_chunks_to_atlas(
+        full_doc_text, parts, chunks_by_page = stream_chunks_to_atlas(
             file_stream,
             user_id=user_id,
             class_id=class_name,
@@ -741,9 +920,28 @@ def load_document_data(user_id: str, class_name: str, s3_key: str, doc_id: str):
         log.error(f"Unexpected file type after validation: {file_ext}")
         return
 
-    # ---------- enqueue background summary job (lazy summarization) ----------
-    # Instead of blocking ingestion for summarization, we enqueue a background job.
-    # This makes documents available immediately after chunking/embedding.
+    # ---------- generate section summaries (parallel, during ingestion) ----------
+    # Section summaries are generated here so they're available for fast query-time
+    # document summarization. This replaces the slow on-demand full-doc summarization.
+    section_summaries = []
+    if config.SECTION_SUMMARIES_ENABLED and chunks_by_page:
+        try:
+            section_summaries = generate_section_summaries_parallel(
+                chunks_by_page=chunks_by_page,
+                user_id=user_id,
+                class_name=class_name,
+                doc_id=doc_id,
+                file_name=file_name,
+            )
+            if section_summaries:
+                stored_count = store_section_summaries(section_summaries)
+                log.info(f"[INGEST] Stored {stored_count} section summaries for doc {doc_id}")
+        except Exception as e:
+            log.error(f"[INGEST] Failed to generate section summaries for doc {doc_id}: {e}", exc_info=True)
+
+    # ---------- enqueue background summary job (final document summary) ----------
+    # The background job will combine section summaries into a final document summary.
+    # This is much faster than summarizing all chunks from scratch.
     try:
         from tasks import enqueue_summary
         enqueue_summary(

@@ -191,6 +191,24 @@ PARENT_CHUNK_OVERLAP: int = _get_int_env("PARENT_CHUNK_OVERLAP", 200)
 CHILD_CHUNK_SIZE: int = _get_int_env("CHILD_CHUNK_SIZE", 600)
 CHILD_CHUNK_OVERLAP: int = _get_int_env("CHILD_CHUNK_OVERLAP", 60)
 
+# ────────────────────────────────────────────────────────────────
+# SECTION SUMMARIES (Ingestion-Time Summarization)
+# Generates section-level summaries during ingestion for fast query-time
+# document summarization. Larger sections = faster ingestion, fewer LLM calls.
+# ────────────────────────────────────────────────────────────────
+SECTION_SUMMARIES_ENABLED: bool = _get_bool_env("SECTION_SUMMARIES_ENABLED", True)
+
+# Pages per section - larger = fewer summaries = faster ingestion
+# 25 pages per section means a 100-page doc gets 4 section summaries
+SECTION_SUMMARY_PAGES: int = _get_int_env("SECTION_SUMMARY_PAGES", 25)
+
+# Maximum concurrent section summary generations during ingestion
+# Higher = faster but more API load
+SECTION_SUMMARY_CONCURRENCY: int = _get_int_env("SECTION_SUMMARY_CONCURRENCY", 3)
+
+# Model for section summaries (use fast/cheap model)
+SECTION_SUMMARY_MODEL: str = _get_optional_env("SECTION_SUMMARY_MODEL", "gpt-4o-mini")
+
 
 # ────────────────────────────────────────────────────────────────
 # STARTUP VALIDATION

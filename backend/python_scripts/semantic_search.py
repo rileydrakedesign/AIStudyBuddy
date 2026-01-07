@@ -349,6 +349,60 @@ def fetch_document_chunks_for_summary(user_id: str, doc_id: str, limit: int = 50
     return list(collection.aggregate(pipeline))
 
 
+def fetch_section_summaries_for_doc(user_id: str, doc_id: str) -> list[dict]:
+    """
+    Fetch section summaries for a document, ordered by section index.
+    """
+    pipeline = [
+        {
+            "$match": {
+                "user_id": user_id,
+                "doc_id": doc_id,
+                "is_summary": True,
+                "summary_type": "section",
+            }
+        },
+        {"$sort": {"section_index": 1}},
+        {"$project": {"text": 1, "section_index": 1, "start_page": 1, "end_page": 1}},
+    ]
+    return list(collection.aggregate(pipeline))
+
+
+def combine_section_summaries_on_demand(
+    section_summaries: list[dict],
+    llm: ChatOpenAI | None = None,
+) -> str:
+    """
+    Combine section summaries into a final document summary.
+    Used for fast on-demand summary generation.
+    """
+    if not section_summaries:
+        return ""
+
+    if llm is None:
+        llm = get_llm("summary")
+
+    combined_text = "\n\n---\n\n".join(s["text"] for s in section_summaries)
+
+    final_prompt = PromptTemplate.from_template(
+        "You are an expert study assistant.\n\n"
+        "Below are summaries of different sections of a document:\n\n"
+        "{context}\n\n"
+        "Write a comprehensive document summary in markdown format that:\n"
+        "- Captures the main themes and key ideas from all sections\n"
+        "- Uses ## for main headings and ### for subheadings\n"
+        "- Highlights **key terms** and important concepts\n"
+        "- Is well-organized and flows logically\n"
+        "- Is approximately 300-500 words\n"
+    )
+
+    try:
+        return (final_prompt | llm | StrOutputParser()).invoke({"context": combined_text})
+    except Exception as e:
+        log.error("[ON-DEMAND] Failed to combine section summaries: %s", e)
+        return combined_text[:4000]
+
+
 def generate_summary_on_demand(
     user_id: str,
     class_name: str,
@@ -359,8 +413,9 @@ def generate_summary_on_demand(
     """
     Generate a document summary on-demand when no cached summary exists.
 
-    This is the fallback for lazy summarization - when a user requests
-    a summary before the background job has completed.
+    This function uses a tiered approach:
+    1. FAST PATH: If section summaries exist, combine them (~3-5 seconds)
+    2. SLOW PATH: Fall back to chunk-based summarization (may timeout for large docs)
 
     Returns a summary document dict compatible with fetch_summary_chunk format,
     or None if generation fails.
@@ -368,6 +423,69 @@ def generate_summary_on_demand(
     log.info("[ON-DEMAND] Generating summary for doc %s", doc_id)
 
     try:
+        # FAST PATH: Check for section summaries first
+        section_summaries = fetch_section_summaries_for_doc(user_id, doc_id)
+
+        if section_summaries:
+            log.info("[ON-DEMAND] Found %d section summaries for doc %s, using fast path",
+                     len(section_summaries), doc_id)
+
+            if llm is None:
+                llm = get_llm("summary")
+
+            summary_text = combine_section_summaries_on_demand(section_summaries, llm)
+
+            if not summary_text:
+                log.error("[ON-DEMAND] Failed to combine section summaries for doc %s", doc_id)
+                return None
+
+            # Get file_name from first chunk if not provided
+            if not file_name:
+                first_chunk = collection.find_one({"doc_id": doc_id, "is_summary": False})
+                file_name = first_chunk.get("file_name", "Unknown Document") if first_chunk else "Unknown Document"
+
+            log.info("[ON-DEMAND] Generated summary from sections for doc %s (%d chars)", doc_id, len(summary_text))
+
+            # Cache the summary
+            try:
+                from langchain_mongodb import MongoDBAtlasVectorSearch
+
+                summary_meta = {
+                    "file_name": file_name,
+                    "title": file_name,
+                    "author": "Unknown",
+                    "user_id": user_id,
+                    "class_id": class_name,
+                    "doc_id": doc_id,
+                    "is_summary": True,
+                    "page_number": None,
+                    "source_type": "on_demand_sections",
+                }
+
+                MongoDBAtlasVectorSearch.from_texts(
+                    [summary_text],
+                    embedding_model,
+                    metadatas=[summary_meta],
+                    collection=collection
+                )
+                log.info("[ON-DEMAND] Cached section-based summary for doc %s", doc_id)
+            except Exception as cache_err:
+                log.warning("[ON-DEMAND] Failed to cache summary: %s", cache_err)
+
+            return {
+                "_id": ObjectId(),
+                "text": summary_text,
+                "file_name": file_name,
+                "doc_id": doc_id,
+                "user_id": user_id,
+                "class_id": class_name,
+                "is_summary": True,
+                "page_number": None,
+            }
+
+        # SLOW PATH: Fall back to chunk-based summarization
+        log.info("[ON-DEMAND] No section summaries for doc %s, using chunk-based summarization", doc_id)
+
         # Fetch chunks for this document
         chunks = fetch_document_chunks_for_summary(user_id, doc_id, limit=60)
 
