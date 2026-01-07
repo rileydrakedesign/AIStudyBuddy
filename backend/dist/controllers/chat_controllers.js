@@ -246,13 +246,22 @@ export const generateChatCompletion = async (req, res, next) => {
             req.log.info("Python stream initiated, setting up event handlers");
             let tokenCount = 0;
             let keepaliveCount = 0;
+            let sseBuffer = ""; // Buffer for incomplete SSE events
             // Parse SSE events and emit to WebSocket
             pythonStream.data.on('data', (chunk) => {
-                const text = chunk.toString();
-                const lines = text.split('\n').filter((line) => line.trim().startsWith('data:'));
-                lines.forEach((line) => {
+                // Append chunk to buffer (SSE events may span multiple chunks)
+                sseBuffer += chunk.toString();
+                // SSE events are separated by double newlines
+                const events = sseBuffer.split('\n\n');
+                // Keep the last part in buffer (might be incomplete)
+                sseBuffer = events.pop() || "";
+                events.forEach((eventBlock) => {
                     try {
-                        const jsonStr = line.replace('data:', '').trim();
+                        // Find the data line in the event block
+                        const dataLine = eventBlock.split('\n').find((line) => line.trim().startsWith('data:'));
+                        if (!dataLine)
+                            return;
+                        const jsonStr = dataLine.replace('data:', '').trim();
                         if (!jsonStr)
                             return;
                         const event = JSON.parse(jsonStr);
@@ -288,7 +297,7 @@ export const generateChatCompletion = async (req, res, next) => {
                         }
                     }
                     catch (parseError) {
-                        req.log.warn({ err: parseError, line }, "Failed to parse SSE event");
+                        req.log.warn({ err: parseError, eventBlock }, "Failed to parse SSE event");
                     }
                 });
             });

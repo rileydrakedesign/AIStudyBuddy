@@ -284,15 +284,26 @@ export const generateChatCompletion = async (req, res, next) => {
 
       let tokenCount = 0;
       let keepaliveCount = 0;
+      let sseBuffer = ""; // Buffer for incomplete SSE events
 
       // Parse SSE events and emit to WebSocket
       pythonStream.data.on('data', (chunk: Buffer) => {
-        const text = chunk.toString();
-        const lines = text.split('\n').filter((line: string) => line.trim().startsWith('data:'));
+        // Append chunk to buffer (SSE events may span multiple chunks)
+        sseBuffer += chunk.toString();
 
-        lines.forEach((line: string) => {
+        // SSE events are separated by double newlines
+        const events = sseBuffer.split('\n\n');
+
+        // Keep the last part in buffer (might be incomplete)
+        sseBuffer = events.pop() || "";
+
+        events.forEach((eventBlock: string) => {
           try {
-            const jsonStr = line.replace('data:', '').trim();
+            // Find the data line in the event block
+            const dataLine = eventBlock.split('\n').find((line: string) => line.trim().startsWith('data:'));
+            if (!dataLine) return;
+
+            const jsonStr = dataLine.replace('data:', '').trim();
             if (!jsonStr) return;
 
             const event = JSON.parse(jsonStr);
@@ -328,13 +339,38 @@ export const generateChatCompletion = async (req, res, next) => {
               // Ignore keepalive events (just prevent timeout)
             }
           } catch (parseError) {
-            (req as any).log.warn({ err: parseError, line }, "Failed to parse SSE event");
+            (req as any).log.warn({ err: parseError, eventBlock }, "Failed to parse SSE event");
           }
         });
       });
 
       pythonStream.data.on('end', async () => {
-        (req as any).log.info({ streamError, hasCitations: !!citations }, "Python stream ended");
+        // Process any remaining data in buffer
+        if (sseBuffer.trim()) {
+          try {
+            const dataLine = sseBuffer.split('\n').find((line: string) => line.trim().startsWith('data:'));
+            if (dataLine) {
+              const jsonStr = dataLine.replace('data:', '').trim();
+              if (jsonStr) {
+                const event = JSON.parse(jsonStr);
+                if (event.type === 'token') {
+                  fullResponse += event.content;
+                  io.to(userRoom).emit('chat-stream-token', {
+                    sessionId: chatSession._id.toString(),
+                    token: event.content
+                  });
+                } else if (event.type === 'done') {
+                  citations = event.citations;
+                  chunkReferences = event.chunkReferences || [];
+                }
+              }
+            }
+          } catch (e) {
+            (req as any).log.warn({ err: e, sseBuffer }, "Failed to parse remaining SSE buffer");
+          }
+        }
+
+        (req as any).log.info({ streamError, hasCitations: !!citations, tokenCount, fullResponseLength: fullResponse.length }, "Python stream ended");
 
         if (streamError) {
           // Stream failed - emit error and don't save
