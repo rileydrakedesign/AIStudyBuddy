@@ -694,13 +694,19 @@ def condense_summary(summary_text: str, user_query: str, llm: ChatOpenAI) -> str
     )
 
 def fetch_class_summaries(user_id: str, class_name: str):
-    """Return every stored doc-level summary chunk for the class."""
+    """
+    Return only document-level summaries for the class.
+
+    Excludes section summaries (level: "section") which are intermediate
+    summaries used for on-demand document summary generation, not final doc summaries.
+    """
     if class_name in (None, "", "null"):
         return []
     return list(collection.find({
-        "user_id":  user_id,
+        "user_id": user_id,
         "class_id": class_name,
-        "is_summary": True
+        "is_summary": True,
+        "level": {"$ne": "section"},  # Exclude section summaries (keeps "doc" and no level)
     }).sort("file_name", 1))
 
 
@@ -788,7 +794,99 @@ def condense_class_summaries(text: str, user_query: str, llm: ChatOpenAI) -> str
         {"context": text, "user_query": user_query}
     )
 
-# ------------ NEW  study-guide generation helper ------------
+
+# ------------ Hierarchical (map-reduce) class summarization ------------
+def hierarchical_class_summary(
+    summaries: list[dict],
+    user_query: str,
+    llm: ChatOpenAI,
+    max_tokens_per_batch: int = 6000,
+) -> str:
+    """
+    Map-reduce summarization for large classes with many/large documents.
+
+    This handles classes that exceed direct summarization limits by:
+    1. Grouping summaries into batches within token limits (map)
+    2. Summarizing each batch independently
+    3. Combining batch summaries into final output (reduce)
+
+    Args:
+        summaries: List of document summary dicts with "text" field
+        user_query: User's original query for context
+        llm: LLM instance for summarization
+        max_tokens_per_batch: Maximum tokens per batch before splitting
+
+    Returns:
+        Final condensed summary string
+    """
+    if not summaries:
+        return ""
+
+    # Group summaries into token-bounded batches
+    batches: list[list[str]] = []
+    current_batch: list[str] = []
+    current_tokens = 0
+
+    for summary in summaries:
+        text = summary.get("text", "")
+        tokens = est_tokens(text)
+
+        # Start new batch if adding this would exceed limit
+        if current_tokens + tokens > max_tokens_per_batch and current_batch:
+            batches.append(current_batch)
+            current_batch = []
+            current_tokens = 0
+
+        current_batch.append(text)
+        current_tokens += tokens
+
+    # Don't forget the last batch
+    if current_batch:
+        batches.append(current_batch)
+
+    log.info(
+        "[HIERARCHICAL] Processing %d summaries in %d batches (max %d tokens/batch)",
+        len(summaries), len(batches), max_tokens_per_batch
+    )
+
+    # If only one batch fits, use simple condensation
+    if len(batches) == 1:
+        combined = "\n\n---\n\n".join(batches[0])
+        return condense_class_summaries(combined, user_query, llm)
+
+    # MAP PHASE: Summarize each batch independently
+    batch_prompt = PromptTemplate.from_template(
+        "You are an expert study assistant.\n\n"
+        "Below are document summaries from a class:\n\n"
+        "{context}\n\n"
+        "Write a concise summary (150-200 words) capturing the key themes, "
+        "concepts, and important information across these documents."
+    )
+
+    intermediate_summaries: list[str] = []
+    for i, batch in enumerate(batches):
+        batch_text = "\n\n---\n\n".join(batch)
+        try:
+            batch_summary = (batch_prompt | llm | StrOutputParser()).invoke(
+                {"context": batch_text}
+            )
+            intermediate_summaries.append(batch_summary)
+            log.info("[HIERARCHICAL] Batch %d/%d summarized (%d chars)",
+                     i + 1, len(batches), len(batch_summary))
+        except Exception as e:
+            log.error("[HIERARCHICAL] Batch %d failed: %s", i + 1, e)
+            # Fallback: use truncated batch text
+            intermediate_summaries.append(batch_text[:2000])
+
+    # REDUCE PHASE: Combine intermediate summaries into final output
+    final_combined = "\n\n---\n\n".join(intermediate_summaries)
+    log.info("[HIERARCHICAL] Reduce phase: combining %d intermediate summaries",
+             len(intermediate_summaries))
+
+    return condense_class_summaries(final_combined, user_query, llm)
+
+
+# ------------ Study-guide generation helper ------------
 def generate_study_guide(context_text: str, user_query: str, llm: ChatOpenAI) -> str:
     """
     Build a markdown study guide with fixed sections.
@@ -919,70 +1017,129 @@ def process_semantic_search(
     # -------------------- History sanitisation --------------------
     # -----------------------------------------------------------
     #  Study-guide pipeline (executes before generic retrieval)
+    #  Now with token validation and error handling
     # -----------------------------------------------------------
     if route == "generate_study_guide" or mode == "study_guide":
-        # -------- Single-document study guide --------
-        if doc_id and doc_id != "null":
-            # Use fallback to generate on-demand if no cached summary
-            summary_doc = get_summary_with_fallback(user_id, class_name, doc_id)
-            if summary_doc:
-                context_txt = summary_doc["text"]
-                if est_tokens(context_txt) > MAX_PROMPT_TOKENS:
-                    context_txt = condense_summary(context_txt, user_query, get_llm("summary"))
-                    # ── NEW LOG ───────────────────────────────────────────
-                log.info(
-                    "[PROC] Study-guide (doc) | summary_tokens=%d | will_condense=%s",
-                    est_tokens(context_txt),
-                    "YES" if est_tokens(context_txt) > MAX_PROMPT_TOKENS else "NO",
+        try:
+            # -------- Single-document study guide --------
+            if doc_id and doc_id != "null":
+                # Use fallback to generate on-demand if no cached summary
+                summary_doc = get_summary_with_fallback(user_id, class_name, doc_id)
+                if summary_doc:
+                    context_txt = summary_doc["text"]
+                    if est_tokens(context_txt) > MAX_PROMPT_TOKENS:
+                        context_txt = condense_summary(context_txt, user_query, get_llm("summary"))
+                    log.info(
+                        "[PROC] Study-guide (doc) | summary_tokens=%d | will_condense=%s",
+                        est_tokens(context_txt),
+                        "YES" if est_tokens(context_txt) > MAX_PROMPT_TOKENS else "NO",
+                    )
+                    guide = generate_study_guide(context_txt, user_query, get_llm("generate_study_guide"))
+
+                    chunk_array = [{
+                        "_id": str(summary_doc["_id"]), "chunkNumber": 1,
+                        "text": summary_doc["text"], "pageNumber": None,
+                        "docId": summary_doc["doc_id"],
+                    }]
+                    citation = get_file_citation([summary_doc])
+                    chunk_refs = [{"chunkId": chunk_array[0]["_id"], "displayNumber": 1, "pageNumber": None}]
+                    chat_history.append({"role": "assistant", "content": guide, "chunkReferences": chunk_refs})
+                    return {
+                        "message": guide, "citation": citation, "chats": chat_history,
+                        "chunks": chunk_array, "chunkReferences": chunk_refs,
+                    }
+
+            # -------- Class-level study guide (with token validation) --------
+            if class_name and class_name != "null":
+                # Use fallback to generate on-demand for docs without cached summaries
+                docs = get_class_summaries_with_fallback(user_id, class_name)
+                if docs:
+                    # Calculate total tokens across all document summaries
+                    combined_tokens = sum(est_tokens(d.get("text", "")) for d in docs)
+
+                    log.info(
+                        "[PROC] Study-guide (class) | combined_tokens=%d | n_docs=%d",
+                        combined_tokens, len(docs),
+                    )
+
+                    # Check if too large even for hierarchical summarization
+                    if combined_tokens > config.MAX_HIERARCHICAL_INPUT_TOKENS:
+                        friendly = (
+                            "This class contains too much content to generate a study guide. "
+                            "Please open individual documents and create study guides for each one separately."
+                        )
+                        chat_history.append({"role": "assistant", "content": friendly})
+                        return {
+                            "message": friendly,
+                            "status": "class_too_large",
+                            "citation": [],
+                            "chats": chat_history,
+                            "chunks": [],
+                            "chunkReferences": [],
+                        }
+
+                    # Use hierarchical summarization for large classes, else direct
+                    if combined_tokens > config.MAX_CLASS_SUMMARY_TOKENS and config.HIERARCHICAL_CLASS_SUMMARY_ENABLED:
+                        log.info("[PROC] Using hierarchical summarization for class study guide")
+                        condensed = hierarchical_class_summary(docs, user_query, get_llm("summary"))
+                    elif combined_tokens > MAX_PROMPT_TOKENS:
+                        combined = "\n\n---\n\n".join(d["text"] for d in docs)
+                        condensed = condense_class_summaries(combined, user_query, get_llm("summary"))
+                    else:
+                        condensed = "\n\n---\n\n".join(d["text"] for d in docs)
+
+                    guide = generate_study_guide(condensed, user_query, get_llm("generate_study_guide"))
+
+                    chunk_array = [{
+                        "_id": str(d["_id"]), "chunkNumber": i + 1,
+                        "text": d["text"], "pageNumber": None, "docId": d["doc_id"],
+                    } for i, d in enumerate(docs)]
+                    citation = get_file_citation(docs)
+                    chunk_refs = [{"chunkId": c["_id"], "displayNumber": c["chunkNumber"], "pageNumber": None}
+                                  for c in chunk_array]
+                    chat_history.append({"role": "assistant", "content": guide, "chunkReferences": chunk_refs})
+                    return {
+                        "message": guide, "citation": citation, "chats": chat_history,
+                        "chunks": chunk_array, "chunkReferences": chunk_refs,
+                    }
+
+        except (InvalidRequestError, BadRequestError) as oe:
+            err_code = getattr(oe, "code", None) or getattr(getattr(oe, "error", None), "code", None)
+            if err_code == "context_length_exceeded":
+                friendly = (
+                    "This class contains too much content to generate a study guide. "
+                    "Please open individual documents and create study guides for each one separately."
                 )
-                # ──────────────────────────────────────────────────────
-                guide = generate_study_guide(context_txt, user_query, get_llm("generate_study_guide"))
-
-                chunk_array = [{
-                    "_id": str(summary_doc["_id"]), "chunkNumber": 1,
-                    "text": summary_doc["text"], "pageNumber": None,
-                    "docId": summary_doc["doc_id"],
-                }]
-                citation   = get_file_citation([summary_doc])
-                chunk_refs = [{"chunkId": chunk_array[0]["_id"], "displayNumber": 1, "pageNumber": None}]
-                chat_history.append({"role": "assistant", "content": guide, "chunkReferences": chunk_refs})
+                chat_history.append({"role": "assistant", "content": friendly})
+                log.warning("[STUDY-GUIDE] Context length exceeded for class %s", class_name)
                 return {
-                    "message": guide, "citation": citation, "chats": chat_history,
-                    "chunks": chunk_array, "chunkReferences": chunk_refs,
+                    "message": friendly,
+                    "status": "context_too_large",
+                    "citation": [],
+                    "chats": chat_history,
+                    "chunks": [],
+                    "chunkReferences": [],
                 }
+            # Re-raise other InvalidRequest/BadRequest errors
+            raise
 
-        # -------- Class-level study guide --------
-        if class_name and class_name != "null":
-            # Use fallback to generate on-demand for docs without cached summaries
-            docs = get_class_summaries_with_fallback(user_id, class_name)
-            if docs:
-                combined = "\n\n---\n\n".join(d["text"] for d in docs)
-                if est_tokens(combined) > MAX_PROMPT_TOKENS:
-                    combined = condense_class_summaries(combined, user_query, get_llm("summary"))
-                    
-                # ── NEW LOG ───────────────────────────────────────────
-                log.info(
-                    "[PROC] Study-guide (class) | combined_tokens=%d | will_condense=%s | n_docs=%d",
-                    est_tokens(combined),
-                    "YES" if est_tokens(combined) > MAX_PROMPT_TOKENS else "NO",
-                    len(docs),
-                )
-                # ──────────────────────────────────────────────────────
+        except Exception as e:
+            log.error("[STUDY-GUIDE] Unexpected error: %s", e, exc_info=True)
+            friendly = (
+                "An error occurred while generating the study guide. "
+                "Please try again or generate study guides for individual documents."
+            )
+            chat_history.append({"role": "assistant", "content": friendly})
+            return {
+                "message": friendly,
+                "status": "error",
+                "retryable": True,
+                "citation": [],
+                "chats": chat_history,
+                "chunks": [],
+                "chunkReferences": [],
+            }
 
-                guide = generate_study_guide(combined, user_query, get_llm("generate_study_guide"))
-
-                chunk_array = [{
-                    "_id": str(d["_id"]), "chunkNumber": i+1,
-                    "text": d["text"], "pageNumber": None, "docId": d["doc_id"],
-                } for i, d in enumerate(docs)]
-                citation   = get_file_citation(docs)
-                chunk_refs = [{"chunkId": c["_id"], "displayNumber": c["chunkNumber"], "pageNumber": None}
-                            for c in chunk_array]
-                chat_history.append({"role": "assistant", "content": guide, "chunkReferences": chunk_refs})
-                return {
-                    "message": guide, "citation": citation, "chats": chat_history,
-                    "chunks": chunk_array, "chunkReferences": chunk_refs,
-                }
         #  ↳ If no summary found or no doc/class chosen, fall through to normal pipeline
 
     chat_history_cleaned = []
@@ -1206,44 +1363,111 @@ def process_semantic_search(
             }
             # ----------------------------------------------------------------
     # CLASS-LEVEL SUMMARY (aggregate doc summaries for the class)
+    # Now with token validation and hierarchical summarization
     # ----------------------------------------------------------------
     if mode == "class_summary":
-        # Use fallback to generate on-demand for docs without cached summaries
-        docs = get_class_summaries_with_fallback(user_id, class_name)
-        if not docs:
-            log.warning("No summaries found for this class and on-demand generation failed; falling back to specific search.")
-            mode = "specific"            # fall through to normal retrieval
-        else:
-            combined = "\n\n---\n\n".join(d["text"] for d in docs)
-            condensed_text = condense_class_summaries(combined, user_query, get_llm("summary"))
+        try:
+            # Use fallback to generate on-demand for docs without cached summaries
+            docs = get_class_summaries_with_fallback(user_id, class_name)
+            if not docs:
+                log.warning("No summaries found for this class and on-demand generation failed; falling back to specific search.")
+                mode = "specific"  # fall through to normal retrieval
+            else:
+                # Calculate total tokens across all document summaries
+                combined_tokens = sum(est_tokens(d.get("text", "")) for d in docs)
 
-            chunk_array = [
-                {
-                    "_id": str(d["_id"]),
-                    "chunkNumber": i + 1,
-                    "text": d["text"],
-                    "pageNumber": None,
-                    "docId": d["doc_id"],
+                log.info(
+                    "[PROC] Class-summary | combined_tokens=%d | n_docs=%d",
+                    combined_tokens, len(docs),
+                )
+
+                # Check if too large even for hierarchical summarization
+                if combined_tokens > config.MAX_HIERARCHICAL_INPUT_TOKENS:
+                    friendly = (
+                        "This class has too many documents or documents that are too large to summarize at once. "
+                        "Please open individual documents to summarize them separately."
+                    )
+                    chat_history.append({"role": "assistant", "content": friendly})
+                    return {
+                        "message": friendly,
+                        "status": "class_too_large",
+                        "citation": [],
+                        "chats": chat_history,
+                        "chunks": [],
+                        "chunkReferences": [],
+                    }
+
+                # Use hierarchical summarization for large classes, else direct
+                if combined_tokens > config.MAX_CLASS_SUMMARY_TOKENS and config.HIERARCHICAL_CLASS_SUMMARY_ENABLED:
+                    log.info("[PROC] Using hierarchical summarization for class summary")
+                    condensed_text = hierarchical_class_summary(docs, user_query, get_llm("summary"))
+                else:
+                    combined = "\n\n---\n\n".join(d["text"] for d in docs)
+                    condensed_text = condense_class_summaries(combined, user_query, get_llm("summary"))
+
+                chunk_array = [
+                    {
+                        "_id": str(d["_id"]),
+                        "chunkNumber": i + 1,
+                        "text": d["text"],
+                        "pageNumber": None,
+                        "docId": d["doc_id"],
+                    }
+                    for i, d in enumerate(docs)
+                ]
+                citation = get_file_citation(docs)
+                chunk_refs = [
+                    {"chunkId": c["_id"], "displayNumber": c["chunkNumber"], "pageNumber": None}
+                    for c in chunk_array
+                ]
+
+                chat_history.append({
+                    "role": "assistant",
+                    "content": condensed_text,
+                    "chunkReferences": chunk_refs
+                })
+                return {
+                    "message": condensed_text,
+                    "citation": citation,
+                    "chats": chat_history,
+                    "chunks": chunk_array,
+                    "chunkReferences": chunk_refs,
                 }
-                for i, d in enumerate(docs)
-            ]
-            citation = get_file_citation(docs)
-            chunk_refs = [
-                {"chunkId": c["_id"], "displayNumber": c["chunkNumber"], "pageNumber": None}
-                for c in chunk_array
-            ]
 
-            chat_history.append({
-                "role": "assistant",
-                "content": condensed_text,
-                "chunkReferences": chunk_refs
-            })
+        except (InvalidRequestError, BadRequestError) as oe:
+            err_code = getattr(oe, "code", None) or getattr(getattr(oe, "error", None), "code", None)
+            if err_code == "context_length_exceeded":
+                friendly = (
+                    "This class has too many documents or documents that are too large to summarize at once. "
+                    "Please open individual documents to summarize them separately."
+                )
+                chat_history.append({"role": "assistant", "content": friendly})
+                log.warning("[CLASS-SUMMARY] Context length exceeded for class %s", class_name)
+                return {
+                    "message": friendly,
+                    "status": "context_too_large",
+                    "citation": [],
+                    "chats": chat_history,
+                    "chunks": [],
+                    "chunkReferences": [],
+                }
+            raise
+
+        except Exception as e:
+            log.error("[CLASS-SUMMARY] Unexpected error: %s", e, exc_info=True)
+            friendly = (
+                "An error occurred while summarizing this class. "
+                "Please try again or summarize individual documents."
+            )
+            chat_history.append({"role": "assistant", "content": friendly})
             return {
-                "message": condensed_text,
-                "citation": citation,
+                "message": friendly,
+                "status": "error",
+                "retryable": True,
+                "citation": [],
                 "chats": chat_history,
-                "chunks": chunk_array,
-                "chunkReferences": chunk_refs,
+                "chunks": [],
+                "chunkReferences": [],
             }
 
 
@@ -1603,45 +1827,87 @@ async def stream_semantic_search(
                 for m in chat_history
             ]
 
-            # ── Study-guide pipeline (STREAMING) ──
+            # ── Study-guide pipeline (STREAMING with token validation) ──
             if route == "generate_study_guide" or mode == "study_guide":
-                # Single-document study guide
-                if doc_id and doc_id != "null":
-                    # Use fallback to generate on-demand if no cached summary
-                    summary_doc = get_summary_with_fallback(user_id, class_name, doc_id)
-                    if summary_doc:
-                        context_txt = summary_doc["text"]
-                        if est_tokens(context_txt) > MAX_PROMPT_TOKENS:
-                            context_txt = condense_summary(context_txt, user_query, get_llm("summary"))
-                        guide = generate_study_guide(context_txt, user_query, get_llm("generate_study_guide"))
+                try:
+                    # Single-document study guide
+                    if doc_id and doc_id != "null":
+                        # Use fallback to generate on-demand if no cached summary
+                        summary_doc = get_summary_with_fallback(user_id, class_name, doc_id)
+                        if summary_doc:
+                            context_txt = summary_doc["text"]
+                            if est_tokens(context_txt) > MAX_PROMPT_TOKENS:
+                                context_txt = condense_summary(context_txt, user_query, get_llm("summary"))
+                            guide = generate_study_guide(context_txt, user_query, get_llm("generate_study_guide"))
 
-                        # Stream complete guide as single response
-                        yield f"data: {json.dumps({'type': 'token', 'content': guide})}\n\n"
+                            # Stream complete guide as single response
+                            yield f"data: {json.dumps({'type': 'token', 'content': guide})}\n\n"
 
-                        citation = get_file_citation([summary_doc])
-                        chunk_refs = [{"chunkId": str(summary_doc["_id"]), "displayNumber": 1, "pageNumber": None}]
+                            citation = get_file_citation([summary_doc])
+                            chunk_refs = [{"chunkId": str(summary_doc["_id"]), "displayNumber": 1, "pageNumber": None}]
 
-                        yield f"data: {json.dumps({'type': 'done', 'citations': citation, 'chunkReferences': chunk_refs})}\n\n"
+                            yield f"data: {json.dumps({'type': 'done', 'citations': citation, 'chunkReferences': chunk_refs})}\n\n"
+                            return
+
+                    # Class-level study guide (with token validation)
+                    if class_name and class_name != "null":
+                        # Use fallback to generate on-demand for docs without cached summaries
+                        docs = get_class_summaries_with_fallback(user_id, class_name)
+                        if docs:
+                            # Calculate total tokens across all document summaries
+                            combined_tokens = sum(est_tokens(d.get("text", "")) for d in docs)
+
+                            log.info(
+                                "[STREAM] Study-guide (class) | combined_tokens=%d | n_docs=%d",
+                                combined_tokens, len(docs),
+                            )
+
+                            # Check if too large even for hierarchical summarization
+                            if combined_tokens > config.MAX_HIERARCHICAL_INPUT_TOKENS:
+                                error_msg = (
+                                    "This class contains too much content to generate a study guide. "
+                                    "Please open individual documents and create study guides for each one separately."
+                                )
+                                yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
+                                return
+
+                            # Use hierarchical summarization for large classes, else direct
+                            if combined_tokens > config.MAX_CLASS_SUMMARY_TOKENS and config.HIERARCHICAL_CLASS_SUMMARY_ENABLED:
+                                log.info("[STREAM] Using hierarchical summarization for class study guide")
+                                condensed = hierarchical_class_summary(docs, user_query, get_llm("summary"))
+                            elif combined_tokens > MAX_PROMPT_TOKENS:
+                                combined = "\n\n---\n\n".join(d["text"] for d in docs)
+                                condensed = condense_class_summaries(combined, user_query, get_llm("summary"))
+                            else:
+                                condensed = "\n\n---\n\n".join(d["text"] for d in docs)
+
+                            guide = generate_study_guide(condensed, user_query, get_llm("generate_study_guide"))
+
+                            # Stream complete guide as single response
+                            yield f"data: {json.dumps({'type': 'token', 'content': guide})}\n\n"
+
+                            citation = get_file_citation(docs)
+                            chunk_refs = [{"chunkId": str(d["_id"]), "displayNumber": i + 1, "pageNumber": None} for i, d in enumerate(docs)]
+
+                            yield f"data: {json.dumps({'type': 'done', 'citations': citation, 'chunkReferences': chunk_refs})}\n\n"
+                            return
+
+                except (InvalidRequestError, BadRequestError) as oe:
+                    err_code = getattr(oe, "code", None) or getattr(getattr(oe, "error", None), "code", None)
+                    if err_code == "context_length_exceeded":
+                        error_msg = (
+                            "This class contains too much content to generate a study guide. "
+                            "Please open individual documents and create study guides for each one separately."
+                        )
+                        yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
                         return
+                    raise
 
-                # Class-level study guide
-                if class_name and class_name != "null":
-                    # Use fallback to generate on-demand for docs without cached summaries
-                    docs = get_class_summaries_with_fallback(user_id, class_name)
-                    if docs:
-                        combined = "\n\n---\n\n".join(d["text"] for d in docs)
-                        if est_tokens(combined) > MAX_PROMPT_TOKENS:
-                            combined = condense_class_summaries(combined, user_query, get_llm("summary"))
-                        guide = generate_study_guide(combined, user_query, get_llm("generate_study_guide"))
-
-                        # Stream complete guide as single response
-                        yield f"data: {json.dumps({'type': 'token', 'content': guide})}\n\n"
-
-                        citation = get_file_citation(docs)
-                        chunk_refs = [{"chunkId": str(d["_id"]), "displayNumber": i + 1, "pageNumber": None} for i, d in enumerate(docs)]
-
-                        yield f"data: {json.dumps({'type': 'done', 'citations': citation, 'chunkReferences': chunk_refs})}\n\n"
-                        return
+                except Exception as e:
+                    log.error("[STREAM-STUDY-GUIDE] Unexpected error: %s", e, exc_info=True)
+                    error_msg = "An error occurred while generating the study guide. Please try again."
+                    yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
+                    return
 
             # ── Document summary mode (STREAMING) ──
             if mode == "doc_summary":
@@ -1662,24 +1928,64 @@ async def stream_semantic_search(
                     yield f"data: {json.dumps({'type': 'done', 'citations': citation, 'chunkReferences': chunk_refs})}\n\n"
                     return
 
-            # ── Class summary mode (STREAMING) ──
+            # ── Class summary mode (STREAMING with token validation) ──
             if mode == "class_summary":
-                # Use fallback to generate on-demand for docs without cached summaries
-                docs = get_class_summaries_with_fallback(user_id, class_name)
-                if not docs:
-                    log.warning("[STREAM] No summaries found for this class and on-demand generation failed; falling back to specific search.")
-                    mode = "specific"
-                else:
-                    combined = "\n\n---\n\n".join(d["text"] for d in docs)
-                    condensed_text = condense_class_summaries(combined, user_query, get_llm("summary"))
+                try:
+                    # Use fallback to generate on-demand for docs without cached summaries
+                    docs = get_class_summaries_with_fallback(user_id, class_name)
+                    if not docs:
+                        log.warning("[STREAM] No summaries found for this class and on-demand generation failed; falling back to specific search.")
+                        mode = "specific"
+                    else:
+                        # Calculate total tokens across all document summaries
+                        combined_tokens = sum(est_tokens(d.get("text", "")) for d in docs)
 
-                    # Stream complete summary as single response
-                    yield f"data: {json.dumps({'type': 'token', 'content': condensed_text})}\n\n"
+                        log.info(
+                            "[STREAM] Class-summary | combined_tokens=%d | n_docs=%d",
+                            combined_tokens, len(docs),
+                        )
 
-                    citation = get_file_citation(docs)
-                    chunk_refs = [{"chunkId": str(d["_id"]), "displayNumber": i + 1, "pageNumber": None} for i, d in enumerate(docs)]
+                        # Check if too large even for hierarchical summarization
+                        if combined_tokens > config.MAX_HIERARCHICAL_INPUT_TOKENS:
+                            error_msg = (
+                                "This class has too many documents or documents that are too large to summarize at once. "
+                                "Please open individual documents to summarize them separately."
+                            )
+                            yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
+                            return
 
-                    yield f"data: {json.dumps({'type': 'done', 'citations': citation, 'chunkReferences': chunk_refs})}\n\n"
+                        # Use hierarchical summarization for large classes, else direct
+                        if combined_tokens > config.MAX_CLASS_SUMMARY_TOKENS and config.HIERARCHICAL_CLASS_SUMMARY_ENABLED:
+                            log.info("[STREAM] Using hierarchical summarization for class summary")
+                            condensed_text = hierarchical_class_summary(docs, user_query, get_llm("summary"))
+                        else:
+                            combined = "\n\n---\n\n".join(d["text"] for d in docs)
+                            condensed_text = condense_class_summaries(combined, user_query, get_llm("summary"))
+
+                        # Stream complete summary as single response
+                        yield f"data: {json.dumps({'type': 'token', 'content': condensed_text})}\n\n"
+
+                        citation = get_file_citation(docs)
+                        chunk_refs = [{"chunkId": str(d["_id"]), "displayNumber": i + 1, "pageNumber": None} for i, d in enumerate(docs)]
+
+                        yield f"data: {json.dumps({'type': 'done', 'citations': citation, 'chunkReferences': chunk_refs})}\n\n"
+                        return
+
+                except (InvalidRequestError, BadRequestError) as oe:
+                    err_code = getattr(oe, "code", None) or getattr(getattr(oe, "error", None), "code", None)
+                    if err_code == "context_length_exceeded":
+                        error_msg = (
+                            "This class has too many documents or documents that are too large to summarize at once. "
+                            "Please open individual documents to summarize them separately."
+                        )
+                        yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
+                        return
+                    raise
+
+                except Exception as e:
+                    log.error("[STREAM-CLASS-SUMMARY] Unexpected error: %s", e, exc_info=True)
+                    error_msg = "An error occurred while summarizing this class. Please try again."
+                    yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
                     return
 
             # ── Config for route ──

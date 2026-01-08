@@ -152,6 +152,19 @@ CONTEXT_BUDGET_TOKENS: int = _get_int_env("CONTEXT_BUDGET_TOKENS", 6000)
 HISTORY_BUDGET_TOKENS: int = _get_int_env("HISTORY_BUDGET_TOKENS", 2000)
 
 # ────────────────────────────────────────────────────────────────
+# CLASS SUMMARY/STUDY GUIDE LIMITS (token-based guardrails)
+# Prevents context overflow for classes with many/large documents
+# ────────────────────────────────────────────────────────────────
+# Maximum combined tokens before hierarchical (map-reduce) summarization kicks in
+MAX_CLASS_SUMMARY_TOKENS: int = _get_int_env("MAX_CLASS_SUMMARY_TOKENS", 12000)
+
+# Maximum tokens that hierarchical summarization can handle (fail gracefully above this)
+MAX_HIERARCHICAL_INPUT_TOKENS: int = _get_int_env("MAX_HIERARCHICAL_INPUT_TOKENS", 50000)
+
+# Enable hierarchical summarization for large classes (map-reduce style)
+HIERARCHICAL_CLASS_SUMMARY_ENABLED: bool = _get_bool_env("HIERARCHICAL_CLASS_SUMMARY_ENABLED", True)
+
+# ────────────────────────────────────────────────────────────────
 # RAG ARCHITECTURE FEATURE FLAGS (v1.1)
 # All flags default to False for safe rollout
 # ────────────────────────────────────────────────────────────────
