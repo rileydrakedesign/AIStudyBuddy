@@ -6,11 +6,6 @@ import {
   Button,
   Popper,
   ClickAwayListener,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
 } from "@mui/material";
 import { useAuth } from "../../context/authContext";
 import ReactMarkdown from "react-markdown";
@@ -31,7 +26,6 @@ import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import ThumbUpIcon    from "@mui/icons-material/ThumbUp";
 import ThumbDownIcon  from "@mui/icons-material/ThumbDown";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
-import SaveIcon from "@mui/icons-material/Save";
 import DownloadIcon from "@mui/icons-material/Download";
 import toast from "react-hot-toast";
 import {
@@ -500,9 +494,6 @@ const ChatItem: React.FC<ChatItemProps> = ({
     docId?: string;
   } | null>(null);
 
-  /* ---------- save dialog state ---------- */
-  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
-  const [saveName, setSaveName] = useState("");
 
   // capture rendered message text (for copy)
   const messageBodyRef = useRef<HTMLDivElement | null>(null);
@@ -699,20 +690,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
     onSetReaction?.(messageIndex, next);
   };
 
-  /* ---------- save and download handlers ---------- */
-  const handleSaveClick = () => {
-    const defaultName = specialFormat
-      ? `Untitled ${specialFormat.title}`
-      : "Untitled Document";
-    setSaveName(defaultName);
-    setSaveDialogOpen(true);
-  };
-
-  const handleSaveConfirm = () => {
-    setSaveDialogOpen(false);
-    toast.success("Saving to Saved Materials (Story 0.3 complete)");
-  };
-
+  /* ---------- download handler ---------- */
   const handleDownloadClick = async () => {
     // Sanitize filename from first 50 chars + timestamp
     const preview = displayContent.substring(0, 50).replace(/[^a-z0-9]/gi, '_');
@@ -937,27 +915,9 @@ const ChatItem: React.FC<ChatItemProps> = ({
             </Box>
           )}
 
-          {/* Save and Download buttons for special response types */}
+          {/* Download button for special response types */}
           {role === "assistant" && specialFormat && (
             <Box sx={{ mt: 1.5, display: "flex", gap: 1 }}>
-              <Button
-                size="small"
-                variant="outlined"
-                startIcon={<SaveIcon />}
-                onClick={handleSaveClick}
-                sx={{
-                  color: "text.secondary",
-                  borderColor: "divider",
-                  textTransform: "none",
-                  fontSize: 13,
-                  "&:hover": {
-                    borderColor: specialFormat.borderColor,
-                    color: specialFormat.borderColor,
-                  },
-                }}
-              >
-                Save
-              </Button>
               <Button
                 size="small"
                 variant="outlined"
@@ -999,28 +959,6 @@ const ChatItem: React.FC<ChatItemProps> = ({
         />
       )}
 
-      {/* Save Dialog */}
-      <Dialog open={saveDialogOpen} onClose={() => setSaveDialogOpen(false)}>
-        <DialogTitle>Save as...</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="Name"
-            type="text"
-            fullWidth
-            variant="outlined"
-            value={saveName}
-            onChange={(e) => setSaveName(e.target.value)}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setSaveDialogOpen(false)}>Cancel</Button>
-          <Button onClick={handleSaveConfirm} variant="contained">
-            Save
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   );
 };
