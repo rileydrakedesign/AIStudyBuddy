@@ -697,8 +697,12 @@ def fetch_class_summaries(user_id: str, class_name: str):
     """
     Return only document-level summaries for the class.
 
-    Excludes section summaries (level: "section") which are intermediate
-    summaries used for on-demand document summary generation, not final doc summaries.
+    Excludes section summaries which are intermediate summaries used for
+    on-demand document summary generation, not final doc summaries.
+
+    Handles two data formats:
+    - Old format: level="section" for section summaries
+    - New format: source_type="section_summary" for section summaries
     """
     if class_name in (None, "", "null"):
         return []
@@ -706,7 +710,8 @@ def fetch_class_summaries(user_id: str, class_name: str):
         "user_id": user_id,
         "class_id": class_name,
         "is_summary": True,
-        "level": {"$ne": "section"},  # Exclude section summaries (keeps "doc" and no level)
+        "level": {"$ne": "section"},           # Exclude old-format section summaries
+        "source_type": {"$ne": "section_summary"},  # Exclude new-format section summaries
     }).sort("file_name", 1))
 
 
