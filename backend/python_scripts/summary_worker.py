@@ -52,7 +52,7 @@ def summarize_text(text_input: str) -> str:
         "- Use ### for subsection headings\n"
         "- Use **bold** for key terms and important concepts\n"
         "- Use bullet points (-) or numbered lists (1.) for listing items\n"
-        "- Use `code` formatting for technical terms or formulas\n"
+        "- Write ALL mathematical expressions in LaTeX: $...$ for inline math, $$...$$ for display equations\n"
         "- Keep the summary well-structured and organized with clear sections\n"
         "Limit to ~3–5 paragraphs or equivalent in structured markdown."
     )

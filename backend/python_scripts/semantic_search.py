@@ -530,7 +530,8 @@ def generate_summary_on_demand(
             "Document content below:\n\n{context}\n\n"
             "Write a comprehensive summary in markdown format capturing all key ideas, "
             "definitions, and results. Use clear headings (##), bullet points, and "
-            "**bold** for key terms. Aim for 300-500 words."
+            "**bold** for key terms. Write ALL mathematical expressions in LaTeX format: "
+            "$...$ for inline math, $$...$$ for display equations. Aim for 300-500 words."
         )
 
         summary_text = (summary_prompt | llm | StrOutputParser()).invoke({"context": full_text})
@@ -686,7 +687,8 @@ def condense_summary(summary_text: str, user_query: str, llm: ChatOpenAI) -> str
         "The user has asked: \"{user_query}\"\n\n"
         "Rewrite the summary so it is concise **while following any "
         "formatting or stylistic instructions implicit in the user's query**. "
-        "Preserve key concepts, definitions, and results."
+        "Preserve key concepts, definitions, and results. "
+        "Keep all mathematical expressions in LaTeX format ($...$ for inline, $$...$$ for display)."
     )
 
     return (condenser_prompt | llm | StrOutputParser()).invoke(
@@ -793,7 +795,8 @@ def condense_class_summaries(text: str, user_query: str, llm: ChatOpenAI) -> str
         "The user asked: \"{user_query}\"\n\n"
         "Write a single, coherent overview (≈200–250 words) that captures the key "
         "points, concepts, and definitions across all documents, following any "
-        "formatting instructions in the user's query."
+        "formatting instructions in the user's query. "
+        "Write all mathematical expressions in LaTeX format ($...$ for inline, $$...$$ for display)."
     )
     return (prompt | llm | StrOutputParser()).invoke(
         {"context": text, "user_query": user_query}
@@ -865,7 +868,8 @@ def hierarchical_class_summary(
         "Below are document summaries from a class:\n\n"
         "{context}\n\n"
         "Write a concise summary (150-200 words) capturing the key themes, "
-        "concepts, and important information across these documents."
+        "concepts, and important information across these documents. "
+        "Write all mathematical expressions in LaTeX format ($...$ for inline, $$...$$ for display)."
     )
 
     intermediate_summaries: list[str] = []
@@ -906,6 +910,10 @@ def generate_study_guide(context_text: str, user_query: str, llm: ChatOpenAI) ->
         "3. ## Important Definitions\n"
         "4. ## Essential Formulas / Diagrams (omit if N/A)\n"
         "5. ## Practice Questions\n\n"
+        "IMPORTANT: Write ALL mathematical expressions, equations, and formulas in LaTeX format:\n"
+        "- Use $...$ for inline math (e.g., $E = mc^2$)\n"
+        "- Use $$...$$ for display/block equations (e.g., $$\\int_a^b f(x)\\,dx$$)\n"
+        "- Never use plain text or backticks for formulas\n\n"
         "Follow any extra formatting the user asked for and keep it under ~1 200 words."
     )
     return (sg_prompt | llm | StrOutputParser()).invoke(
