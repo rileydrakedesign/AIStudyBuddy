@@ -913,7 +913,7 @@ def generate_study_guide(context_text: str, user_query: str, llm: ChatOpenAI) ->
         "IMPORTANT: Write ALL mathematical expressions, equations, and formulas in LaTeX format:\n"
         "- Use $...$ for inline math (e.g., $E = mc^2$)\n"
         "- Use $$...$$ for display/block equations (e.g., $$\\int_a^b f(x)\\,dx$$)\n"
-        "- For matrices, ALWAYS use proper environments: $$\\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}$$\n"
+        "- For matrices, ALWAYS use proper environments: $$\\begin{{bmatrix}} a & b \\\\ c & d \\end{{bmatrix}}$$\n"
         "- Never use plain text, backticks, or raw & symbols outside matrix environments\n\n"
         "Follow any extra formatting the user asked for and keep it under ~1 200 words."
     )
@@ -1535,7 +1535,7 @@ def process_semantic_search(
             "Always use the numbering shown in the chunk list below (starting from 1).\n\n"
             "Please format your answer using Markdown. Write all mathematical expressions in LaTeX using '$' for "
             "inline math and '$$' for display math. For matrices, ALWAYS use proper environments like "
-            "$$\\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}$$ - never use raw & or \\\\ outside matrix environments. "
+            "$$\\begin{{bmatrix}} a & b \\\\ c & d \\end{{bmatrix}}$$ - never use raw & or \\\\ outside matrix environments. "
             "Ensure code is in triple backticks.\n\n"
         )
     
