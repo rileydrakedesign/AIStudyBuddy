@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, Component, ErrorInfo, ReactNode } from "react";
 import {
   Box,
   Avatar,
@@ -23,8 +23,8 @@ import ThumbUpOffAltIcon from "@mui/icons-material/ThumbUpOffAlt";
 import ThumbDownOffAltIcon from "@mui/icons-material/ThumbDownOffAlt";
 import LoopIcon from "@mui/icons-material/Loop";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
-import ThumbUpIcon    from "@mui/icons-material/ThumbUp";
-import ThumbDownIcon  from "@mui/icons-material/ThumbDown";
+import ThumbUpIcon from "@mui/icons-material/ThumbUp";
+import ThumbDownIcon from "@mui/icons-material/ThumbDown";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import DownloadIcon from "@mui/icons-material/Download";
 import toast from "react-hot-toast";
@@ -37,8 +37,75 @@ import {
   AlignmentType,
 } from "docx";
 
+/* ------------------------------
+   MATH ERROR BOUNDARY
+   ------------------------------ */
+interface MathErrorBoundaryState {
+  hasError: boolean;
+}
 
+class MathErrorBoundary extends Component<
+  { children: ReactNode; fallbackContent: string },
+  MathErrorBoundaryState
+> {
+  constructor(props: { children: ReactNode; fallbackContent: string }) {
+    super(props);
+    this.state = { hasError: false };
+  }
 
+  static getDerivedStateFromError(): MathErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.warn("Math rendering error caught, showing fallback:", error.message);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      // Render without math plugins as fallback
+      return (
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          {this.props.fallbackContent}
+        </ReactMarkdown>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/**
+ * Pre-process content to fix common LaTeX issues
+ */
+function preprocessLatex(content: string): string {
+  let processed = content;
+
+  // Fix matrices missing \begin{bmatrix} but having \end{bmatrix}
+  processed = processed.replace(
+    /\$\$\s*([^$]*?)\\end\{(bmatrix|pmatrix|vmatrix|Vmatrix|matrix)\}\s*\$\$/g,
+    (match, innerContent, matrixType) => {
+      if (!innerContent.includes(`\\begin{${matrixType}}`)) {
+        return `$$\\begin{${matrixType}}${innerContent}\\end{${matrixType}}$$`;
+      }
+      return match;
+    }
+  );
+
+  // Fix align environments missing \begin
+  processed = processed.replace(
+    /\$\$\s*([^$]*?)\\end\{(align|aligned|equation)\*?\}\s*\$\$/g,
+    (match, innerContent, envType) => {
+      const hasAsterisk = match.includes(`\\end{${envType}*}`);
+      const fullEnvType = hasAsterisk ? `${envType}*` : envType;
+      if (!innerContent.includes(`\\begin{${fullEnvType}}`)) {
+        return `$$\\begin{${fullEnvType}}${innerContent}\\end{${fullEnvType}}$$`;
+      }
+      return match;
+    }
+  );
+
+  return processed;
+}
 
 /* ------------------------------
    HELPERS
@@ -312,41 +379,46 @@ const getDisplayText = (text: string): string => {
 /* ------------------------------
    MARKDOWN RENDERER FOR POPUP
    ------------------------------ */
-const MarkdownRender: React.FC<{ text: string }> = ({ text }) => (
-  <ReactMarkdown
-    remarkPlugins={[remarkGfm, remarkMath]}
-    rehypePlugins={[rehypeKatex]}
-    components={{
-      code({ inline, className, children, ...props }: { inline?: boolean; className?: string; children?: React.ReactNode }) {
-        const langMatch = /language-(\w+)/.exec(className || "");
-        return inline ? (
-          <code
-            className={className}
-            style={{ background: "#eee", padding: "2px 4px", borderRadius: 4 }}
-            {...props}
-          >
-            {children}
-          </code>
-        ) : (
-          <SyntaxHighlighter
-            style={coldarkDark as Record<string, React.CSSProperties>}          
-            language={langMatch ? langMatch[1] : undefined}
-            wrapLongLines
-            customStyle={{ margin: 0, fontSize: 14 }}
-            {...props}
-          >
-            {String(children).replace(/\n$/, "")}
-          </SyntaxHighlighter>
-        );
-      },
-      p: (props) => (
-        <p style={{ margin: "0 0 0.5em 0" }} {...props} />
-      ),
-    }}
-  >
-    {text}
-  </ReactMarkdown>
-);
+const MarkdownRender: React.FC<{ text: string }> = ({ text }) => {
+  const processedText = preprocessLatex(text);
+  return (
+    <MathErrorBoundary fallbackContent={text}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeKatex]}
+        components={{
+          code({ inline, className, children, ...props }: { inline?: boolean; className?: string; children?: React.ReactNode }) {
+            const langMatch = /language-(\w+)/.exec(className || "");
+            return inline ? (
+              <code
+                className={className}
+                style={{ background: "#eee", padding: "2px 4px", borderRadius: 4 }}
+                {...props}
+              >
+                {children}
+              </code>
+            ) : (
+              <SyntaxHighlighter
+                style={coldarkDark as Record<string, React.CSSProperties>}
+                language={langMatch ? langMatch[1] : undefined}
+                wrapLongLines
+                customStyle={{ margin: 0, fontSize: 14 }}
+                {...props}
+              >
+                {String(children).replace(/\n$/, "")}
+              </SyntaxHighlighter>
+            );
+          },
+          p: (props) => (
+            <p style={{ margin: "0 0 0.5em 0" }} {...props} />
+          ),
+        }}
+      >
+        {processedText}
+      </ReactMarkdown>
+    </MathErrorBoundary>
+  );
+};
 
 /* ------------------------------
    CITATION POP-UPS
@@ -594,26 +666,29 @@ const ChatItem: React.FC<ChatItemProps> = ({
           </span>
         );
       } else {
+        // Preprocess LaTeX to fix common issues
+        const processedSeg = preprocessLatex(seg);
         result.push(
-          <ReactMarkdown
-            key={`txt-${i}`}
-            remarkPlugins={[remarkGfm, remarkMath]}
-            rehypePlugins={[rehypeKatex]}
-            components={{
-              p: (props) => (
-                <span
-                  style={{
-                    fontSize: 16,
-                    lineHeight: 1.6,
-                    whiteSpace: "pre-wrap",
-                  }}
-                  {...props}
-                />
-              ),
-            }}
-          >
-            {seg}
-          </ReactMarkdown>
+          <MathErrorBoundary key={`txt-${i}`} fallbackContent={seg}>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm, remarkMath]}
+              rehypePlugins={[rehypeKatex]}
+              components={{
+                p: (props) => (
+                  <span
+                    style={{
+                      fontSize: 16,
+                      lineHeight: 1.6,
+                      whiteSpace: "pre-wrap",
+                    }}
+                    {...props}
+                  />
+                ),
+              }}
+            >
+              {processedSeg}
+            </ReactMarkdown>
+          </MathErrorBoundary>
         );
       }
     });
@@ -762,8 +837,22 @@ const ChatItem: React.FC<ChatItemProps> = ({
         sx={{
           flex: 1,
           maxWidth: "100%",
+          minWidth: 0, // Prevents flex item from overflowing
           fontSize: 16,
           lineHeight: 1.6,
+          overflowWrap: "break-word",
+          wordBreak: "break-word",
+          // KaTeX overflow handling
+          "& .katex-display": {
+            overflowX: "auto",
+            overflowY: "hidden",
+            maxWidth: "100%",
+          },
+          "& .katex": {
+            maxWidth: "100%",
+            overflowX: "auto",
+            overflowY: "hidden",
+          },
           ...(specialFormat && {
             position: "relative",
             borderLeft: "4px solid",
@@ -812,7 +901,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
               {b.value.trim()}
             </SyntaxHighlighter>
           ) : (
-            <Box key={i} sx={{ mb: 1, color: "white" }}>
+            <Box key={i} sx={{ mb: 1, color: "white", overflowWrap: "break-word", wordBreak: "break-word" }}>
               {splitBrackets(b.value)}
             </Box>
           )

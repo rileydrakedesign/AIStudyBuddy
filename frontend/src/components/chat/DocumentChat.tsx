@@ -1,5 +1,5 @@
 // src/components/documentChat.tsx
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, Component, ErrorInfo, ReactNode } from "react";
 import { Box, IconButton, Typography, Button, ToggleButtonGroup, ToggleButton } from "@mui/material";
 import { IoMdSend } from "react-icons/io";
 import AddIcon from "@mui/icons-material/Add";
@@ -16,6 +16,53 @@ import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import "react-pdf/dist/esm/Page/AnnotationLayer.css";
 import "react-pdf/dist/esm/Page/TextLayer.css";
+import { getSafeStreamContent, getNextStreamPosition } from "../../utils/safeStreaming";
+
+/* Error boundary for math rendering */
+class MathErrorBoundary extends Component<
+  { children: ReactNode; fallbackContent: string },
+  { hasError: boolean }
+> {
+  constructor(props: { children: ReactNode; fallbackContent: string }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.warn("Math rendering error in DocumentChat:", error.message);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          {this.props.fallbackContent}
+        </ReactMarkdown>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/* Preprocess LaTeX to fix common issues */
+function preprocessLatex(content: string): string {
+  let processed = content;
+  // Fix matrices missing \begin
+  processed = processed.replace(
+    /\$\$\s*([^$]*?)\\end\{(bmatrix|pmatrix|vmatrix|matrix)\}\s*\$\$/g,
+    (match, inner, type) => {
+      if (!inner.includes(`\\begin{${type}}`)) {
+        return `$$\\begin{${type}}${inner}\\end{${type}}$$`;
+      }
+      return match;
+    }
+  );
+  return processed;
+}
 
 pdfjs.GlobalWorkerOptions.workerSrc = `${window.location.origin}/pdf.worker.min.js`;
 
@@ -357,18 +404,21 @@ const handleRetry = async (assistantIdx: number) => {
       updatedMessages.pop(); // remove final assistant message for typewriter effect
       setMessages(collapseRetries(updatedMessages));
       const fullText = assistantMsg.content;
-      let i = 0;
+      let position = 0;
       const interval = setInterval(() => {
-        i++;
-        setPartialAssistantMessage(fullText.substring(0, i));
-        if (i >= fullText.length) {
+        // Use safe streaming utilities to handle all markdown constructs
+        position = getNextStreamPosition(position, fullText, 8);
+        const safeContent = getSafeStreamContent(fullText, position);
+        setPartialAssistantMessage(safeContent);
+
+        if (position >= fullText.length) {
           clearInterval(interval);
           const final = [...updatedMessages, { ...assistantMsg, content: fullText }];
           setMessages(collapseRetries(final));
           setPartialAssistantMessage("");
           setIsGenerating(false);
         }
-      }, 2);
+      }, 10);
     } catch (err) {
       console.error("Error sending doc-based chat message:", err);
       toast.error("Failed to send message");
@@ -686,14 +736,24 @@ const handleRetry = async (assistantIdx: number) => {
                         textDecoration: "underline",
                       },
                     },
+                    // KaTeX overflow handling
+                    "& .katex-display": {
+                      overflowX: "auto",
+                      overflowY: "hidden",
+                    },
+                    "& .katex": {
+                      overflowX: "auto",
+                    },
                   }}
                 >
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm, remarkMath]}
-                    rehypePlugins={[rehypeKatex]}
-                  >
-                    {summaryContent}
-                  </ReactMarkdown>
+                  <MathErrorBoundary fallbackContent={summaryContent}>
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm, remarkMath]}
+                      rehypePlugins={[rehypeKatex]}
+                    >
+                      {preprocessLatex(summaryContent)}
+                    </ReactMarkdown>
+                  </MathErrorBoundary>
                 </Box>
               )}
             </Box>
@@ -705,6 +765,7 @@ const handleRetry = async (assistantIdx: number) => {
       <Box
         sx={{
           flex: 1,
+          minWidth: 0, // Critical: prevents flex child from overflowing
           display: "flex",
           flexDirection: "column",
           bgcolor: "background.paper",
@@ -750,7 +811,21 @@ const handleRetry = async (assistantIdx: number) => {
         {/* Chat messages */}
         <Box
           ref={chatContainerRef}
-          sx={{ flexGrow: 1, overflowY: "auto", p: 2, bgcolor: "background.default" }}
+          sx={{
+            flexGrow: 1,
+            overflowY: "auto",
+            overflowX: "hidden",
+            p: 2,
+            bgcolor: "background.default",
+            // Prevent content from expanding container
+            minWidth: 0,
+            maxWidth: "100%",
+            "& > *": {
+              maxWidth: "100%",
+              overflowWrap: "break-word",
+              wordBreak: "break-word",
+            },
+          }}
         >
           {messages.map((msg, index) => (
             <ChatItem
