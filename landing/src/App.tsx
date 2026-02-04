@@ -43,7 +43,10 @@ function PrimaryButton({ href, children }: { href: string; children: React.React
 
 function SecondaryLink({ href, children }: { href: string; children: React.ReactNode }) {
   return (
-    <a href={href} className="text-sm font-semibold text-text-primary/90 hover:text-text-primary">
+    <a
+      href={href}
+      className="text-sm font-semibold text-text-primary/90 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-900 rounded"
+    >
       {children}
     </a>
   )
@@ -97,7 +100,10 @@ export default function App() {
             Class Chat AI
           </a>
           <nav className="flex items-center gap-4">
-            <a href="#demo" className="hidden text-sm text-text-secondary hover:text-text-primary sm:inline">
+            <a
+              href="#demo"
+              className="hidden text-sm text-text-secondary hover:text-text-primary sm:inline rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-900"
+            >
               Demo
             </a>
             <PrimaryButton href="https://app.classchatai.com">Try the beta</PrimaryButton>
@@ -255,7 +261,7 @@ export default function App() {
 
               <div className="lg:col-span-7 space-y-4">
                 <details className="group rounded-lg border border-border bg-bg-800/60 p-5">
-                  <summary className="cursor-pointer list-none text-sm font-semibold text-text-primary">
+                  <summary className="cursor-pointer list-none text-sm font-semibold text-text-primary rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-900">
                     Is this free?
                   </summary>
                   <div className="mt-3 text-sm leading-6 text-text-secondary">
@@ -264,14 +270,14 @@ export default function App() {
                 </details>
 
                 <details className="group rounded-lg border border-border bg-bg-800/60 p-5">
-                  <summary className="cursor-pointer list-none text-sm font-semibold text-text-primary">
+                  <summary className="cursor-pointer list-none text-sm font-semibold text-text-primary rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-900">
                     What files can I upload?
                   </summary>
                   <div className="mt-3 text-sm leading-6 text-text-secondary">PDFs for now. More formats later.</div>
                 </details>
 
                 <details className="group rounded-lg border border-border bg-bg-800/60 p-5">
-                  <summary className="cursor-pointer list-none text-sm font-semibold text-text-primary">
+                  <summary className="cursor-pointer list-none text-sm font-semibold text-text-primary rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-900">
                     Does it train on my documents?
                   </summary>
                   <div className="mt-3 text-sm leading-6 text-text-secondary">
@@ -280,7 +286,7 @@ export default function App() {
                 </details>
 
                 <details className="group rounded-lg border border-border bg-bg-800/60 p-5">
-                  <summary className="cursor-pointer list-none text-sm font-semibold text-text-primary">
+                  <summary className="cursor-pointer list-none text-sm font-semibold text-text-primary rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-900">
                     Is this allowed for school?
                   </summary>
                   <div className="mt-3 text-sm leading-6 text-text-secondary">
@@ -356,10 +362,16 @@ export default function App() {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-sm text-text-secondary">© {new Date().getFullYear()} Class Chat AI</div>
               <div className="flex gap-4 text-sm">
-                <a href="#privacy" className="text-text-secondary hover:text-text-primary">
+                <a
+                  href="#privacy"
+                  className="text-text-secondary hover:text-text-primary rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-900"
+                >
                   Privacy
                 </a>
-                <a href="#terms" className="text-text-secondary hover:text-text-primary">
+                <a
+                  href="#terms"
+                  className="text-text-secondary hover:text-text-primary rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-900"
+                >
                   Terms
                 </a>
               </div>
