@@ -51,7 +51,7 @@ function SecondaryLink({ href, children }: { href: string; children: React.React
 
 function Section({ id, children }: { id?: string; children: React.ReactNode }) {
   return (
-    <section id={id} className="py-14 sm:py-16">
+    <section id={id} className="py-14 sm:py-16 scroll-mt-24">
       {children}
     </section>
   )
@@ -100,7 +100,7 @@ export default function App() {
             <a href="#demo" className="hidden text-sm text-text-secondary hover:text-text-primary sm:inline">
               Demo
             </a>
-            <PrimaryButton href="https://app.classchatai.com">Open beta app</PrimaryButton>
+            <PrimaryButton href="https://app.classchatai.com">Try the beta</PrimaryButton>
           </nav>
         </div>
       </header>
@@ -124,8 +124,8 @@ export default function App() {
                 </p>
 
                 <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <PrimaryButton href="https://app.classchatai.com">Open beta app</PrimaryButton>
-                  <SecondaryLink href="#demo">See how it works</SecondaryLink>
+                  <PrimaryButton href="https://app.classchatai.com">Try the beta</PrimaryButton>
+                  <SecondaryLink href="#demo">See the demo</SecondaryLink>
                 </div>
 
                 <div className="mt-8 flex flex-wrap gap-2">
@@ -275,7 +275,7 @@ export default function App() {
                     Does it train on my documents?
                   </summary>
                   <div className="mt-3 text-sm leading-6 text-text-secondary">
-                    We do not use your documents to train public models. We will add a dedicated privacy page to make this explicit.
+                    We do not use your documents to train public models. See the privacy section below for details.
                   </div>
                 </details>
 
@@ -296,12 +296,57 @@ export default function App() {
               <div className="grid gap-6 lg:grid-cols-12 lg:items-center">
                 <div className="lg:col-span-8">
                   <h2 className="text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">Stop hunting through PDFs.</h2>
-                  <p className="mt-3 text-base leading-7 text-text-secondary">
-                    Try the beta app and verify answers with citations.
-                  </p>
+                  <p className="mt-3 text-base leading-7 text-text-secondary">Try the beta and verify answers with citations.</p>
                 </div>
                 <div className="lg:col-span-4 lg:flex lg:justify-end">
-                  <PrimaryButton href="https://app.classchatai.com">Open beta app</PrimaryButton>
+                  <PrimaryButton href="https://app.classchatai.com">Try the beta</PrimaryButton>
+                </div>
+              </div>
+            </div>
+          </Section>
+
+          <Section id="privacy">
+            <div className="grid gap-10 lg:grid-cols-12">
+              <div className="lg:col-span-5">
+                <h2 className="text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">Privacy</h2>
+                <p className="mt-3 text-base leading-7 text-text-secondary">Clear expectations for a beta product.</p>
+              </div>
+              <div className="lg:col-span-7 space-y-4">
+                <div className="rounded-lg border border-border bg-bg-800/60 p-5">
+                  <div className="text-sm font-semibold text-text-primary">Your documents</div>
+                  <div className="mt-2 text-sm leading-6 text-text-secondary">
+                    We do not use your documents to train public models. Documents are processed so the app can retrieve relevant passages and cite
+                    them back to you.
+                  </div>
+                </div>
+                <div className="rounded-lg border border-border bg-bg-800/60 p-5">
+                  <div className="text-sm font-semibold text-text-primary">Beta note</div>
+                  <div className="mt-2 text-sm leading-6 text-text-secondary">
+                    This is a beta. If you want something clarified or removed, contact us and we will help.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Section>
+
+          <Section id="terms">
+            <div className="grid gap-10 lg:grid-cols-12">
+              <div className="lg:col-span-5">
+                <h2 className="text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">Terms</h2>
+                <p className="mt-3 text-base leading-7 text-text-secondary">Use it to learn. Keep course policies in mind.</p>
+              </div>
+              <div className="lg:col-span-7 space-y-4">
+                <div className="rounded-lg border border-border bg-bg-800/60 p-5">
+                  <div className="text-sm font-semibold text-text-primary">Academic integrity</div>
+                  <div className="mt-2 text-sm leading-6 text-text-secondary">
+                    Class Chat AI is built for studying and understanding. Follow your class rules and school policies when using AI tools.
+                  </div>
+                </div>
+                <div className="rounded-lg border border-border bg-bg-800/60 p-5">
+                  <div className="text-sm font-semibold text-text-primary">Your responsibility</div>
+                  <div className="mt-2 text-sm leading-6 text-text-secondary">
+                    Always verify important claims using citations and your course materials.
+                  </div>
                 </div>
               </div>
             </div>
@@ -311,10 +356,10 @@ export default function App() {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-sm text-text-secondary">© {new Date().getFullYear()} Class Chat AI</div>
               <div className="flex gap-4 text-sm">
-                <a href="#" className="text-text-secondary hover:text-text-primary">
+                <a href="#privacy" className="text-text-secondary hover:text-text-primary">
                   Privacy
                 </a>
-                <a href="#" className="text-text-secondary hover:text-text-primary">
+                <a href="#terms" className="text-text-secondary hover:text-text-primary">
                   Terms
                 </a>
               </div>
