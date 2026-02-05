@@ -47,7 +47,7 @@ function SecondaryLink({ href, children }: { href: string; children: React.React
   return (
     <a
       href={href}
-      className="text-sm font-semibold text-text-primary/90 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-900 rounded"
+      className="text-sm font-semibold text-text-primary/90 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-900 rounded px-2 py-2 -mx-2 -my-2"
     >
       {children}
     </a>
@@ -366,13 +366,13 @@ export default function App() {
               <div className="flex gap-4 text-sm">
                 <a
                   href="#privacy"
-                  className="text-text-secondary hover:text-text-primary rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-900"
+                  className="text-text-secondary hover:text-text-primary rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-900 px-2 py-2 -mx-2 -my-2"
                 >
                   Privacy
                 </a>
                 <a
                   href="#terms"
-                  className="text-text-secondary hover:text-text-primary rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-900"
+                  className="text-text-secondary hover:text-text-primary rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-900 px-2 py-2 -mx-2 -my-2"
                 >
                   Terms
                 </a>
