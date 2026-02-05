@@ -15,7 +15,9 @@ function DemoCard({ title, description, src, alt }: DemoCardProps) {
         <p className="mt-2 text-sm leading-6 text-text-secondary">{description}</p>
       </div>
       <div className="border-t border-border bg-bg-900">
-        <img src={src} alt={alt} className="w-full h-auto block" loading="lazy" />
+        <div className="w-full aspect-[4/3] bg-bg-900 overflow-hidden">
+          <img src={src} alt={alt} className="w-full h-full object-cover block" loading="lazy" />
+        </div>
       </div>
     </div>
   )
@@ -95,7 +97,7 @@ export default function App() {
       </a>
 
       <header className="sticky top-0 z-40 border-b border-border bg-bg-900/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 sm:px-6 py-4">
           <a href="#" className="font-semibold tracking-tight text-text-primary">
             Class Chat AI
           </a>
@@ -112,7 +114,7 @@ export default function App() {
       </header>
 
       <main id="main">
-        <div className="mx-auto max-w-6xl px-5">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6">
           <Section>
             <div className="grid gap-10 lg:grid-cols-12 lg:items-center">
               <div className="lg:col-span-7">
